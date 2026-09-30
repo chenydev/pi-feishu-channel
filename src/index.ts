@@ -25,7 +25,7 @@ import { ResourceResolver } from "./inbound/resource-resolver.js";
 import { queueLocalFile } from "./outbound/local-file-tool.js";
 import { stageArtifact, validateLocalArtifact } from "./outbound/artifact.js";
 import { bashCommandOf, createBridgeInlineExtension, type BridgeGateInput } from "./session/pi-bridge-hooks.js";
-import { PermissionBridge, redactParams, type ApprovalChoice } from "./approval/permission-bridge.js";
+import { PermissionBridge, redactParams } from "./approval/permission-bridge.js";
 import { AlwaysApprovedStore } from "./approval/always-approved-store.js";
 import {
 	PS_FORWARDING_PARENT_ENV_KEYS,
@@ -36,7 +36,7 @@ import {
 	resolvePsForwardingConfig,
 } from "./approval/ps-forwarding.js";
 import { classifyCommand } from "./approval/command-policy.js";
-import { buildApprovalCard, type ApprovalCardResolution } from "./approval/cards.js";
+import { buildApprovalCard } from "./approval/cards.js";
 import { buildModelStatusCard, buildModelsTable } from "./commands/models-card.js";
 import { buildUsageCard, formatUsageReport } from "./commands/usage-card.js";
 import { createUsageProvider, type UsageProvider } from "./outbound/usage-provider.js";
@@ -44,7 +44,6 @@ import { splitModelTarget, writeGlobalDefaults } from "./config/global-defaults.
 import {
 	ClarificationStore,
 	buildClarificationCard,
-	buildClarificationResultCard,
 	clarificationTextFallback,
 } from "./interaction/clarification-store.js";
 import type { CardAction } from "./inbound/transport.js";
@@ -53,7 +52,8 @@ import { buildDiagnosticsBundle, writeDiagnosticsBundle } from "./runtime/diagno
 import { buildConversationKey } from "./session/conversation-key.js";
 import { KnownChatStore } from "./runtime/known-chat-store.js";
 import { ReconnectSupervisor } from "./runtime/reconnect-supervisor.js";
-import { CardTokenDedupe, authorizeSessionCardAction } from "./interaction/card-actions.js";
+import { CardRouter } from "./interaction/card-router.js";
+import { approvalCardOps, clarifyCardOps, commandCardOps, modelCardOps } from "./interaction/card-ops.js";
 import { COMMANDS, DIRECT_BASH_PREFIX, formatHelpText, resolveCommand, suggestCommand } from "./commands/registry.js";
 import { atList, buildAccessNoticeCard, buildAccessRequestCard, buildAllowChatCard, buildHelpCard, buildNewSessionCard, buildResultCard, buildSessionsCard, buildWelcomeCard } from "./commands/cards.js";
 import { AccessRequestTracker, planAccessRequest } from "./runtime/access-request.js";
@@ -145,179 +145,55 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		return effectiveAdmins(rt.config).includes(msg.senderId);
 	}
 
-	/** 卡片回调 token 去重（飞书重投同一次点击时不重复执行）。 */
-	const cardTokens = new CardTokenDedupe();
-
-	async function handleCardAction(action: CardAction): Promise<unknown> {
-		const value = action.value ?? {};
-		log.info("feishu.card.action", {
-			messageId: action.messageId, op: typeof value.op === "string" ? value.op : null,
-			operator: action.operatorOpenId, hasValue: action.value !== undefined,
-		});
-		if (!cardTokens.accept(action.token)) {
-			log.info("feishu.card.duplicate_token", { messageId: action.messageId });
-			return undefined;
-		}
-		if (value.op === "thinking.set" || value.op === "models.toggle" || value.op === "model.set") {
-			const denied = authorizeSessionCardAction(action, value, effectiveAdmins(rt.config));
-			if (denied) {
-				log.warn("feishu.card.unauthorized", { op: value.op, operator: action.operatorOpenId, reason: denied });
-				return { toast: { type: "warning", content: denied } };
-			}
-		}
-		const owner = typeof value.owner === "string" ? { ownerOpenId: value.owner } : {};
-		// 模型列表卡片是**纯展示**的（表格自带客户端分页），没有回调分支 ——
-		// 切换模型走 /model <provider>/<id> 命令，不把列表变成表单。
-
-		// /model 状态卡：点档位按钮即切换思考等级（等价于 /thinking <level>），
-		// 然后原地刷新卡片 —— 按钮的勾与禁用态要跟着变，否则用户会以为没生效。
-		if (value.op === "thinking.set") {
-			if (typeof value.level !== "string" || typeof value.conversationKey !== "string") return undefined;
-			const result = await rt.convManager?.commands.setThinkingByKey(value.conversationKey, value.level);
-			if (!result?.ok) {
-				log.warn("feishu.card.thinking_set_failed", { level: value.level, reason: result?.reason ?? "unknown" });
-				return { toast: { type: "warning", content: result?.reason ?? "切换失败" } };
-			}
-			log.info("feishu.card.thinking_set", { level: value.level, conversationKey: value.conversationKey });
-			const data = await rt.convManager?.commands.modelStatusCardDataByKey(value.conversationKey);
-			if (!data) return { toast: { type: "success", content: `已切换到 ${value.level}` } };
-			// 把这次执行的命令写进卡片：用户点的是按钮，但等价于发了一条斜杠命令，
-			// 露出来才能复制去加 -g（全局默认）或转发给别人。
-			return {
-				toast: { type: "success", content: `已切换到 ${value.level}` },
-				card: { type: "raw", data: buildModelStatusCard({ ...data, ...owner, lastExecuted: `/thinking ${value.level}` }) },
-			};
-		}
-
-		// /model 状态卡的模型表格：**在同一张卡里展开/收起**（不再另发一张卡）。
-		// 展开态不记忆：任何一次刷新都回到收起 —— 表格是临时查阅用的，
-		// 用户要的是随时能回到干净的状态卡。
-		if (value.op === "models.toggle") {
-			if (typeof value.conversationKey !== "string") return undefined;
-			const expanded = value.expanded === true;
-			const data = await rt.convManager?.commands.modelStatusCardDataByKey(value.conversationKey);
-			if (!data) {
-				log.warn("feishu.card.models_toggle_failed", { conversationKey: value.conversationKey });
-				return { toast: { type: "warning", content: "会话已失效，请重新发送 /model" } };
-			}
-			log.info("feishu.card.models_toggle", { expanded, conversationKey: value.conversationKey });
-			// 展开时给回执（等价命令就是 /models）；收起不给 —— 「收起」没有对应的
-			// 斜杠命令，硬编一句"已执行：收起"只是假回执。
-			return {
-				card: {
-					type: "raw",
-					data: buildModelStatusCard({ ...data, ...owner, expanded, ...(expanded ? { lastExecuted: "/models" } : {}) }),
-				},
-			};
-		}
-		// 状态卡上的模型切换按钮（最近使用 / 快速切换）
-		if (value.op === "model.set") {
-			if (typeof value.model !== "string" || typeof value.conversationKey !== "string") return undefined;
-			const result = await rt.convManager?.commands.setModelByKey(value.conversationKey, value.model);
-			if (!result?.ok) return { toast: { type: "warning", content: result?.reason ?? "切换失败" } };
-			log.info("feishu.card.model_set", { model: value.model, conversationKey: value.conversationKey, operator: action.operatorOpenId });
-			const data = await rt.convManager?.commands.modelStatusCardDataByKey(value.conversationKey);
-			if (!data) return { toast: { type: "success", content: `已切换到 ${value.model}` } };
-			return {
-				toast: { type: "success", content: `已切换到 ${value.model}` },
-				card: { type: "raw", data: buildModelStatusCard({ ...data, ...owner, lastExecuted: `/model ${value.model}` }) },
-			};
-		}
-		// 命令按钮 —— 以点击人身份"发送"该命令（只接受注册表里的命令）
-		if (value.op === "command") {
-			if (typeof value.command !== "string" || !action.chatId || !resolveCommand(value.command)) return undefined;
-			const ownerId = typeof value.owner === "string" ? value.owner : undefined;
-			if (ownerId && ownerId !== action.operatorOpenId && !effectiveAdmins(rt.config).includes(action.operatorOpenId)) {
-				return { toast: { type: "warning", content: "只有发起人或管理员可以操作这张卡片" } };
-			}
-			const chatType = value.chatType === "p2p" || value.chatType === "topic" ? value.chatType : "group";
-			const nonce = `#${action.token ?? randomBytes(6).toString("hex")}`;
-			const synthetic: FeishuInboundMessage = {
-				messageId: action.messageId, dedupeNonce: nonce, replyTarget: action.messageId, synthetic: true,
-				chatId: action.chatId, chatType, ...(typeof value.threadId === "string" ? { threadId: value.threadId } : {}),
-				senderId: action.operatorOpenId, isBot: false, msgType: "text", text: value.command,
-				mentions: [], resources: [], raw: undefined, ts: Date.now(),
-			};
-			// 后台执行：命令可能要建会话（首次几秒），不占卡片回调的 3 秒时限
-			void handleFeishuCommand(synthetic).catch((error: unknown) => {
-				log.warn("feishu.card.command_failed", { command: value.command, error: error instanceof Error ? error.message : String(error) });
-			});
-			return { toast: { type: "info", content: `已执行 ${value.command}` } };
-		}
-		// 私聊里的"放行此群"
-		if (value.op === "chat.allow") {
-			if (typeof value.chatId !== "string" || !value.chatId.startsWith("oc_")) return undefined;
-			if (!canApproveAccess(rt.config, action.operatorOpenId, approverPolicy())) return { toast: { type: "warning", content: `${accessApproverHint(approverPolicy())}可以放行群` } };
-			if (rt.config.allowChats.includes(value.chatId)) return { card: { type: "raw", data: buildResultCard(`群 \`${value.chatId}\` 已在放行列表中。`, "grey") } };
-			const previous = [...rt.config.allowChats];
-			rt.config.allowChats = [...rt.config.allowChats, value.chatId];
-			if (!saveConfigFields(rt.homeDir, rt.config, ["allowChats"])) {
-				rt.config.allowChats = previous;
-				return { toast: { type: "error", content: "写入配置失败，未放行" } };
-			}
-			log.info("feishu.onboarding.chat_allowed", { chatId: value.chatId, operator: action.operatorOpenId });
-			rt.accessRequests?.clear(value.chatId);
-			// 群里回告：申请人（有的话）+ 放行人
-			const requester = typeof value.requester === "string" && value.requester.startsWith("ou_") ? value.requester : undefined;
-			void sendChatCard(value.chatId, buildAccessNoticeCard(`${requester ? `${atList([requester])} ` : ""}本群已开通（由 ${operatorByRole(action.operatorOpenId)} 放行），现在 @ 我就可以使用了。`, "green"), {}, "allowed_notice");
-			return {
-				toast: { type: "success", content: "已放行" },
-				card: { type: "raw", data: buildResultCard(`已放行群 \`${value.chatId}\`（写入 allowChats）。群里 @ 机器人即可使用。`) },
-			};
-		}
-		// 开通申请：暂不放行（忽略期内该群不再发申请）
-		if (value.op === "chat.deny") {
-			if (typeof value.chatId !== "string" || !value.chatId.startsWith("oc_")) return undefined;
-			if (!canApproveAccess(rt.config, action.operatorOpenId, approverPolicy())) return { toast: { type: "warning", content: `${accessApproverHint(approverPolicy())}可以操作` } };
-			rt.accessRequests ??= new AccessRequestTracker({ cooldownMs: rt.config.onboarding?.accessRequestCooldownMs });
-			rt.accessRequests.markIgnored(value.chatId);
-			log.info("feishu.access_request.denied", { chatId: value.chatId, operator: action.operatorOpenId });
-			const requester = typeof value.requester === "string" && value.requester.startsWith("ou_") ? value.requester : undefined;
-			// 私聊审批时申请人看不到这张卡 → 在群里告诉他；群里审批时卡片本身就会变成结果
-			if (requester && action.chatId !== value.chatId) {
-				void sendChatCard(value.chatId, buildAccessNoticeCard(`${atList([requester])} ${operatorByRole(action.operatorOpenId)} 暂未开通本群。`, "grey"), {}, "denied_notice");
-			}
-			return {
-				toast: { type: "info", content: "已暂不放行" },
-				card: { type: "raw", data: buildResultCard(`已暂不放行群 \`${value.chatId}\`（24 小时内该群的开通申请不再提醒）。`, "grey") },
-			};
-		}
+	/** 卡片回调路由：核心按钮在这里登记，可选能力的按钮随能力一起登记。 */
+	const cardOpsContext = { rt, log, admins: () => effectiveAdmins(rt.config), runCommand: (msg: FeishuInboundMessage) => handleFeishuCommand(msg) };
+	const cardRouter = new CardRouter({ log, admins: () => effectiveAdmins(rt.config) })
+		.register("model", modelCardOps(cardOpsContext))
+		.register("command", commandCardOps(cardOpsContext))
+		.register("clarify", clarifyCardOps(cardOpsContext))
+		.register("approval", approvalCardOps(cardOpsContext))
+		.register("accessRequest", {
+			// 私聊或群里的「放行此群」
+			"chat.allow": async (action, value) => {
+				if (typeof value.chatId !== "string" || !value.chatId.startsWith("oc_")) return undefined;
+				if (!canApproveAccess(rt.config, action.operatorOpenId, approverPolicy())) return { toast: { type: "warning", content: `${accessApproverHint(approverPolicy())}可以放行群` } };
+				if (rt.config.allowChats.includes(value.chatId)) return { card: { type: "raw", data: buildResultCard(`群 \`${value.chatId}\` 已在放行列表中。`, "grey") } };
+				const previous = [...rt.config.allowChats];
+				rt.config.allowChats = [...rt.config.allowChats, value.chatId];
+				if (!saveConfigFields(rt.homeDir, rt.config, ["allowChats"])) {
+					rt.config.allowChats = previous;
+					return { toast: { type: "error", content: "写入配置失败，未放行" } };
+				}
+				log.info("feishu.onboarding.chat_allowed", { chatId: value.chatId, operator: action.operatorOpenId });
+				rt.accessRequests?.clear(value.chatId);
+				// 群里回告：申请人（有的话）+ 放行人
+				const requester = typeof value.requester === "string" && value.requester.startsWith("ou_") ? value.requester : undefined;
+				void sendChatCard(value.chatId, buildAccessNoticeCard(`${requester ? `${atList([requester])} ` : ""}本群已开通（由 ${operatorByRole(action.operatorOpenId)} 放行），现在 @ 我就可以使用了。`, "green"), {}, "allowed_notice");
+				return {
+					toast: { type: "success", content: "已放行" },
+					card: { type: "raw", data: buildResultCard(`已放行群 \`${value.chatId}\`（写入 allowChats）。群里 @ 机器人即可使用。`) },
+				};
+			},
+			// 开通申请：暂不放行（忽略期内该群不再发申请）
+			"chat.deny": async (action, value) => {
+				if (typeof value.chatId !== "string" || !value.chatId.startsWith("oc_")) return undefined;
+				if (!canApproveAccess(rt.config, action.operatorOpenId, approverPolicy())) return { toast: { type: "warning", content: `${accessApproverHint(approverPolicy())}可以操作` } };
+				rt.accessRequests ??= new AccessRequestTracker({ cooldownMs: rt.config.onboarding?.accessRequestCooldownMs });
+				rt.accessRequests.markIgnored(value.chatId);
+				log.info("feishu.access_request.denied", { chatId: value.chatId, operator: action.operatorOpenId });
+				const requester = typeof value.requester === "string" && value.requester.startsWith("ou_") ? value.requester : undefined;
+				// 私聊审批时申请人看不到这张卡 → 在群里告诉他；群里审批时卡片本身就会变成结果
+				if (requester && action.chatId !== value.chatId) {
+					void sendChatCard(value.chatId, buildAccessNoticeCard(`${atList([requester])} ${operatorByRole(action.operatorOpenId)} 暂未开通本群。`, "grey"), {}, "denied_notice");
+				}
+				return {
+					toast: { type: "info", content: "已暂不放行" },
+					card: { type: "raw", data: buildResultCard(`已暂不放行群 \`${value.chatId}\`（24 小时内该群的开通申请不再提醒）。`, "grey") },
+				};
+			},
+		})
 		// agent 通过 feishu_card 工具发的卡片 —— 点击作为一条新消息进入会话
-		if (value.op === "agent.card") {
-			return handleAgentCardClick(action, value);
-		}
-		// 澄清选择 —— 只恢复等待点，不写任何授权
-		if (value.op === "clarify") {
-			if (typeof value.clarificationId !== "string" || typeof value.token !== "string" || typeof value.choice !== "string") return undefined;
-			const decided = rt.clarificationStore?.decide({
-				id: value.clarificationId, token: value.token, messageId: action.messageId,
-				chatId: action.chatId ?? "", operatorOpenId: action.operatorOpenId, choice: value.choice,
-			});
-			if (!decided?.ok) return { toast: { type: "warning", content: decided?.reason ?? "该提问已失效" } };
-			return {
-				toast: { type: "success", content: decided.reason },
-				card: { type: "raw", data: buildClarificationResultCard(value.choice, action.operatorOpenId) },
-			};
-		}
-		if (value.op !== "approval" || typeof value.approvalId !== "string" || typeof value.token !== "string") return undefined;
-		const choice = value.choice;
-		if (choice !== "once" && choice !== "session" && choice !== "always" && choice !== "deny") return undefined;
-		const decision = rt.permissionBridge?.decide({
-			id: value.approvalId, token: value.token, messageId: action.messageId, chatId: action.chatId,
-			operatorOpenId: action.operatorOpenId, choice: choice as ApprovalChoice,
-		});
-		if (!decision?.ok) return { toast: { type: "warning", content: decision?.reason ?? "审批已失效" } };
-		// 原地更新同一张卡：保留原文与参数，标题改成结论、被选项加 ✓、其余禁用。
-		const resolution: ApprovalCardResolution = {
-			choice: choice as ApprovalChoice,
-			resultText: decision.reason,
-			operatorOpenId: action.operatorOpenId,
-		};
-		return {
-			toast: { type: "success", content: decision.reason },
-			...(decision.pending ? { card: { type: "raw", data: buildApprovalCard(decision.pending, resolution) } } : {}),
-		};
-	}
+		.register("cardTool", { "agent.card": (action, value) => handleAgentCardClick(action, value) });
 
 	/**
 	 * 账户用量提供方（懒建；余额失败降级为 unavailable，不抛异常）。
@@ -1241,7 +1117,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 				setStatus("conn", connState === "connected" ? "飞书桥已连接" : connState === "reconnecting" ? "飞书桥重连中（SDK）" : `飞书桥 ${connState}`);
 				updateStatus();
 			},
-			onCardAction: handleCardAction,
+			onCardAction: (action) => cardRouter.handle(action),
 			onLifecycleEvent: handleLifecycleEvent,
 			log: (level, m, meta) => log[level](m, meta),
 		}, deps.larkSdk);
