@@ -227,7 +227,7 @@ export class ConversationCommands {
 		} catch {
 			return "会话指针写入失败，已保留当前会话";
 		}
-		// ② 处置旧 handle 与易失状态（Pi 历史、pending、outbox 不动）
+		// ② 处置旧 handle 与内存状态（Pi 历史、pending、outbox 不动）
 		this.host.sessions.delete(key);
 		this.host.liveChannel?.discard(key);
 		const old = session?.agent;
@@ -242,7 +242,7 @@ export class ConversationCommands {
 
 	/**
 	 * 列出已认证模型（provider 用于区分同名模型）。
-	 * 首次调用会懒初始化会话，避免"当前会话尚未建立"。
+	 * 首次调用会按需创建会话，避免"当前会话尚未建立"。
 	 */
 	/**
 	 * 供 /models 卡片使用的数据快照：模型清单 + 当前模型 + 会话 key。
@@ -274,7 +274,7 @@ export class ConversationCommands {
 
 	/**
 	 * 列出已认证模型（provider 用于区分同名模型）。
-	 * 首次调用会懒初始化会话，避免"当前会话尚未建立"。
+	 * 首次调用会按需创建会话，避免"当前会话尚未建立"。
 	 */
 	async listModels(msg: FeishuInboundMessage, page = 0): Promise<string> {
 		const key = buildConversationKey(msg, this.deps.config);

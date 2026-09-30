@@ -52,7 +52,7 @@ export interface BridgeConfig {
 	appId: string;
 	appSecret: string;
 	domain: "feishu" | "lark";
-	/** 可选；启动后由 /open-apis/bot/v3/info 水合覆盖 */
+	/** 可选；启动后用 /open-apis/bot/v3/info 的查询结果覆盖 */
 	botOpenId?: string;
 	botUserId?: string;
 	botName?: string;
@@ -76,24 +76,24 @@ export interface BridgeConfig {
 	/** DM 白名单；空 = 全部放行 */
 	/**
 	 * 允许私聊（DM）的用户 open_id 白名单。
-	 * fail-closed：空数组 = 拒绝所有私聊；管理员与应用归属人例外，
+	 * 默认拒绝：空数组 = 拒绝所有私聊；管理员与应用归属人例外，
 	 * 始终放行（归属人随应用自动刷新，无需手工维护）。
 	 */
 	allowUsers: string[];
 	/**
 	 * 管理员与「应用归属人」是否豁免 @ 检查（**默认 false**）。
 	 * 默认关闭时对齐 hermes 两层模型：admin 只豁免策略层，群内仍必须 @ 才触发。
-	 * 归属人由启动时调用开放平台接口水合（见 implicitAdmins），无需手工维护 open_id。
+	 * 归属人由启动时调用开放平台接口查询得到（见 implicitAdmins），无需手工维护 open_id。
 	 */
 	adminBypassMention?: boolean;
 	/**
-	 * 运行时水合的隐式管理员（应用 owner/creator 的 open_id，当前应用视角）。
+	 * 启动时查询得到的隐式管理员（应用 owner/creator 的 open_id，当前应用视角）。
 	 * 不写入配置文件：换应用/改归属后重启自动刷新。
 	 */
 	implicitAdmins?: string[];
-	/** 运行时水合：应用归属人 open_id（不落盘）。展示与开通申请私聊用。 */
+	/** 启动时查询得到：应用归属人 open_id（不落盘）。展示与开通申请私聊用。 */
 	appOwnerId?: string;
-	/** 运行时水合：应用协作者 open_id（不含归属人，不落盘）。 */
+	/** 启动时查询得到：应用协作者 open_id（不含归属人，不落盘）。 */
 	appCollaboratorIds?: string[];
 	/** 管理员 open_id；豁免群策略层（@ 层由 adminBypassMention 决定） */
 	admins: string[];
@@ -149,10 +149,10 @@ export interface BridgeConfig {
 		 * 策略引擎归属：
 		 * - "bridge"（默认）：用桥自研的 command-policy + 飞书审批卡
 		 * - "pi-permission-system"：策略完全交给 @gotgenes/pi-permission-system
-		 *   （它在 pi 的子会话里先于桥的闸门执行，deny 时桥根本收不到调用），
+		 *   （它在 pi 的子会话里先于桥的拦截执行，deny 时桥根本收不到调用），
 		 *   桥不再弹审批卡 —— 用户用该扩展的配置文件维护放行/黑名单规则。
 		 *
-		 * **失败关闭**：若该扩展实际上没装成，桥会回落到自己的审批而非静默放行。
+		 * **默认拒绝**：若该扩展实际上没装成，桥会退回到自己的审批而非静默放行。
 		 */
 		policyEngine?: "bridge" | "pi-permission-system";
 		commandPolicy?: {
@@ -342,9 +342,9 @@ export interface BridgeConfig {
 	agentContext?: { sender?: "shared" | "always" | "off"; mentions?: boolean };
 	/**
 	 * WS 连接层。
-	 * - `sdkAutoReconnect`（默认 true）：断线交给 SDK 自带重连，桥只在 SDK 进入终态或自愈超时后整体重建。
+	 * - `sdkAutoReconnect`（默认 true）：断线交给 SDK 自带重连，桥只在 SDK 进入终态或自动重连超时后整体重建。
 	 *   设为 false 退回旧的"桥自管重连"模式（排障用）。
-	 * - `selfHealMaxMs`（默认 5 分钟）：SDK 自愈超过该时长仍未恢复，桥强制整体重建。
+	 * - `selfHealMaxMs`（默认 5 分钟）：SDK 自动重连超过该时长仍未恢复，桥强制整体重建。
 	 */
 	transport?: { sdkAutoReconnect?: boolean; selfHealMaxMs?: number };
 }
@@ -493,7 +493,7 @@ export type AdmitReason = "self_echo" | "bots_disabled" | "bot_not_mentioned" | 
 export interface SendOptions {
 	replyTo?: string;
 	threadId?: string;
-	/** durable final 覆盖此前易失流式消息；编辑目标失效时回退 reply/create。 */
+	/** durable final 覆盖此前流式更新的消息；编辑目标失效时回退 reply/create。 */
 	editMessageId?: string;
 }
 

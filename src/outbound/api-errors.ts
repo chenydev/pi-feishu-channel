@@ -1,12 +1,12 @@
 /**
- * API 错误统一归一化。
+ * API 错误统一分类。
  *
- * 为什么要集中归一化：
+ * 为什么要集中分类：
  * - 异常路径（throw）也要读 `Retry-After` 响应头，否则限频等待会被忽略；
  * - 错误分类如果散落在 edit / media / post / reply 各自分支，
  *   权限类失败会和"目标已撤回/不可编辑"混在一起，被误当成可降级转发。
  *
- * 归一化产出三件事：
+ * 分类产出三件事：
  * - `errorClass`：日志、统计与降级决策的依据；
  * - `retryable`：是否值得重试（限频/5xx/网络 true；权限/内容拒绝 false）；
  * - `retryAfterMs`：服务端明确要求的等待（header 秒数或 HTTP-date，或响应体 retry_after）。
@@ -136,7 +136,7 @@ function classify(status: number | undefined, code: number | undefined, message:
 }
 
 /**
- * 归一化一个错误对象（throw 形态）。返回值同时覆盖 Retry-After header 与 body 字段。
+ * 统一处理一个错误对象（throw 形态）。返回值同时覆盖 Retry-After header 与 body 字段。
  */
 export function normalizeApiError(input: unknown, now: number = Date.now()): NormalizedApiError {
 	const error = (typeof input === "object" && input !== null ? input : { message: String(input) }) as ErrorLike;
@@ -171,7 +171,7 @@ export function normalizeApiError(input: unknown, now: number = Date.now()): Nor
 }
 
 /**
- * 归一化一个"非 0 业务码但 HTTP 成功"的响应体（return 形态）。
+ * 统一处理一个"非 0 业务码但 HTTP 成功"的响应体（return 形态）。
  */
 export function normalizeApiResponse(response: unknown, now: number = Date.now()): NormalizedApiError {
 	const body = (response ?? {}) as { code?: unknown; msg?: unknown; message?: unknown; retry_after?: unknown };

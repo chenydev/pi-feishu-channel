@@ -15,16 +15,16 @@ export interface PipelineStats {
 	batched: number;
 	dropped: number;
 	dispatched: number;
-	/** 去重标记存在但从未进入持久账本（崩溃窗口）而重新准入的条数。 */
+	/** 去重标记存在但从未进入持久待处理记录（崩溃窗口）而重新准入的条数。 */
 	recovered: number;
 	lastMessageAt?: number;
 }
 
-/** 入站接管账本：准入后立即持久化，使合并窗口内崩溃也能恢复。 */
+/** 入站待处理记录：准入后立即持久化，使合并窗口内崩溃也能恢复。 */
 export interface IntakeLedger {
 	/** 持久化一条已准入消息；实现需保证幂等。 */
 	claim(msg: FeishuInboundMessage, conversationKey: string): void;
-	/** 该消息（或已被合入的记录）是否仍在账本中未完成。 */
+	/** 该消息（或已被合入的记录）是否仍在待处理记录中未完成。 */
 	has(id: string): boolean;
 	/** batch 合并：成员记录并入主记录。 */
 	merge(primaryId: string, memberIds: string[], merged: FeishuInboundMessage): void;
@@ -32,7 +32,7 @@ export interface IntakeLedger {
 	markNever?(id: string): void;
 	/** 撤销 never 标记（`/` 开头但不是桥命令，仍按普通消息恢复；可选实现）。 */
 	markAuto?(id: string): void;
-	/** 已终结（命令已消费）：从账本移除（可选实现）。 */
+	/** 已终结（命令已消费）：从待处理记录移除（可选实现）。 */
 	ack?(id: string): void;
 }
 
@@ -45,7 +45,7 @@ export interface PipelineDeps {
 	onCommand?: (msg: FeishuInboundMessage) => Promise<boolean>;
 	log?: (level: "debug" | "info" | "warn" | "error", msg: string, meta?: unknown) => void;
 	dedupeStore?: DedupeStore;
-	/** 持久接管账本（可选；不设时退化为纯内存批处理）。 */
+	/** 持久待处理记录（可选；不设时退化为纯内存批处理）。 */
 	intake?: IntakeLedger;
 	/** 准入拒绝回调（mentioned = 用户表达了意图，例如 @ 了本 bot）。 */
 	onDrop?: (msg: FeishuInboundMessage, reason: string, mentioned: boolean) => void;
@@ -71,7 +71,7 @@ export class InboundPipeline {
 
 	/**
 	 * 撤回的消息如果还在合批窗口里，直接从窗口移除（不会进入任何 turn）。
-	 * 窗口因此变空时连同定时器一起丢弃，并在接管账本里落终态。
+	 * 窗口因此变空时连同定时器一起丢弃，并在待处理记录里落终态。
 	 */
 	cancelBatched(messageId: string): boolean {
 		for (const [key, window] of this.batcher.entries()) {
@@ -109,10 +109,10 @@ export class InboundPipeline {
 		this.stats.total += 1;
 		this.stats.lastMessageAt = Date.now();
 
-		// 1. 去重（区分“已持久接管”与“仅写过标记”两种命中）
+		// 1. 去重（区分“已持久登记”与“仅写过标记”两种命中）
 		if (!this.dedup.check(msg.messageId)) {
 			if (!this.deps.intake || this.deps.intake.has(msg.messageId)) {
-				// 已进入持久账本（或未启用账本，退化旧行为）：启动恢复负责重放，重投按重复丢弃。
+				// 已进入持久待处理记录（或未启用待处理记录，退化旧行为）：启动恢复负责重放，重投按重复丢弃。
 				this.stats.duplicate += 1;
 				this.deps.log?.("debug", "feishu.pipeline.drop_duplicate", {
 					messageId: msg.messageId,
@@ -120,7 +120,7 @@ export class InboundPipeline {
 				});
 				return;
 			}
-			// orphan：账本已启用但从未接管（崩溃窗口）→ 重新准入，避免静默丢失。
+			// orphan：待处理记录已启用但从未登记（崩溃窗口）→ 重新准入，避免静默丢失。
 			this.stats.recovered += 1;
 			this.deps.log?.("warn", "feishu.pipeline.recover_orphan", { messageId: msg.messageId });
 		}
@@ -137,7 +137,7 @@ export class InboundPipeline {
 		}
 
 		const key = buildConversationKey(prepared, this.deps.config);
-		// 准入通过即持久接管，消除 dedupe→ledger 之间的丢失窗口。
+		// 准入通过即写入待处理记录，消除 dedupe→ledger 之间的丢失窗口。
 		if (this.deps.intake) {
 			try {
 				this.deps.intake.claim(prepared, key);
@@ -148,7 +148,7 @@ export class InboundPipeline {
 		}
 		if (this.deps.onCommand) {
 			if (this.batcher.peek(key)) await this.flushBatch(key);
-			// 命令类消息（/new、/stop…）在账本里标为 never：重启后不重放。
+			// 命令类消息（/new、/stop…）在待处理记录里标为 never：重启后不重放。
 			// 依赖方不再重放一个 /new（会再清一次上下文）或 /stop（会打断新任务）。
 			// 在调用 onCommand 之前标记 —— 标记本身针对跨进程重放，与本进程内的
 			// 重试（dedup.forget 后重投）互不冲突。
@@ -158,12 +158,12 @@ export class InboundPipeline {
 			try {
 				consumed = await this.deps.onCommand(prepared);
 			} catch (error) {
-				// 命令不重放：记录留着只会永久占账本；dedupe 退回后平台重投会重新接管。
+				// 命令不重放：记录留着只会永久占待处理记录；去重标记撤回后，平台重投会重新登记。
 				if (slash) this.deps.intake?.ack?.(prepared.messageId);
 				this.dedup.forget(prepared.messageId);
 				throw error;
 			}
-			// 命令已消费即终结：必须 ack，否则 never 记录永远留在账本里（recoverable 也不会返回它）。
+			// 命令已消费即终结：必须 ack，否则 never 记录永远留在待处理记录里（recoverable 也不会返回它）。
 			if (consumed) {
 				this.deps.intake?.ack?.(prepared.messageId);
 				return;
@@ -219,7 +219,7 @@ export class InboundPipeline {
 		this.scheduleFlush(key);
 	}
 
-	/** batcher 窗口到期：合并 parts → 账本合并 → dispatch。 */
+	/** batcher 窗口到期：合并 parts → 待处理记录合并 → dispatch。 */
 	async flushBatch(key: string): Promise<void> {
 		this.clearFlushTimer(key);
 		const win = this.batcher.flush(key);
@@ -227,7 +227,7 @@ export class InboundPipeline {
 		await this.dispatchWindow(win);
 	}
 
-	/** 把一个批处理窗口落账本（合并成员记录）后派发。 */
+	/** 把一个批处理窗口落待处理记录（合并成员记录）后派发。 */
 	private async dispatchWindow(win: BatchWindow): Promise<void> {
 		const merged: FeishuInboundMessage = {
 			...win.carrier,
@@ -260,7 +260,7 @@ export class InboundPipeline {
 		if (!verdict.ok) {
 			this.stats.dropped += 1;
 			// 日志带 hint：admit 已经针对每种拒绝给出「照做就能通过」的具体动作
-			// （加哪个文件的哪个字段、加什么值）。准入是 fail-closed 的，被挡很常见，
+			// （加哪个文件的哪个字段、加什么值）。准入是默认拒绝的，被挡很常见，
 			// 而「为什么被挡、怎么放行」不该靠人翻代码或写文档才能回答。
 			this.deps.log?.("debug", "feishu.pipeline.drop", {
 				messageId: msg.messageId,
@@ -296,8 +296,8 @@ export class InboundPipeline {
 		try {
 			await this.deps.onDispatch(msg);
 		} catch (error) {
-			// 已持久接管的消息交给启动恢复处理（避免“重投 + 恢复”双重执行）；
-			// 未接管的消息退回去重标记，允许平台重投。
+			// 已持久登记的消息交给启动恢复处理（避免“重投 + 恢复”双重执行）；
+			// 未登记的消息退回去重标记，允许平台重投。
 			const ledgered = this.deps.intake?.has(msg.messageId) ?? false;
 			if (!ledgered) {
 				for (const messageId of msg.sourceMessageIds ?? [msg.messageId]) this.dedup.forget(messageId);

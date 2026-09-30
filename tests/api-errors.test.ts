@@ -1,5 +1,5 @@
 /**
- * API 错误统一归一化（表驱动）：
+ * API 错误统一分类（表驱动）：
  * throw 形态与 return 形态都要覆盖 HTTP status、业务码、body/header retry-after，
  * 并且权限类失败不得被判成"允许路由回退"。
  */

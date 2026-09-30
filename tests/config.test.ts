@@ -238,7 +238,7 @@ test("配置写回：saveConfigFields 只写指定字段，不把默认值与 im
 	});
 });
 
-test("配置写回：全量 saveConfig 也不写运行时水合的 implicitAdmins", () => {
+test("配置写回：全量 saveConfig 也不写启动时查询得到的 implicitAdmins", () => {
 	withConfigFile({}, (home) => {
 		const cfg = loadConfig(home, {});
 		cfg.implicitAdmins = ["ou_owner"];

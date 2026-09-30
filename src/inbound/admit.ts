@@ -77,7 +77,7 @@ export function admit(
 			? { ok: false as const, reason, hint }
 			: { ok: false as const, reason };
 
-	// 1. 自身回声/其他 bot（hermes allow_bots 默认 "none"）；
+	// 1. 自己发出的消息 / 其他 bot（hermes allow_bots 默认 "none"）；
 	//    allowBots 白名单允许指定的自定义机器人/兄弟应用驱动桥（默认空 = 维持原行为）。
 	// 白名单可写 app_id（跨应用稳定）或 open_bot_id（按视角，换应用后会变）——两者都接受。
 	// 另支持特殊值 "mentions"（对齐 hermes allow_bots=mentions）：任何 bot 消息，
@@ -108,28 +108,28 @@ export function admit(
 	const isAdmin = isGroup && isAdminOrOwner(cfg, msg.senderId);
 
 	if (!isGroup) {
-		// DM：fail-closed —— 空白名单 = 拒绝所有私聊（与群维度的 allowChats 对称）。
-		// 但管理员与应用归属人（启动时水合的 implicitAdmins）始终放行：
+		// DM：默认拒绝 —— 空白名单 = 拒绝所有私聊（与群维度的 allowChats 对称）。
+		// 但管理员与应用归属人（启动时从开放平台查到的 implicitAdmins）始终放行：
 		// 归属人 open_id 随应用自动刷新，换应用后不需要重新维护白名单，
 		// 否则会出现「换了应用，只有管理员被自己挡在门外」的尴尬。
 		if (cfg.allowUsers.includes(msg.senderId)) return { ok: true };
 		if (isAdminOrOwner(cfg, msg.senderId)) return { ok: true };
 		return withHint(
 			"dm_policy_rejected",
-			`私聊 fail-closed（allowUsers 为空 = 拒绝所有私聊）。`
+			`私聊默认拒绝（allowUsers 为空 = 拒绝所有私聊）。`
 				+ `放行方式：在 config.json 的 allowUsers 里加 "${msg.senderId}"，或让该用户成为管理员/应用归属人。`,
 		);
 	}
 
-	// ---- 群准入闸（fail-closed：空白名单 = 拒绝所有群） ----
+	// ---- 群准入检查（默认拒绝：空白名单 = 拒绝所有群） ----
 	// allowChats 与 groupPolicy 是两个正交维度：前者答「哪些群允许被服务」，
 	// 后者答「在允许的群里怎么触发」。原实现把 allowChats 塞在 allowlist 策略
 	// 分支内，导致 groupPolicy 取其它值时白名单形同虚设 —— 任何群 @ 一下就响应。
-	// 安全默认必须是 fail-closed，因此这里无条件检查，且空数组也拒绝。
+	// 安全默认必须是默认拒绝，因此这里无条件检查，且空数组也拒绝。
 	if (!cfg.allowChats.includes(msg.chatId)) {
 		return withHint(
 			"not_allowlisted",
-			`群准入 fail-closed（allowChats 为空 = 拒绝所有群）。`
+			`群准入默认拒绝（allowChats 为空 = 拒绝所有群）。`
 				+ `放行方式：在 config.json 的 allowChats 里加 "${msg.chatId}"。`,
 		);
 	}
@@ -178,11 +178,11 @@ export function admit(
 }
 
 /**
- * 管理员或应用归属人判定（implicitAdmins 为启动时水合的 app owner/creator）。
+ * 管理员或应用归属人判定（implicitAdmins 为启动时从开放平台查到的应用归属人）。
  * 归属人 open_id 与消息 senderId 同为「当前应用视角」，可直接比较。
  */
 /**
- * 有效管理员集合 = 配置的 admins + 启动时水合的应用归属人。
+ * 有效管理员集合 = 配置的 admins + 启动时从开放平台查到的应用归属人。
  * 所有「管理员才能做」的判定都应走这里，避免换应用后 admins 视角失效。
  */
 export function effectiveAdmins(cfg: BridgeConfig): string[] {

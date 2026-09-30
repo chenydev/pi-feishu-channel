@@ -11,8 +11,8 @@
  *   2. 重连成功发起后不再同步补调度，由 watchdog 在握手宽限期之后判断；
  *      只有 `reconnect()` 抛错（transport 已不在运行、watchdog 接不住）才立即排下一次；
  *   3. 退避计数只在连接**稳定保持** `stableResetMs` 后清零，而不是一 ready 就清。
- *   4. SDK 自带重连开启时，SDK 正在自愈（`isSelfHealing()`）就不插手 —— 插手等于打断 SDK 的
- *      重连阶梯重来；只有 SDK 进入终态（failed/idle），或自愈超过 `selfHealMaxMs`，才整体重建。
+ *   4. SDK 自带重连开启时，SDK 正在自动重连（`isSelfHealing()`）就不插手 —— 插手等于打断 SDK 的
+ *      重连阶梯重来；只有 SDK 进入终态（failed/idle），或自动重连超过 `selfHealMaxMs`，才整体重建。
  */
 
 export interface ReconnectTarget {
@@ -34,7 +34,7 @@ export interface ReconnectSupervisorDeps {
 	handshakeGraceMs?: number;
 	maxDelayMs?: number;
 	stableResetMs?: number;
-	/** SDK 自愈的最长容忍时间，超过后强制整体重建（默认 5 分钟）。 */
+	/** SDK 自动重连的最长容忍时间，超过后强制整体重建（默认 5 分钟）。 */
 	selfHealMaxMs?: number;
 	/** 重连频率统计窗口（status 展示 `reconnectsInWindow`）。 */
 	windowMs?: number;

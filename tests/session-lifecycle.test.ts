@@ -1,7 +1,7 @@
 /**
  * 空闲会话回收：
  * - 只有「无 active run、无排队/steer、无未决审批、不在初始化中且空闲超 TTL」才回收；
- * - 回收只释放执行句柄，不删除 Pi 历史/pending/outbox，下次消息懒恢复；
+ * - 回收只释放执行句柄，不删除 Pi 历史/pending/outbox，下次消息按需恢复；
  * - 驻留上限按 LRU 回收，与 maxActiveSessions 的并发上限语义分开。
  */
 import assert from "node:assert/strict";
@@ -71,7 +71,7 @@ function trackingBackend(state: { created: number; disposed: number; hanging?: (
 	return backend;
 }
 
-test("会话回收：空闲超 TTL 回收句柄，下次消息懒恢复且历史文件沿用 会话指针", async () => {
+test("会话回收：空闲超 TTL 回收句柄，下次消息按需恢复且历史文件沿用 会话指针", async () => {
 	const dir = tempDir();
 	try {
 		const sent: Array<{ chatId: string; text: string }> = [];
@@ -102,9 +102,9 @@ test("会话回收：空闲超 TTL 回收句柄，下次消息懒恢复且历史
 		assert.equal(state.disposed, 1, "回收必须 dispose 句柄");
 		assert.equal(manager.residentCount(), 0);
 
-		// 懒恢复：下一条消息重新建会话（不报错、历史文件由指针决定）
+		// 按需恢复：下一条消息重新建会话（不报错、历史文件由指针决定）
 		await manager.commands.modelConversation(message("idle-2"));
-		assert.equal(state.created, 2, "回收后下一条消息应懒恢复会话");
+		assert.equal(state.created, 2, "回收后下一条消息应按需恢复会话");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

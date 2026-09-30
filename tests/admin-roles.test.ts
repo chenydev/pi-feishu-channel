@@ -35,7 +35,7 @@ test("群开通审批策略：默认仅归属人；可放宽到协作者、再�
 	assert.equal(accessApproverHint("owner"), "仅应用归属人");
 });
 
-test("群开通审批策略：owner 策略下归属人没水合 → 无人可批（不偷偷退回给其他人）", async () => {
+test("群开通审批策略：owner 策略下没查到归属人 → 无人可批（不偷偷退回给其他人）", async () => {
 	const { accessApprovers } = await import("../src/runtime/admin-roles.js");
 	assert.deepEqual(accessApprovers({ admins: ["ou_admin"], appCollaboratorIds: ["ou_c"] }, ["ou_admin", "ou_c"], "owner"), []);
 });

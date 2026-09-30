@@ -273,7 +273,7 @@ export interface NormalizeInput {
 }
 
 /**
- * 规范化入口：把事件负载归一化为 FeishuInboundMessage。
+ * 规范化入口：把事件负载转换为 FeishuInboundMessage。
  * 纯函数（无 I/O），便于单元测试。
  */
 export function normalizeFeishuMessage(input: NormalizeInput): FeishuInboundMessage {
@@ -357,7 +357,7 @@ export function normalizeFeishuMessage(input: NormalizeInput): FeishuInboundMess
 	const sender = (input.sender ?? {}) as Record<string, unknown>;
 	const senderIdObj = (sender.sender_id ?? {}) as Record<string, string>;
 	// 用户消息用 open_id；app/bot 消息没有 sender_id.open_id，退化到 open_bot_id 或 app_id，
-	// 以便 allowBots 白名单与自我回声过滤都能拿到稳定标识。
+	// 以便 allowBots 白名单与过滤自己发出的消息都能拿到稳定标识。
 	const senderOpenId = senderIdObj.open_id ?? sender.open_id
 		?? (sender.sender_type === "app" || sender.sender_type === "bot"
 			? (typeof sender.open_bot_id === "string" ? sender.open_bot_id : typeof sender.id === "string" ? sender.id : "")

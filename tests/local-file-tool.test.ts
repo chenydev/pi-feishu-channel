@@ -37,7 +37,7 @@ test("本地文件工具：绑定活动会话、复制 spool、媒体与 caption
 	}
 });
 
-test("本地文件工具：非飞书活动会话 fail closed", async () => {
+test("本地文件工具：非飞书活动会话默认拒绝", async () => {
 	const result = await queueLocalFile({ toolCallId: "tc", path: "x", caption: "", cwd: "/tmp", homeDir: "/tmp" });
 	assert.equal(result.isError, true);
 	assert.match(result.content[0].text, /不是由飞书消息触发/);

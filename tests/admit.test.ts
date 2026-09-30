@@ -115,7 +115,7 @@ test("groupPolicyByChat 覆盖全局（open）——策略层 open 但仍需 @�
 	assert.equal(admit(c, groupMsg(), false, false, new LastSentCache(8)).ok, false); // 未 @ 拒绝
 });
 
-test("DM：空白名单 fail-closed，拒绝所有私聊", () => {
+test("DM：空白名单默认拒绝，拒绝所有私聊", () => {
 	const c = cfg({});
 	const msg = groupMsg({ chatType: "p2p" });
 	assert.equal(verdictOf(admit(c, msg, false, false, new LastSentCache(8))), "dm_policy_rejected");
@@ -126,7 +126,7 @@ test("DM：管理员与应用归属人即使不在 allowUsers 里也放行", () 
 	const lastSent = new LastSentCache(8);
 	// 显式管理员
 	assert.deepEqual(admit(cfg({ admins: ["ou_user"] }), msg, false, false, lastSent), { ok: true });
-	// 应用归属人 / 协作者（启动时水合进 implicitAdmins）
+	// 应用归属人 / 协作者（启动时查询后写入 implicitAdmins）
 	assert.deepEqual(admit(cfg({ implicitAdmins: ["ou_user"] }), msg, false, false, lastSent), { ok: true });
 	// 既不是管理员也不是归属人 → 拒绝
 	assert.equal(verdictOf(admit(cfg({ implicitAdmins: ["ou_someone_else"] }), msg, false, false, lastSent)), "dm_policy_rejected");
@@ -144,7 +144,7 @@ test("DM：白名单未命中拒绝", () => {
 	if (!r.ok) assert.equal(r.reason, "dm_policy_rejected");
 });
 
-test("bot 消息一律拒绝（防回声）", () => {
+test("bot 消息一律拒绝（防止自己触发自己）", () => {
 	const c = cfg({ groupPolicy: "open" });
 	assert.equal(admit(c, groupMsg({ isBot: true }), false, false, new LastSentCache(8)).ok, false);
 });
@@ -262,7 +262,7 @@ test("管理员/应用归属人默认也要 @（adminBypassMention 默认关闭�
 		text: "帮我看看这个报错", mentions: [], resources: [], raw: undefined, ts: Date.now(),
 	};
 	const lastSent = { has: () => false };
-	// 归属人（启动时水合的 implicitAdmins）：默认不豁免 @
+	// 归属人（启动时从开放平台查到的 implicitAdmins）：默认不豁免 @
 	assert.equal(
 		verdictOf(admit({ ...base, implicitAdmins: ["ou_owner"] } as never, ownerMsg as never, false, false, lastSent as never)),
 		"bot_not_mentioned",
@@ -331,9 +331,9 @@ test("allowBots: 纯 id 数组行为不变（\"mentions\" 不是通配符）", a
 	assert.equal(verdictOf(admit(onlyIds, other, true, false, lastSent)), "bots_disabled");
 });
 
-// ------------------------------------------------- allowChats fail-closed ----
+// ------------------------------------------------- allowChats 默认拒绝 ----
 
-test("allowChats 是群准入闸：空白名单拒绝所有群（fail-closed）", () => {
+test("allowChats 是群准入检查：空白名单拒绝所有群（默认拒绝）", () => {
 	// 即使策略是 open、也不需要 @，空白名单也必须拒绝 —— 安全默认
 	const c = cfg({ groupPolicy: "open", requireMention: false, allowChats: [] });
 	assert.equal(verdictOf(admit(c, groupMsg(), true, false, new LastSentCache(8))), "not_allowlisted");
@@ -354,7 +354,7 @@ test("allowChats 与 groupPolicy 正交：白名单生效后策略才决定触�
 });
 
 // ── 拒绝日志的 hint（本轮新增）──────────────────────────────────────────
-// 准入是 fail-closed 的，被挡很常见；日志必须自解释「为什么被挡、怎么放行」，
+// 准入是默认拒绝的，被挡很常见；日志必须自解释「为什么被挡、怎么放行」，
 // 否则每次都要翻代码。hint 还要**看当前配置**给建议 —— 方向错了比没有更糟。
 
 test("hint：未配 mentions 时，bots_disabled 建议加 id 或启用 mentions", () => {

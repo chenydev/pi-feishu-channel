@@ -1,7 +1,7 @@
 import type { BridgeConfig, FeishuInboundMessage } from "../types.js";
 
 /**
- * 飞书消息的唯一会话键真源。
+ * 飞书消息的会话键的唯一来源。
  *
  * - 话题默认由参与者共享；
  * - 群主聊天默认按发送者隔离；

@@ -68,10 +68,10 @@ export class PendingStore {
 	/** 新进程可立即接管旧 owner；同进程仅接管 lease 已过期项。 */
 	recoverable(): PendingRecord[] {
 		const now = this.now();
-		// never 档（命令类消息）在账本层就排除：调用方不需要再判断一次，
+		// never 档（命令类消息）在待处理记录层就排除：调用方不需要再判断一次，
 		// 也就不会出现"某个调用方忘了过滤 → 命令被重放"的隐患。
 		// 旧进程遗留的 never 记录（命令处理中崩溃，或旧版本从不 ack）直接清掉，
-		// 否则它们永远留在账本里，每次全量重写都要带上。
+		// 否则它们永远留在待处理记录里，每次全量重写都要带上。
 		let purged = 0;
 		for (const record of [...this.records.values()]) {
 			if (record.replayPolicy === "never" && record.owner !== this.owner) {

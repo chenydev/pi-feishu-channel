@@ -1,5 +1,5 @@
 /**
- * 会话指针持久化：conversationKey → 当前活动会话文件与世代。
+ * 会话指针持久化：conversationKey → 当前活动会话文件与版本号。
  *
  * 为什么要落盘：`/new` 的新会话文件如果只记在内存里，进程重启后就丢了 ——
  * 同一会话会回到最初的确定性文件，把应该翻篇的旧上下文带回来。
@@ -24,7 +24,7 @@ export interface ConversationPointer {
 	conversationKey: string;
 	/** 当前活动会话文件（绝对路径）。 */
 	sessionFile: string;
-	/** 会话世代：每次 /new 递增。 */
+	/** 会话版本号：每次 /new 递增。 */
 	generation: number;
 	updatedAt: number;
 	/** 历史会话（最近在前，最多保留 MAX_HISTORY 条）。 */

@@ -109,7 +109,7 @@ test("mention ID 匹配（open_id）", () => {
 	assert.equal(mentions[0].isSelf, true);
 });
 
-test("mention ID 不匹配时不允许 name 翻案（Hermes ID 优先）", () => {
+test("mention ID 不匹配时不允许用名字推翻（Hermes ID 优先）", () => {
 	const mentions = buildMentionsMap([{ id: { open_id: "ou_other" }, name: "小助手" }], BOT);
 	assert.equal(mentions[0].isSelf, false);
 });

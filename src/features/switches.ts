@@ -27,7 +27,7 @@ export const FEATURE_SWITCHES: readonly FeatureSwitch[] = [
 	{ name: "accessRequest", enabled: (c) => c.onboarding?.accessRequest === true },
 	// 实验开关：不属于可选能力插件，但同样默认关闭，线上是否打开同样需要一眼看到
 	{ name: "streamingCard", enabled: (c) => c.streamingCard?.enabled === true },
-	// 与实际生效条件一致：策略引擎没让权给 pi-permission-system 时，转发开关不生效
+	// 与实际生效条件一致：策略没有交给 pi-permission-system 时，转发开关不生效
 	{ name: "psForwarding", enabled: (c) => resolvePsForwardingConfig(c.approval).enabled },
 ];
 

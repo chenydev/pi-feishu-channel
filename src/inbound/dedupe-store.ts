@@ -46,7 +46,7 @@ export class DedupeStore {
 		return true;
 	}
 
-	/** 下游接管失败时撤销 reservation，使平台重投可再次处理。 */
+	/** 下游登记失败时撤销 reservation，使平台重投可再次处理。 */
 	forget(messageId: string): void {
 		if (!this.seen.delete(messageId)) return;
 		this.append({ messageId, seenAt: this.now(), forget: true });

@@ -5,7 +5,7 @@
  * 在平台限频或网络故障时进入冷却（而不是持续重试放大）。
  *
  * 语义边界（刻意保守）：
- * - 只有**易失**通道（live 流式更新）会因预算不足被跳过 —— 它本来就是 best-effort；
+ * - 只有**流式更新**通道（live）会因预算不足被跳过 —— 它本来就是 best-effort；
  * - `final` / `approval` 不受熔断影响（它们不能丢，宁可慢也不能静默消失）；
  * - 熔断期间 durable 队列（outbox/pending）保持原样：不标记成功、不删除、不改 UUID；
  * - 平台限频返回的 `retryAfterMs` 会写入冷却时间，避免自造数字。
@@ -38,7 +38,7 @@ interface BucketState {
 }
 
 export interface BudgetSnapshot {
-	/** 熔断是否打开（打开时易失通道停发）。 */
+	/** 熔断是否打开（打开时流式更新通道停发）。 */
 	open: boolean;
 	/** 熔断自动恢复时间（毫秒时间戳）。 */
 	resumeAt?: number;

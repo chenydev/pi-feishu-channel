@@ -160,7 +160,7 @@ export function accountSectionLines(input: UsageReportInput): string[] {
 	return lines;
 }
 
-/** 报告正文行（Markdown）。文本回退复用同一份行，避免两处口径漂移。 */
+/** 报告正文行（Markdown）。文本回退复用同一份行，避免两处口径不一致。 */
 export function usageReportLines(input: UsageReportInput): string[] {
 	const account = accountSectionLines(input);
 	return account.length ? [...sessionSectionLines(input), "", ...account] : sessionSectionLines(input);

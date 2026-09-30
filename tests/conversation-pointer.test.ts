@@ -161,7 +161,7 @@ test("会话指针：有执行中任务时 /new 默认拒绝，force 才切换�
 		void manager.route(running);
 		await waitUntil(() => promptStarted);
 		await manager.route(message("busy-2")); // 排队
-		assert.equal(manager.intakeLedger()?.has("busy-2"), true, "排队消息应已在账本中");
+		assert.equal(manager.intakeLedger()?.has("busy-2"), true, "排队消息应已在待处理记录中");
 
 		const blocked = await manager.resetConversation(running);
 		assert.equal(blocked.status, "busy");
@@ -174,7 +174,7 @@ test("会话指针：有执行中任务时 /new 默认拒绝，force 才切换�
 			assert.equal(forced.cancelled, 1, "被取消的排队任务数应可见");
 			assert.equal(forced.generation, 2);
 		}
-		assert.equal(manager.intakeLedger()?.has("busy-2"), false, "被取消任务必须落终态（从账本移除）");
+		assert.equal(manager.intakeLedger()?.has("busy-2"), false, "被取消任务必须落终态（从待处理记录移除）");
 		releasePrompt("ok");
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	} finally { rmSync(dir, { recursive: true, force: true }); }
@@ -225,7 +225,7 @@ test("会话指针：损坏索引跳过坏行，不影响有效指针", async ()
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("会话指针：ConversationStore 跨实例读回并支持递增世代", async () => {
+test("会话指针：ConversationStore 跨实例读回并支持递增版本号", async () => {
 	const dir = tempDir();
 	try {
 		const file = join(dir, "conversations.jsonl");

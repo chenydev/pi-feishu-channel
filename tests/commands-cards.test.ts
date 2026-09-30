@@ -59,7 +59,7 @@ test("入群与准入：欢迎卡与放行卡", () => {
 	assert.deepEqual(buttons(buildAllowChatCard({ chatId: "oc_1", reason: "x" })).map((b) => b.value), [{ op: "chat.allow", chatId: "oc_1" }]);
 });
 
-test("入群与准入：生命周期事件规整", () => {
+test("入群与准入：生命周期事件整理", () => {
 	assert.deepEqual(parseLifecycleEvent("recalled", { message_id: "om_1", chat_id: "oc" }), { type: "recalled", messageId: "om_1", chatId: "oc" });
 	assert.deepEqual(parseLifecycleEvent("bot_added", { chat_id: "oc", name: "群", operator_id: { open_id: "ou" } }), { type: "bot_added", chatId: "oc", chatName: "群", operatorOpenId: "ou" });
 	assert.deepEqual(parseLifecycleEvent("bot_removed", { chat_id: "oc" }), { type: "bot_removed", chatId: "oc" });

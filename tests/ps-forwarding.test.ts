@@ -356,7 +356,7 @@ test("展示：bash 显示命令原文并脱敏，path 显示路径，理由带�
 	assert.match(path.reason, /\/workspace/, "工作目录要写进理由（跨进程排查只能靠它）");
 });
 
-test("开关语义：打开转发仍需引擎让权给 PS，否则不生效（否则同一次调用会弹两张卡）", () => {
+test("开关语义：打开转发仍需把策略交给 PS，否则不生效（否则同一次调用会弹两张卡）", () => {
 	type ForwardingConfig = { forwarding?: { enabled?: boolean; parentSessionId?: string }; policyEngine?: "bridge" | "pi-permission-system" };
 	const base: ForwardingConfig = { policyEngine: "bridge" };
 	assert.deepEqual(
@@ -372,7 +372,7 @@ test("开关语义：打开转发仍需引擎让权给 PS，否则不生效（�
 	assert.deepEqual(
 		resolvePsForwardingConfig({ policyEngine: "pi-permission-system", forwarding: { enabled: true } }),
 		{ enabled: true, parentSessionId: DEFAULT_PS_FORWARDING_PARENT_ID, blockedBy: undefined },
-		"让权给 PS + 开关打开 = 生效",
+		"把策略交给 PS + 开关打开 = 生效",
 	);
 	assert.equal(
 		resolvePsForwardingConfig({ policyEngine: "pi-permission-system", forwarding: { enabled: true, parentSessionId: "  my-parent  " } }).parentSessionId,
@@ -570,7 +570,7 @@ test("转发：请求没带规则名时 always 降级为会话级，且不记表
 			const path = writeRequest(ctx.requests, req);
 			await waitFor(() => !existsSync(path));
 
-			assert.equal(store.size, 0, "没有规则名就不能记表 —— 否则等于把闸门挖空");
+			assert.equal(store.size, 0, "没有规则名就不能记表 —— 否则等于放开审批");
 			assert.equal(readResponse(ctx.responses, "req-1").state, "approved_for_session", "降级为会话级");
 		} finally {
 			await ctx.cleanup();

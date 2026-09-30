@@ -1,9 +1,9 @@
 /**
  * 共享请求预算与熔断：
- * - 令牌桶按类别限速，易失通道（live）预算不足时跳过（不丢内容）；
+ * - 令牌桶按类别限速，流式更新通道（live）预算不足时跳过（不丢内容）；
  * - final/approval 是硬需求：熔断期间也不阻断；
  * - 连续限频/网络失败触发冷却；平台 retry-after 参与冷却时长；
- * - 熔断只影响易失展示，**不改动** durable 队列（不标记成功、不删除、UUID 不变）。
+ * - 熔断只影响流式展示，**不改动** durable 队列（不标记成功、不删除、UUID 不变）。
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -42,7 +42,7 @@ test("限流熔断：final/approval 不受熔断影响", () => {
 	budget.record({ errorClass: "rate_limited" });
 	assert.equal(budget.snapshot().open, true, "应已熔断");
 
-	// 易失通道：熔断 + 半开探测用尽后被拒
+	// 流式更新通道：熔断 + 半开探测用尽后被拒
 	assert.equal(budget.tryAcquire("live").ok, true, "半开探测放行一次");
 	assert.equal(budget.tryAcquire("live").ok, false, "探测用尽后拒绝");
 	// 硬需求通道：始终放行
@@ -94,7 +94,7 @@ test("限流熔断：熔断期间 LiveChannel 跳过写入但保留内容（不�
 	channel.open("k", "om_1");
 	channel.append("k", "第一段");
 	await tick(20);
-	assert.equal(writes.length, 0, "冷却期间易失更新应被跳过");
+	assert.equal(writes.length, 0, "冷却期间流式更新应被跳过");
 
 	// 冷却结束：内容仍在，可继续写入（不丢字符）
 	now += 60_000;

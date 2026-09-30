@@ -170,19 +170,19 @@ test("cancel() 取消已排队的重连", async () => {
 	assert.equal(h.supervisor.pending, false);
 });
 
-test("重连：SDK 正在自愈时不插手；自愈超过上限才整体重建", async () => {
+test("重连：SDK 正在自动重连时不插手；自动重连超过上限才整体重建", async () => {
 	const h = harness();
 	let healing = true;
 	(h.target as { isSelfHealing?: () => boolean }).isSelfHealing = () => healing;
 	h.target.connected = false;
 	await h.advance(4 * 60_000);
-	assert.equal(h.target.reconnects, 0, "SDK 自愈期间不得打断它的重连阶梯");
+	assert.equal(h.target.reconnects, 0, "SDK 自动重连期间不得打断它的重连阶梯");
 	await h.advance(2 * 60_000);
 	assert.equal(h.target.reconnects, 1, "超过 5 分钟仍未恢复 → 整体重建");
 	healing = false;
 });
 
-test("重连：SDK 进入终态（不再自愈）→ 立即按退避重建", async () => {
+test("重连：SDK 进入终态（不再自动重连）→ 立即按退避重建", async () => {
 	const h = harness();
 	(h.target as { isSelfHealing?: () => boolean }).isSelfHealing = () => false;
 	h.target.connected = false;

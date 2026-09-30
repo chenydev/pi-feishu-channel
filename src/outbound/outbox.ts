@@ -64,7 +64,7 @@ export interface OutboxDeps {
 	onChange?: () => void;
 	/** 条目进入 failed（永久失败）时回调；final/error 类由调用方给用户一条可见提示。 */
 	onTerminalFailure?: (entry: OutboxEntry) => void;
-	/** 每次投递结果（喂给共享预算的熔断器：连续限频/网络错误时让易失通道让路）。 */
+	/** 每次投递结果（喂给共享预算的熔断器：连续限频/网络错误时让流式更新通道让路）。 */
 	onResult?: (result: SendResult) => void;
 }
 
@@ -107,7 +107,7 @@ export class Outbox {
 		this.schedule(0);
 	}
 
-	/** 先将所有 chunk 原子写入，再允许调用方确认本轮已可靠接管。 */
+	/** 先将所有 chunk 原子写入，再允许调用方确认本轮已可靠保存。 */
 	enqueue(chatId: string, content: string, opts: SendOptions, meta: EnqueueOptions): string[] {
 		const prepared = this.deps.prepare(chatId, content, opts);
 		if (prepared.length === 0) return [];
@@ -292,7 +292,7 @@ export class Outbox {
 			if (entry.errorClass === "fatal" || entry.attempts >= this.maxAttempts) {
 				entry.status = "failed";
 				this.deps.log?.("error", "feishu.outbox.failed", { envelopeId: entry.id, conversationKey: entry.laneKey, kind: entry.kind, attempts: entry.attempts, errorClass: entry.errorClass, lastError: entry.lastError });
-				try { this.deps.onTerminalFailure?.(entry); } catch { /* 通知失败不影响账本 */ }
+				try { this.deps.onTerminalFailure?.(entry); } catch { /* 通知失败不影响待处理记录 */ }
 				return;
 			}
 			entry.status = "pending";

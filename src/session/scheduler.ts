@@ -38,7 +38,7 @@ export class SessionScheduler<S extends SchedulableSession<I>, I> {
 	/** 正在运行的 pump（关闭时等它们收尾）。 */
 	runningPumps(): Promise<void>[] { return [...this.running]; }
 
-	/** 关闭时丢弃等待中的会话（它们的消息仍在接管账本里，重启后恢复）。 */
+	/** 关闭时丢弃等待中的会话（它们的消息仍在待处理记录里，重启后恢复）。 */
 	clearWaiting(): void { this.waiting.length = 0; }
 
 	schedule(session: S): void {

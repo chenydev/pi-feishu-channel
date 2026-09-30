@@ -87,7 +87,7 @@ export interface ConversationManagerDeps {
 	resolveUserName?: (openId: string) => Promise<string | undefined>;
 	/** 非聊天目标的交付（云文档评论回复）。返回是否送达。 */
 	deliverExternal?: (target: DeliveryTarget, text: string) => Promise<boolean>;
-	/** 按天用量账本（预算判定与周报）。 */
+	/** 按天用量记录（预算判定与周报）。 */
 	usageLedger?: UsageLedger;
 	/** 页脚美元→人民币折算（缺省按 DeepSeek 费率表；usage.provider = none 时恒为 undefined）。 */
 	cnyPerUsd?: (modelId: string | undefined) => number | undefined;
@@ -96,7 +96,7 @@ export interface ConversationManagerDeps {
 	/** 把本地文件经持久 outbox 发到会话（由桥层实现：校验 + 暂存 + enqueueMedia）。 */
 	sendLocalFile?: (chatId: string, path: string, opts: { replyTo?: string; threadId?: string }, meta: { dedupeKey: string; laneKey: string }) => { ok: boolean; error?: string };
 	/**
-	 * 会话指针文件（conversationKey → 当前会话文件/世代）。
+	 * 会话指针文件（conversationKey → 当前会话文件/版本号）。
 	 * 不设时退化为旧的内存后缀行为（/_new 重启会回退到初始文件）。
 	 */
 	conversationFile?: string;
@@ -160,7 +160,7 @@ export interface QueuedMessage {
 	resources: ResourceRef[];
 	replyToMessageId?: string;
 	replyToText?: string;
-	/** 话题（thread_id）透传：hermes 话题模式。 */
+	/** 话题（thread_id）原样传递：hermes 话题模式。 */
 	threadId?: string;
 	/**
 	 * 发起人 open_id。审批免审判定必须用它 —— conversationKey 只在「群聊+按人隔离」
@@ -253,7 +253,7 @@ export class ConversationManager {
 	/** 内存工作区别名（与持久化指针互补，避免无 store 时丢失当前工作区认知）。 */
 	private readonly workspaceAliasByKey = new Map<string, string>();
 	private readonly sessionKeyById = new Map<string, string>();
-	/** 共享请求预算（易失通道让路给最终交付与审批）。 */
+	/** 共享请求预算（流式更新通道让路给最终交付与审批）。 */
 	private readonly rateBudget: RateBudget;
 	/** 空闲回收参数与定时器。 */
 	private readonly idleTtlMs: number;
@@ -334,7 +334,7 @@ export class ConversationManager {
 
 	/**
 	 * sessionId → 会话。每个工具事件都要查好几次，不能每次全表线性扫描。
-	 * 索引是自愈缓存：命中后校验一致性，失配（会话被重建/回收）时回退扫描并回填，
+	 * 索引是会自我修正的缓存：命中后校验一致性，失配（会话被重建/回收）时回退扫描并回填，
 	 * 因此不必在每个创建/回收点手工维护。
 	 */
 	private sessionById(sessionId: string): BridgeSession | undefined {
@@ -417,7 +417,7 @@ export class ConversationManager {
 	async recoverPending(): Promise<number> {
 		if (!this.pendingEnabled) return 0;
 		const entries = this.pendingStore?.recoverable() ?? [];
-		// 命令类消息（never）不会出现在这里：PendingStore.recoverable() 在账本层已排除并清理。
+		// 命令类消息（never）不会出现在这里：PendingStore.recoverable() 在待处理记录层已排除并清理。
 		for (const e of entries) {
 			this.deps.log?.("warn", "feishu.conv.recover_pending", { chatId: e.message.chatId, messageId: e.message.messageId });
 			if (e.replayPolicy === "manual") {
@@ -452,7 +452,7 @@ export class ConversationManager {
 	}
 
 	/**
-	 * 入站流水线用的持久接管账本：准入通过即写账，使合并窗口内崩溃可恢复。
+	 * 入站流水线用的持久待处理记录：准入通过即写入，使合并窗口内崩溃可恢复。
 	 * 返回 undefined 表示 pending ledger 未启用，调用方需退化为纯内存行为。
 	 */
 	intakeLedger(): IntakeLedger | undefined {
@@ -562,7 +562,7 @@ export class ConversationManager {
 				replyTo: replyTargetOf(msg),
 				threadId: msg.threadId,
 			}, `${msg.messageId}:queue-full`, key);
-			// 流水线已在准入后提前接管；明确拒绝时清除该记录，避免重启后重放被拒消息。
+			// 流水线已在准入后提前登记；明确拒绝时清除该记录，避免重启后重放被拒消息。
 			this.pendingStore?.ack(msg.messageId);
 			return "rejected";
 		}
@@ -585,7 +585,7 @@ export class ConversationManager {
 				const reactionId = await this.deps.reactions.add(msg.messageId, this.deps.config.reaction.processingEmoji);
 				queued.reactionId = msg.messageId;
 				queued.emojiReactionId = reactionId ?? "";
-			} catch { /* reaction 失败不影响已持久接管的消息 */ }
+			} catch { /* reaction 失败不影响已持久登记的消息 */ }
 		}
 		if (options.behavior !== "queue" && await this.trySteer(sess, queued)) {
 			await this.markSteered(sess, queued);
@@ -1054,7 +1054,7 @@ export class ConversationManager {
 
 	/**
 	 * 清空排队（/queue clear）。正在执行的任务不受影响（要停它用 /stop）；
-	 * 被清掉的消息在接管账本里落终态（重启不重放）并撤掉处理中表情。
+	 * 被清掉的消息在待处理记录里落终态（重启不重放）并撤掉处理中表情。
 	 */
 	async clearQueued(msg: FeishuInboundMessage): Promise<number> {
 		const sess = this.sessions.get(buildConversationKey(msg, this.deps.config));
@@ -1355,7 +1355,7 @@ export class ConversationManager {
 	private getOrCreateSession(msg: FeishuInboundMessage, key: string): BridgeSession {
 		const existing = this.sessions.get(key);
 		if (existing) return existing;
-		// 恢复该会话的工作区（别名 → realpath；配置被移除时回落到默认）
+		// 恢复该会话的工作区（别名 → realpath；配置被移除时退回到默认）
 		const storedWorkspace = this.conversationStore?.get(key)?.workspace;
 		const effectiveWorkspace = this.workspaceAliasByKey.get(key) ?? storedWorkspace;
 		const workspaceResolved = effectiveWorkspace ? this.commands.resolveWorkspace(effectiveWorkspace) : undefined;

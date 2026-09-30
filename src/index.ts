@@ -116,7 +116,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 	let compensationTruncated = 0;
 	let compensationPromise: Promise<void> | undefined;
 	let lifecycleTail: Promise<void> = Promise.resolve();
-	/** 按天用量账本。 */
+	/** 按天用量记录。 */
 	let usageLedger: UsageLedger | undefined;
 	/** 定时任务（config.cron.enabled 时才建）。 */
 	let cronScheduler: CronScheduler | undefined;
@@ -556,7 +556,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 				return true;
 			}
 			case "/feishu always":
-				// 「始终批准」是持久放行：必须能看、能撤，否则一次点击等于永久挖掉一块闸门。
+				// 「始终批准」是持久放行：必须能看、能撤，否则一次点击就等于永久放开一部分审批。
 				reply(isAdmin ? alwaysApprovedCommand(args, { prefix: "/feishu always", operator: msg.senderId }) : "仅管理员或应用归属人可查看或撤销「始终批准」规则");
 				return true;
 			case "/feishu prompt":
@@ -745,7 +745,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 
 	/**
 	 * 「始终批准」查看/撤销 —— 飞书 `/feishu always` 与 TUI `/feishu:always` 共用一份逻辑，
-	 * 不要各写一份（文案与撤销语义会漂）。身份校验由调用方负责。
+	 * 不要各写一份（文案与撤销语义会不一致）。身份校验由调用方负责。
 	 */
 	function alwaysApprovedCommand(args: string[], opts: { prefix: string; operator?: string }): string {
 		if (!alwaysApproved) return "「始终批准」未启用（需要 pi-permission-system 转发模式）";
@@ -853,7 +853,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 	}
 
 	/**
-	 * `!<命令>` 直接执行。executeBash 不经过 tool_call 闸门，所以桥自己把关：
+	 * `!<命令>` 直接执行。executeBash 不经过 tool_call 拦截，所以桥自己把关：
 	 * 仅管理员；桥的命令分级 + PS 的 bash 规则，任一 deny 直接拒绝；ask 默认也拒绝（请让 agent 执行以走审批卡）；
 	 * 每次执行都写审计日志。
 	 */
@@ -983,8 +983,8 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 			log.warn("feishu.access_request.no_approver", {
 				chatId: msg.chatId, policy,
 				hint: policy === "owner"
-					? "accessApprovers=owner 但应用归属人未水合（需要 application:application:readonly 权限）；或把 onboarding.accessApprovers 放宽"
-					: "按 onboarding.accessApprovers 没有任何可审批的人（归属人/协作者水合失败且 config.admins 为空）",
+					? "accessApprovers=owner 但没有查到应用归属人（需要 application:application:readonly 权限）；或把 onboarding.accessApprovers 放宽"
+					: "按 onboarding.accessApprovers 没有任何可审批的人（查询归属人/协作者失败且 config.admins 为空）",
 			});
 			await sendChatCard(msg.chatId, buildAccessNoticeCard(`${atList([msg.senderId])} 本群还没有开通机器人，暂时找不到可以审批的人，请联系应用归属人开通。`, "grey"), replyOpts, "no_approver");
 			return;
@@ -1283,7 +1283,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 					lastError = undefined;
 					if (outageStartedAt) void compensateMissed(outageStartedAt);
 				} else {
-					// error（SDK 终态）与 reconnecting（SDK 自愈中）都算断线：补收窗口从第一次掉线算起
+					// error（SDK 终态）与 reconnecting（SDK 自动重连中）都算断线：补收窗口从第一次掉线算起
 					downSince ??= Date.now();
 				}
 				setStatus("conn", connState === "connected" ? "飞书桥已连接" : connState === "reconnecting" ? "飞书桥重连中（SDK）" : `飞书桥 ${connState}`);
@@ -1296,7 +1296,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 		usageLedger = new UsageLedger({ file: paths.usageDailyFile, timeZone: config.timezone });
 		clarificationStore = new ClarificationStore({
 			allowedResponderIds: () => effectiveAdmins(config),
-			// 管理员名单为空时不允许任何人作答（fail closed，避免任意群成员替用户做决定）
+			// 管理员名单为空时不允许任何人作答（默认拒绝，避免任意群成员替用户做决定）
 			onAudit: (event) => log.info("feishu.clarify.audit", event),
 		});
 		permissionBridge = new PermissionBridge({
@@ -1650,7 +1650,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 	 * PS 在每次工具调用时实时读环境变量，因此这里在会话创建前设置即可。
 	 *
 	 * 关闭时必须撤回自己的声明：否则 PS 会把 ask 转发到一个没人收的收件箱，
-	 * 子会话要等满 10 分钟才判拒绝（而正确行为是回落到它自己的判定）。
+	 * 子会话要等满 10 分钟才判拒绝（而正确行为是退回到它自己的判定）。
 	 */
 	function syncPsForwardingEnv(): void {
 		const { enabled, parentSessionId, blockedBy } = psForwardingConfigured();
@@ -1664,7 +1664,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 		const installed = piPermissionSystemInstalled();
 		const active = enabled && installed;
 		if (enabled && !installed) {
-			// 与 policyEngine 同一套失败关闭语义：没装成就不做父子声明。
+			// 与 policyEngine 同一套默认拒绝语义：没装成就不做父子声明。
 			log.error("feishu.approval.ps_forwarding_unavailable", { expected: "@gotgenes/pi-permission-system" });
 		}
 		const before = psForwardingOwnEnvId;
@@ -1752,20 +1752,20 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 			}
 		}
 
-		// 让权给 @gotgenes/pi-permission-system：它的 tool_call 闸门在桥之前执行，
+		// 把策略交给 @gotgenes/pi-permission-system：它的 tool_call 拦截在桥之前执行，
 		// deny 时桥的 handler 根本不会被调用（实测：PS 先 → 桥后，首个 block 立即返回）。
 		// 因此桥这一步只需"放行自己不再判断"，策略规则由该扩展的配置文件维护。
 		//
 		// 它的 ask **不经过这里** —— 走 approval.forwarding（PS 的父会话转发）：桥当应答方，
 		// 把请求文件变成审批卡，用户点完写回响应文件（见 approval/ps-forwarding.ts）。
-		// 所以这里继续直接放行，不能改成落到桥的弹卡逻辑：PS 的 ask 是在它自己的闸门里
+		// 所以这里继续直接放行，不能改成落到桥的弹卡逻辑：PS 的 ask 是在它自己的拦截逻辑里
 		// 等待父会话应答的，等它放行后本函数会被再调用一次，那时再弹一张卡就是对同一次
 		// 调用弹两次卡（两次判定还可能不一致）。
 		if (config.approval?.policyEngine === "pi-permission-system") {
 			if (piPermissionSystemInstalled()) {
 				return undefined;
 			}
-			// 失败关闭：扩展没装成 → 桥的审批是唯一防线，绝不能同时关掉
+			// 默认拒绝：扩展没装成 → 桥的审批是唯一防线，绝不能同时关掉
 			log.error("feishu.approval.policy_engine_unavailable", {
 				expected: "@gotgenes/pi-permission-system",
 				fallback: "bridge",
@@ -1907,7 +1907,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 				});
 				cronScheduler.start();
 			}
-			// 水合应用归属人（owner/creator）与应用协作者作为隐式管理员：自己驱动 agent
+			// 查询应用归属人（owner/creator）与应用协作者，作为隐式管理员：自己驱动 agent
 			// 时不必手工维护 open_id，且换应用后自动刷新（open_id 是按应用视角生成的）。
 			// 注意：这些人只豁免群策略层；群内 @ 仍按 adminBypassMention（默认 false）判定。
 			try {
@@ -1936,7 +1936,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 				} catch (collabError) {
 					log.warn("feishu.config.app_collaborators_hydrate_failed", {
 						error: collabError instanceof Error ? collabError.message : String(collabError),
-						hint: "协作者水合失败，仅归属人生效；管理员仍按 config.admins 生效",
+						hint: "查询应用协作者失败，仅归属人生效；管理员仍按 config.admins 生效",
 					});
 				}
 
@@ -1954,7 +1954,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 			} catch (error) {
 				log.warn("feishu.config.app_owner_hydrate_failed", {
 					error: error instanceof Error ? error.message : String(error),
-					hint: "缺少 application:application:readonly scope 时无法水合归属人；管理员仍按 config.admins 生效",
+					hint: "缺少 application:application:readonly scope 时无法查询应用归属人；管理员仍按 config.admins 生效",
 				});
 				config.implicitAdmins = [];
 			}
@@ -1993,7 +1993,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 			// 先停应答方：未决的转发请求已被 shutdown() 判拒绝，等它们把响应写完再撤心跳，
 			// 否则子会话要等满 10 分钟才知道没人服务。
 			await psForwarding?.stop();
-			// 入站在后台处理，先给在途消息一个有界的排空窗口（写进接管账本后重启可恢复）
+			// 入站在后台处理，先给在途消息一个有时限的收尾窗口（写进待处理记录后重启可恢复）
 			try {
 				await Promise.race([transport?.drainInbound(), new Promise((resolve) => setTimeout(resolve, 2_000).unref())]);
 			} catch { /* best effort */ }
@@ -2133,7 +2133,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 		},
 	});
 	// 撤销入口：「始终批准」是一条**持久放行**，必须能看、能撤。
-	// 没有它，一次点击就等于永久挖掉一块闸门而无人能收回。
+	// 没有它，一次点击就等于永久放开一部分审批，而且无人能收回。
 	pi.registerCommand("feishu:always", {
 		description: "查看/撤销「始终批准」规则：/feishu:always [revoke <规则名>]",
 		// TUI 是本地操作（能开 TUI 的人本来就持有进程），不做身份校验；飞书侧同名命令有管理员校验。
@@ -2194,7 +2194,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 	// 优雅关闭：docker stop/restart 时撤回进行中的进度消息与 Typing 表情，
 	// 避免残留"🤖 正在处理…"消息和敲键盘表情（kill -9 时由 recoverPending 兜底重发）。
 	// 关闭预算 8s（Docker 默认 10s 后 SIGKILL）。旧的 3s 比 shutdown 内部几段 2s 等待之和还短，
-	// outbox 在途请求会被截断；8s 给排空入站、收尾进度、等在途发送留足时间，又不至于被 SIGKILL。
+	// outbox 在途请求会被截断；8s 给处理完入站消息、收尾进度、等在途发送留足时间，又不至于被 SIGKILL。
 	process.on("SIGTERM", () => {
 		const budgetMs = Number(process.env.FEISHU_SHUTDOWN_BUDGET_MS) || 8_000;
 		const started = Date.now();
@@ -2243,7 +2243,7 @@ function psConfigFile(): string {
 
 /**
  * 检查 @gotgenes/pi-permission-system 是否真的装在 agent 目录里。
- * 用途：policyEngine=pi-permission-system 时的失败关闭判定 —— 若扩展缺席，
+ * 用途：policyEngine=pi-permission-system 时的默认拒绝判定 —— 若扩展缺席，
  * 桥的审批就是唯一防线，此时必须继续用自己的策略而不是静默放行。
  * 父会话转发（approval.forwarding）也复用该判定：扩展不在就没有 ask 会转发过来。
  *

@@ -327,7 +327,7 @@ export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env
  * 页脚的最终开关：群级设置优先，其次全局默认。
  *
  * 单独抽出来是因为两处必须一致 —— 会话管理器（决定发不发页脚）与
- * `/feishu footer` 命令（决定显示什么状态）。两处各写一份判断早晚会漂。
+ * `/feishu footer` 命令（决定显示什么状态）。两处各写一份判断早晚会不一致。
  */
 export function resolveFooterEnabled(cfg: BridgeConfig, chatId: string): { enabled: boolean; source: "chat" | "global" } {
 	const override = cfg.footerByChat?.[chatId];
@@ -357,7 +357,7 @@ export function saveConfig(homeDir: string, cfg: BridgeConfig, env: NodeJS.Proce
  * 只把指定字段（点分路径，如 `groupPolicyByChat`、`approval.autoApprove`）写回 config.json，
  * 其余内容保持文件原样。
  *
- * 为什么不整份写：运行时配置里有补齐的默认值、启动时水合的 implicitAdmins、env 覆盖的值。
+ * 为什么不整份写：运行时配置里有补齐的默认值、启动时从开放平台查到的 implicitAdmins、env 覆盖的值。
  * 整份写回会把默认值"冻结"进文件（以后代码里改默认值不再生效），一次 `/feishu footer off` 就够了。
  */
 export function saveConfigFields(homeDir: string, cfg: BridgeConfig, fields: readonly string[]): boolean {
@@ -394,7 +394,7 @@ export function saveConfigFields(homeDir: string, cfg: BridgeConfig, fields: rea
  */
 function withoutEnvCredentials(cfg: BridgeConfig, fileCfg: Partial<BridgeConfig>, env: NodeJS.ProcessEnv): Partial<BridgeConfig> {
 	const out: Partial<BridgeConfig> = { ...cfg };
-	// 运行时水合的字段绝不落盘（换应用后必须重新水合）
+	// 启动时查询得到的字段绝不写回文件（换应用后必须重新查询）
 	delete out.implicitAdmins;
 	delete out.appOwnerId;
 	delete out.appCollaboratorIds;

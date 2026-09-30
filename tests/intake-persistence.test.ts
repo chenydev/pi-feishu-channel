@@ -1,9 +1,9 @@
 /**
- * 入站接管持久化：
- * - dedupe 标记已落盘但账本无记录（崩溃窗口）→ 重投必须重新准入，而不是被去重吞掉；
- * - 已接管的消息重投 → 按重复丢弃，不重复执行；
- * - 批处理窗口内消息必须先落账；合并后账本只留主记录（恢复时重放合并内容）；
- * - dispatch 失败 → 账本保留交给启动恢复，避免“重投 + 恢复”双跑。
+ * 入站持久化持久化：
+ * - dedupe 标记已落盘但待处理记录无记录（崩溃窗口）→ 重投必须重新准入，而不是被去重吞掉；
+ * - 已登记的消息重投 → 按重复丢弃，不重复执行；
+ * - 批处理窗口内消息必须先写入待处理记录；合并后待处理记录只留主记录（恢复时重放合并内容）；
+ * - dispatch 失败 → 待处理记录保留交给启动恢复，避免“重投 + 恢复”双跑。
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -99,24 +99,24 @@ function harness(): Harness {
 	};
 }
 
-test("入站接管：dedupe 标记已落盘但账本无记录（崩溃窗口）→ 重投重新准入", async () => {
+test("入站持久化：dedupe 标记已落盘但待处理记录无记录（崩溃窗口）→ 重投重新准入", async () => {
 	const h = harness();
 	try {
-		// 进程 A：只写了去重标记就崩溃（准入/接管都没走到）
+		// 进程 A：只写了去重标记就崩溃（准入/登记都没走到）
 		new DedupeStore({ file: h.dedupeFile, capacity: 64, ttlMs: 60_000 }).check("om_crash");
 
-		// 进程 B 重启：同一 dedupe 文件 + 空账本，平台重投同一条消息
+		// 进程 B 重启：同一 dedupe 文件 + 空的待处理记录，平台重投同一条消息
 		const pipeline = h.pipeline();
 		await pipeline.handle(fakeMsg({ messageId: "om_crash" }));
 
 		assert.equal(h.dispatched.length, 1, "orphan 重投必须重新准入，而不是被去重吞掉");
 		assert.equal(pipeline.getStats().recovered, 1);
 		assert.equal(pipeline.getStats().duplicate, 0);
-		assert.ok(h.store.has("om_crash"), "重投后应已持久接管");
+		assert.ok(h.store.has("om_crash"), "重投后应已持久登记");
 	} finally { h.cleanup(); }
 });
 
-test("入站接管：已接管消息重投按重复丢弃，不重复执行", async () => {
+test("入站持久化：已登记的消息重投按重复丢弃，不重复执行", async () => {
 	const h = harness();
 	try {
 		await h.pipeline().handle(fakeMsg({ messageId: "om_once" }));
@@ -126,49 +126,49 @@ test("入站接管：已接管消息重投按重复丢弃，不重复执行", as
 		const second = h.pipeline();
 		await second.handle(fakeMsg({ messageId: "om_once" }));
 
-		assert.equal(h.dispatched.length, 1, "已接管消息不得重复 dispatch");
+		assert.equal(h.dispatched.length, 1, "已登记的消息不得重复 dispatch");
 		assert.equal(second.getStats().duplicate, 1);
 		assert.equal(second.getStats().recovered, 0);
 	} finally { h.cleanup(); }
 });
 
-test("入站接管：批处理窗口内消息先落账，合并后账本只留主记录", async () => {
+test("入站持久化：批处理窗口内消息先写入待处理记录，合并后待处理记录只留主记录", async () => {
 	const h = harness();
 	try {
 		const pipeline = h.pipeline({ batch: BATCH });
 		await pipeline.handle(fakeMsg({ messageId: "om_b1", text: "第一条" }));
 		await pipeline.handle(fakeMsg({ messageId: "om_b2", text: "第二条" }));
 
-		// 窗口未到期时两条都必须在账本里（这是原实现丢失的那段）
-		assert.ok(h.store.has("om_b1") && h.store.has("om_b2"), "窗口内消息必须已被持久接管");
+		// 窗口未到期时两条都必须在待处理记录里（这是原实现丢失的那段）
+		assert.ok(h.store.has("om_b1") && h.store.has("om_b2"), "窗口内消息必须已被持久登记");
 
 		pipeline.flushBatch(`${fakeMsg().chatId}:u:ou_user`);
 		await new Promise((r) => setTimeout(r, 60));
 
 		const restarted = new PendingStore(h.pendingFile);
 		const recovered = restarted.recoverable();
-		assert.equal(recovered.length, 1, "合并后账本只应有一条记录");
+		assert.equal(recovered.length, 1, "合并后待处理记录只应有一条记录");
 		assert.equal(recovered[0].message.text, "第一条\n第二条");
 		assert.deepEqual(recovered[0].sourceMessageIds, ["om_b1", "om_b2"]);
-		assert.ok(restarted.has("om_b1") && restarted.has("om_b2"), "成员 id 仍应判定为已接管");
+		assert.ok(restarted.has("om_b1") && restarted.has("om_b2"), "成员 id 仍应判定为已登记");
 	} finally { h.cleanup(); }
 });
 
-test("入站接管：dispatch 失败时保留账本，重投不重复执行", async () => {
+test("入站持久化：dispatch 失败时保留待处理记录，重投不重复执行", async () => {
 	const h = harness();
 	try {
 		const failing = h.pipeline({ onDispatch: async () => { throw new Error("boom"); } });
 		await assert.rejects(() => failing.handle(fakeMsg({ messageId: "om_fail" })));
-		assert.ok(h.store.has("om_fail"), "失败消息必须留在账本等待启动恢复");
+		assert.ok(h.store.has("om_fail"), "失败消息必须留在待处理记录等待启动恢复");
 
 		const second = h.pipeline();
 		await second.handle(fakeMsg({ messageId: "om_fail" }));
-		assert.equal(h.dispatched.length, 0, "重投不得绕过账本再跑一次");
+		assert.equal(h.dispatched.length, 0, "重投不得绕过待处理记录再跑一次");
 		assert.equal(second.getStats().duplicate, 1);
 	} finally { h.cleanup(); }
 });
 
-test("入站接管：接管后崩溃，新进程可从账本恢复该消息", async () => {
+test("入站持久化：登记后崩溃，新进程可从待处理记录恢复该消息", async () => {
 	const h = harness();
 	try {
 		const failing = h.pipeline({ onDispatch: async () => { throw new Error("runtime crash"); } });
@@ -181,7 +181,7 @@ test("入站接管：接管后崩溃，新进程可从账本恢复该消息", as
 	} finally { h.cleanup(); }
 });
 
-test("入站接管：未启用 intake 时保持原行为（命中即丢弃）", async () => {
+test("入站持久化：未启用 intake 时保持原行为（命中即丢弃）", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "pi-feishu-intake-off-"));
 	try {
 		const dispatched: FeishuInboundMessage[] = [];
@@ -288,16 +288,16 @@ test("崩溃恢复后注入恢复提示：不改原文、且只注入一次", as
 	assert.ok(!captured.some((t) => t.includes("不要重新执行")), "提示不应重复注入");
 });
 
-// ------------------------------------------------ 命令消息必须从账本终结 ----
+// ------------------------------------------------ 命令消息必须从待处理记录终结 ----
 // 线上事故（2026-09-27 复核）：pending.jsonl 里 49 条记录全是从未 ack 的命令（never），
-// recoverable() 排除 never，于是它们永远留在账本里，每次全量重写都带着。
+// recoverable() 排除 never，于是它们永远留在待处理记录里，每次全量重写都带着。
 
-test("命令被消费后立即从账本移除（不留 never 残骸）", async () => {
+test("命令被消费后立即从待处理记录移除（不留 never 残骸）", async () => {
 	const h = harness();
 	try {
 		const pipeline = h.pipeline({ onCommand: async (m) => m.text.startsWith("/model") });
 		await pipeline.handle(fakeMsg({ messageId: "cmd-model", text: "/model" }));
-		assert.equal(h.store.depth(), 0, "已消费的命令不应留在账本里");
+		assert.equal(h.store.depth(), 0, "已消费的命令不应留在待处理记录里");
 	} finally { h.cleanup(); }
 });
 

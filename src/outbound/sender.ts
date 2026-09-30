@@ -68,7 +68,7 @@ function responseSucceeded(res: unknown): res is SendResponse {
 }
 
 function errorToResult(error: unknown): SendResult {
-	// 统一归一化 —— 同时看 HTTP status、业务码、响应体与 Retry-After 响应头。
+	// 统一分类 —— 同时看 HTTP status、业务码、响应体与 Retry-After 响应头。
 	const normalized = normalizeApiError(error);
 	return {
 		success: false,

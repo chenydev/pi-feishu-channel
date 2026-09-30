@@ -2,7 +2,7 @@
  * pi-permission-system「父会话转发」的桥侧应答方。
  *
  * 背景：桥把策略让给了 @gotgenes/pi-permission-system（approval.policyEngine），
- * 该扩展在子会话里先于桥的闸门执行 —— 它判 deny 时桥收不到调用，判 **ask** 时会做
+ * 该扩展在子会话里先于桥的拦截执行 —— 它判 deny 时桥收不到调用，判 **ask** 时会做
  * 「父会话转发」：把请求写进文件信箱，等父会话应答。应答方**不必是 pi 进程**，
  * PS 只按心跳文件判断「这个 id 有没有人在收」，不看对方是什么。
  *
@@ -17,7 +17,7 @@
  *      真正的发起会话从请求文件的 requesterSessionId 读，不靠环境变量区分。
  *      父会话 id 取固定值（而不是某个会话 id），任何会话都不会与它重合。
  *   2. 发布心跳 <root>/serving/<id>.json（内容带桥进程真实 pid）——
- *      PS 判目标是 dead_pid 是硬证据，不等 staleness；目标看起来没人服务时
+ *      PS 判目标是 dead_pid 是可靠依据，不等 staleness；目标看起来没人服务时
  *      子会话只等 8 个轮询周期（2s）就 abandon 判拒绝。
  *   3. 轮询 <root>/sessions/<id>/requests/*.json → 弹飞书审批卡
  *   4. 用户点完 → 原子写 <root>/sessions/<id>/responses/<reqId>.json
@@ -226,7 +226,7 @@ export interface ForwardedRequestView {
 	requestId: string;
 	requesterSessionId: string;
 	requesterAgentName: string;
-	/** PS 判定的闸门（bash / path / external_directory / 工具名…）。 */
+	/** PS 的判定（bash / path / external_directory / 工具名…）。 */
 	surface: string;
 	toolName: string;
 	/** 审批人真正要看的东西：bash 是命令原文，path 是路径。 */
@@ -433,7 +433,7 @@ export class PsForwardingServer {
 	pendingCount(): number { return this.inflight.size; }
 
 	/**
-	 * 开始服务：建目录 → 立刻发心跳 → 立即排空一次收件箱 → 起两个定时器。
+	 * 开始服务：建目录 → 立刻发心跳 → 立即处理一次收件箱 → 起两个定时器。
 	 * 心跳与轮询分开定时：收件箱处理再慢也不能让「我还在服务」这个信号迟到。
 	 */
 	start(): void {
@@ -446,7 +446,7 @@ export class PsForwardingServer {
 		this.ensureWatcher();
 		this.heartbeatTimer = setInterval(() => this.publishHeartbeat(), this.heartbeatRefreshMs);
 		this.heartbeatTimer.unref?.();
-		// 立即排空：子会话的宽限期只有 2s，不能等第一个轮询周期
+		// 立即处理：子会话的宽限期只有 2s，不能等第一个轮询周期
 		this.drain();
 		this.log("info", "feishu.approval.ps_forwarding_started", { parentSessionId: this.parentSessionId });
 	}
@@ -600,7 +600,7 @@ export class PsForwardingServer {
 					: [...PS_FORWARDING_CHOICES],
 			});
 			// 用户选了「始终批准」→ 把规则记进桥侧规则表（下次同规则直接放行）。
-			// 没有 matchedPattern 时不记：没有判定依据就"永久放行"会把整个闸门挖空，
+			// 没有 matchedPattern 时不记：没有判定依据就"永久放行"等于把审批整个放开，
 			// 这时 always 退化为 session（responseFor 的既有映射），并留一条告警。
 			if (decision.verdict === "approved" && decision.choice === "always") {
 				if (view.matchedPattern && this.deps.alwaysApproved) {
@@ -706,7 +706,7 @@ export class PsForwardingServer {
 			mkdirSync(psForwardingServingDir(this.root), { recursive: true, mode: 0o700 });
 			this.writeJsonAtomic(psForwardingHeartbeatPath(this.root, this.parentSessionId), {
 				sessionId: this.parentSessionId,
-				// PS 判 dead_pid 是硬证据（不等 staleness），所以必须是真实存活进程的 pid
+				// PS 判 dead_pid 是可靠依据（不等 staleness），所以必须是真实存活进程的 pid
 				pid: this.pid,
 				updatedAt: this.now(),
 			});
@@ -838,7 +838,7 @@ export class PsForwardingServer {
  * 声明/撤销本进程的父子关系。
  *
  * 为什么要显式撤销：变量是进程级的，关掉转发后若还留着，PS 会把 ask 转发到一个
- * 没人收的收件箱 → 子会话等满超时才判拒绝（而正确的行为是回落到它自己的判定）。
+ * 没人收的收件箱 → 子会话等满超时才判拒绝（而正确的行为是退回到它自己的判定）。
  * 只删自己设过的值（环境变量可能是外层 spawner 设的，别人的声明不能动）。
  */
 export function applyPsForwardingParentEnv(options: {

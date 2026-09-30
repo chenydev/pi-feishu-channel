@@ -362,7 +362,7 @@ export class RunExecutor {
 					await sendReply(text);
 				} else if (cardDelivered) {
 					// 卡内容已由飞书侧持久化，等价于「final 已交付」；
-					// 必须同时置 durableHandled，否则接管账本不会 ack，重启后会把同一条消息重放成重复任务。
+					// 必须同时置 durableHandled，否则待处理记录不会 ack，重启后会把同一条消息重放成重复任务。
 					durableHandled = true;
 				} else {
 					this.deps.log?.("warn", "feishu.stream_card.fallback_to_text", logMeta({ chatId: sess.chatId }));
@@ -421,7 +421,7 @@ export class RunExecutor {
 		} finally {
 			const steered = sess.steered.splice(0);
 			if (!runSucceeded && !sess.stopRequested && steered.length > 0) {
-				// 当前 run 异常时，已接管的 steer 降级为独立 FIFO turn，避免静默丢失。
+				// 当前 run 异常时，已并入当前轮的 steer 降级为独立 FIFO turn，避免静默丢失。
 				sess.queue.unshift(...steered);
 			}
 			if (streamCard) {

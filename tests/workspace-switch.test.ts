@@ -217,7 +217,7 @@ test("工作区切换：切换到当前别名是幂等的，不重建会话", as
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("工作区切换：配置被移除后回落到默认工作区（不静默使用旧路径）", async () => {
+test("工作区切换：配置被移除后退回到默认工作区（不静默使用旧路径）", async () => {
 	const dir = tempDir();
 	try {
 		const ws = join(dir, "workspace");
@@ -233,6 +233,6 @@ test("工作区切换：配置被移除后回落到默认工作区（不静默�
 			conversationFile: storeFile,
 		});
 		await manager.commands.modelConversation(message("m1"));
-		assert.equal(state.cwds.length, 0, "别名失效后必须回落到默认工作区");
+		assert.equal(state.cwds.length, 0, "别名失效后必须退回到默认工作区");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

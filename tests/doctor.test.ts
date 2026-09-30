@@ -18,7 +18,7 @@ test("doctor：不泄露 secret，逐项报告凭据/连接/身份/目录/管理
 		const text = formatDoctor(checks);
 		assert.match(text, /credentials: 已配置/);
 		assert.match(text, /运行中但未连接/);
-		assert.match(text, /fail closed/);
+		assert.match(text, /默认拒绝/);
 		assert.doesNotMatch(text, /super-secret/);
 	} finally { rmSync(home, { recursive: true, force: true }); }
 });
@@ -82,16 +82,16 @@ test("doctor：未提供转发上下文时不出这两项（不假装通过）",
 });
 
 // ── permissions 项必须看「有效管理员」（本轮修的真 bug）────────────────
-// 只看 config.admins 会误报：admins 常常是空的（本来就靠归属人水合撑着），
-// 于是诊断谎报"审批将 fail closed"，而审批卡其实一直点得动。
+// 只看 config.admins 会误报：admins 常常是空的（本来就靠启动时自动查到的归属人），
+// 于是诊断谎报"审批将默认拒绝"，而审批卡其实一直点得动。
 
 test("doctor：只有隐式管理员（应用归属人）时也应判通过", () => {
 	const config = { ...DEFAULT_CONFIG, admins: [], implicitAdmins: ["ou_owner"], appOwnerId: "ou_owner", appCollaboratorIds: [] };
 	const checks = runDoctor({ config, paths: resolvePaths("/tmp/doctor-imp") });
 	const permissions = checks.find((c) => c.name === "permissions");
-	assert.equal(permissions?.ok, true, "隐式管理员也算管理员 —— 否则会误报 fail closed");
+	assert.equal(permissions?.ok, true, "隐式管理员也算管理员 —— 否则会误报默认拒绝");
 	assert.match(permissions?.detail ?? "", /可审批 1 人/);
-	assert.match(permissions?.detail ?? "", /应用归属人 1 · 应用协作者 0 · 管理员（config.admins）0/, "按角色分开报，便于排查水合是否生效");
+	assert.match(permissions?.detail ?? "", /应用归属人 1 · 应用协作者 0 · 管理员（config.admins）0/, "按角色分开报，便于排查是否查到了归属人");
 });
 
 test("doctor：显式 + 隐式都为空时判不通过，并给出两条修复路径", () => {
@@ -99,8 +99,8 @@ test("doctor：显式 + 隐式都为空时判不通过，并给出两条修复�
 	const checks = runDoctor({ config, paths: resolvePaths("/tmp/doctor-none") });
 	const permissions = checks.find((c) => c.name === "permissions");
 	assert.equal(permissions?.ok, false);
-	assert.match(permissions?.detail ?? "", /fail closed/);
-	assert.match(permissions?.detail ?? "", /application:application:readonly/, "要指出水合需要哪个 scope");
+	assert.match(permissions?.detail ?? "", /默认拒绝/);
+	assert.match(permissions?.detail ?? "", /application:application:readonly/, "要指出查询归属人需要哪个 scope");
 	assert.match(permissions?.detail ?? "", /admins 里显式配置/, "要给出后备方案");
 });
 

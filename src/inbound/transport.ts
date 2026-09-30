@@ -1,13 +1,13 @@
 /**
- * 飞书 WS 长连 transport：lark SDK 包装 + bot 身份水合 + 事件分发 + 连接状态。
+ * 飞书 WS 长连 transport：lark SDK 包装 + 机器人身份获取 + 事件分发 + 连接状态。
  * 关键决策：
  * - WSClient 开启 SDK 自带重连（对齐 hermes 与 SDK 官方 LarkChannel）：断线由 SDK 的重连阶梯处理，
  *   transport 只通过 onReconnecting/onReconnected 观察状态；上层 ReconnectSupervisor 只在 SDK 报告终态
- *   失败（failed/idle）或自愈超时后才整体重建。`transport.sdkAutoReconnect=false` 可退回旧的自管模式；
+ *   失败（failed/idle）或自动重连超时后才整体重建。`transport.sdkAutoReconnect=false` 可退回旧的自管模式；
  * - 带 extraUaTags ['channel']（官方推荐：不带时部分租户不推群内 @ 事件）；
  * - 关闭时发 CLOSE 帧（close() 非 force）：terminate 不告知服务端，服务端会继续往失效端点推送直到超时；
  * - SDK 回调立即返回：消息按 chat 串行在后台处理；卡片回调 2.5s 内没算完先回 toast，算完再刷卡；
- * - bot 身份水合 GET /open-apis/bot/v3/info（openId + name 一起水合，hermes 设计）；
+ * - 获取机器人身份 GET /open-apis/bot/v3/info（openId 与名字一起获取，hermes 设计）；
  * - 事件负载可能被 SDK 包成 { event: {...} }，统一剥壳。
  */
 import { type DocCommentEvent, parseDocCommentEvent } from "./doc-comments.js";
@@ -76,7 +76,7 @@ export interface TransportDeps {
 	onLifecycleEvent?: (event: LifecycleEvent) => Promise<void>;
 }
 
-/** 桥关心的非消息事件（字段已规整，处理方不用再猜 SDK 结构）。 */
+/** 桥关心的非消息事件（字段已整理成统一格式，处理方不用再猜 SDK 结构）。 */
 export type LifecycleEvent =
 	| { type: "recalled"; messageId: string; chatId?: string }
 	| { type: "bot_added"; chatId: string; chatName?: string; operatorOpenId?: string }
@@ -86,7 +86,7 @@ export type LifecycleEvent =
 	| { type: "doc_comment"; event: DocCommentEvent }
 	| { type: "meeting_invite"; invite: MeetingInvite };
 
-/** 把 SDK 事件 data 规整成 LifecycleEvent（字段缺失返回 undefined）。 */
+/** 把 SDK 事件 data 整理成 LifecycleEvent（字段缺失返回 undefined）。 */
 export function parseLifecycleEvent(kind: string, data: unknown): LifecycleEvent | undefined {
 	const d = (data ?? {}) as Record<string, unknown>;
 	const str = (value: unknown) => (typeof value === "string" && value ? value : undefined);
@@ -200,7 +200,7 @@ export class FeishuTransport {
 
 	/**
 	 * SDK 正在自己重连：上层 supervisor 此时不应插手 —— 插手就是把 SDK 的重连循环打断重来。
-	 * 只有 SDK 进入终态（failed/idle）或自愈超时，才由 supervisor 整体重建。
+	 * 只有 SDK 进入终态（failed/idle）或自动重连超时，才由 supervisor 整体重建。
 	 */
 	isSelfHealing(): boolean {
 		if (!this.sdkAutoReconnect || !this.running) return false;
@@ -213,7 +213,7 @@ export class FeishuTransport {
 		return this.inboundInFlight;
 	}
 
-	/** 等待入站后台处理排空（关闭时调用；有界由调用方控制）。 */
+	/** 等待入站后台处理完（关闭时调用；有界由调用方控制）。 */
 	async drainInbound(): Promise<void> {
 		await Promise.allSettled([...this.inboundTails.values()]);
 	}
@@ -243,7 +243,7 @@ export class FeishuTransport {
 		this.closeWs();
 		this.client = new sdk.Client({ appId: config.appId, appSecret: config.appSecret, appType: 0, domain });
 
-		// bot 身份水合（hermes 设计：不依赖 env/时序；失败不阻塞启动，降级为空）
+		// 获取机器人身份（hermes 设计：不依赖 env/时序；失败不阻塞启动，降级为空）
 		this.botIdentity = await this.hydrateBotIdentity();
 		if (!this.running || generation !== this.generation) return;
 		// 配置里写死的 open_id 与接口不一致 = 换过应用（open_id 按应用视角生成），以接口为准并告警
@@ -394,7 +394,7 @@ export class FeishuTransport {
 		}
 	}
 
-	/** 整体重建：SDK 自愈失败（终态）后由 supervisor 调用（指数退避在 supervisor）。 */
+	/** 整体重建：SDK 自动重连失败（终态）后由 supervisor 调用（指数退避在 supervisor）。 */
 	async reconnect(): Promise<void> {
 		if (this.reconnectPromise) return this.reconnectPromise;
 		this.reconnectPromise = (async () => {
@@ -804,7 +804,7 @@ export class FeishuTransport {
 		}
 	}
 
-	/** bot 身份水合：/open-apis/bot/v3/info（带 TTL 缓存，避免高频重启打爆接口）。 */
+	/** 获取机器人身份：/open-apis/bot/v3/info（带 TTL 缓存，避免高频重启打爆接口）。 */
 	async hydrateBotIdentity(): Promise<BotIdentity> {
 		const ttl = this.deps.probeTtlMs ?? 60_000;
 		if (this.probeCache && this.now() - this.probeCache.at < ttl) return this.probeCache.identity;
@@ -893,7 +893,7 @@ export class FeishuTransport {
 		});
 
 		if (!normalized) return;
-		// 自身回声防御
+		// 过滤自己发出的消息
 		if (normalized.isBot && normalized.senderId === this.botIdentity.openId) {
 			this.deps.log?.("debug", "feishu.transport.drop_self_echo", { messageId });
 			return;

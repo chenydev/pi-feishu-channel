@@ -62,7 +62,7 @@ function backendWith(options: BackendOptions, state?: { level: string }): Sessio
 				availableThinkingLevels() { return levels; },
 				thinkingLevel() { return levelState.level; },
 				setThinkingLevel(level: string) {
-					// 模拟 provider 的 clamp：不支持的等级回落到最低可用等级
+					// 模拟 provider 的 clamp：不支持的等级退回到最低可用等级
 					levelState.level = levels.includes(level) ? level : (levels[0] ?? "");
 				},
 			};
@@ -87,7 +87,7 @@ test("模型与思考命令：/models 分页列出并标记当前模型（含 pr
 		const second = await manager.commands.listModels(message("m1"), 1);
 		assert.ok(second.includes("第 2/2 页"), second);
 		const overflow = await manager.commands.listModels(message("m1"), 99);
-		assert.ok(overflow.includes("第 2/2 页"), "越界页应回落到最后一页");
+		assert.ok(overflow.includes("第 2/2 页"), "越界页应退回到最后一页");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

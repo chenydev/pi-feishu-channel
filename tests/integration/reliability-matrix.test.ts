@@ -1,5 +1,5 @@
 /**
- * 离线可靠性矩阵：用真实桥组件（pipeline / manager / sender / outbox / 账本）
+ * 离线可靠性矩阵：用真实桥组件（pipeline / manager / sender / outbox / 待处理记录）
  * 加 Fake 飞书 transport 与 Fake session backend，覆盖跨组件的端到端链路。
  *
  * 覆盖点：
@@ -24,7 +24,7 @@ import { DEFAULT_CONFIG, type BridgeConfig, type FeishuInboundMessage, type Sess
 function config(over: Partial<BridgeConfig> = {}): BridgeConfig {
 	return {
 		...DEFAULT_CONFIG, allowChats: ["oc_group", "oc_chat", "oc_x", "oc_real_chat", "oc_a", "oc_b", "oc_g", "oc_y", "oc_other", "oc_ok"],
-		// 该文件的 message() 用 p2p；DM 已改为 fail-closed，故让 ou_user 扮演应用归属人（启动时水合）
+		// 该文件的 message() 用 p2p；DM 已改为默认拒绝，故让 ou_user 扮演应用归属人（启动时查询得到）
 		implicitAdmins: ["ou_user"],
 		reaction: { ...DEFAULT_CONFIG.reaction, enabled: false },
 		footer: { enabled: false, showCost: false },
@@ -135,7 +135,7 @@ test("可靠性矩阵·限频：按 Retry-After 等待后才重试，最终送�
 			send: async () => {
 				attemptTimes.push(Date.now());
 				if (attemptTimes.length === 1) {
-					// 模拟 sender 已归一化的限频结果
+					// 模拟 sender 已统一分类的限频结果
 					return { success: false, error: "429: rate limited", retryable: true, retryAfterMs: 400, errorClass: "rate_limited" };
 				}
 				return { success: true, messageId: "om_ok" };
@@ -211,7 +211,7 @@ test("可靠性矩阵·端到端：飞书消息 → 会话执行 → durable fin
 		const finals = feishu.sentTexts().filter((text) => text.includes("这是最终回答"));
 		assert.equal(finals.length, 1, "final 必须只投递一次");
 		assert.equal(outbox.stats().sent, 1);
-		assert.equal(manager.intakeLedger()?.has("m7-1"), false, "完成后账本必须清空该消息（终态可对账）");
+		assert.equal(manager.intakeLedger()?.has("m7-1"), false, "完成后待处理记录必须清空该消息（终态可核对）");
 
 		// 平台重投同一 messageId：不得产生第二次投递
 		await pipeline.handle(message("m7-1"));

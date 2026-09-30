@@ -20,7 +20,7 @@ type RoleSource = Pick<BridgeConfig, "admins" | "appOwnerId" | "appCollaboratorI
 export function roleOf(cfg: RoleSource, openId: string): AdminRole | undefined {
 	if (cfg.appOwnerId === openId) return "owner";
 	if (cfg.appCollaboratorIds?.includes(openId)) return "collaborator";
-	// 旧数据兼容：只有 implicitAdmins（没分开水合）时，归属人/协作者统一按协作者展示
+	// 旧数据兼容：只有 implicitAdmins（没有区分归属人与协作者）时，归属人/协作者统一按协作者展示
 	if (!cfg.appOwnerId && !cfg.appCollaboratorIds && cfg.implicitAdmins?.includes(openId)) return "collaborator";
 	if (cfg.admins.includes(openId)) return "admin";
 	return undefined;

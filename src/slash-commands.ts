@@ -1,5 +1,5 @@
 /**
- * 兼容入口：命令元数据的唯一真源已移到 `commands/registry.ts`。
+ * 兼容入口：命令元数据的唯一来源已移到 `commands/registry.ts`。
  * 这里只把注册表投影成旧的 `{ usage, description }` 形状，供仍在引用它的地方使用。
  */
 import { COMMANDS, formatHelpText } from "./commands/registry.js";

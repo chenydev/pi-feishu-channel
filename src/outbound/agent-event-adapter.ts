@@ -16,7 +16,7 @@ export interface AdaptedUsage {
 	cacheRead: number;
 	cacheWrite: number;
 	/**
-	 * 按模型配置估算的费用（归一为总金额）；缺失表示"未知"，不得当作 0。
+	 * 按模型配置估算的费用（统一为总金额）；缺失表示"未知"，不得当作 0。
 	 *
 	 * Pi 的 `Usage.cost` 是 `{ input, output, cacheRead, cacheWrite, total }` **对象**
 	 * （`@earendil-works/pi-ai/dist/types.d.ts` 的 Usage），不是数字 —— 早期版本按数字读，
@@ -27,7 +27,7 @@ export interface AdaptedUsage {
 
 const COST_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 
-/** 把 Pi 的 `usage.cost`（对象，取 total）归一为数字；兼容历史/扩展的数字形状。 */
+/** 把 Pi 的 `usage.cost`（对象，取 total）统一换算为数字；兼容历史/扩展的数字形状。 */
 function costFrom(value: unknown): number | undefined {
 	if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
 	if (!value || typeof value !== "object") return undefined;

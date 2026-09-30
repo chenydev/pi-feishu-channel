@@ -50,7 +50,7 @@ export function runDoctor(input: {
 			parentSessionId?: string;
 			/** 心跳文件是否新鲜（父会话在服务）。 */
 			serving?: boolean;
-			/** 「始终批准」规则数 + 规则名（便于发现"谁把闸门挖空了"）。 */
+			/** 「始终批准」规则数 + 规则名（便于发现"谁把审批放开了"）。 */
 			alwaysApproved?: { count: number; patterns: string[]; enabled: boolean };
 		};
 	};
@@ -147,12 +147,12 @@ export function runDoctor(input: {
 		...statusLines,
 		{ name: "credentials", ok: Boolean(input.config.appId && input.config.appSecret), detail: input.config.appId && input.config.appSecret ? "已配置" : "缺少 appId/appSecret" },
 		{ name: "transport", ok: Boolean(input.transport?.isRunning()), detail: input.transport?.isConnected() ? "WS 已连接" : input.transport?.isRunning() ? "运行中但未连接" : "未启动" },
-		{ name: "bot_identity", ok: Boolean(input.transport?.getBotIdentity().openId), detail: input.transport?.getBotIdentity().openId ? "已水合" : "未取得 open_id" },
+		{ name: "bot_identity", ok: Boolean(input.transport?.getBotIdentity().openId), detail: input.transport?.getBotIdentity().openId ? "已获取" : "未取得 open_id" },
 		{ name: "session_dir", ok: existsSync(input.paths.sessionDir) && writable(input.paths.sessionDir), detail: input.paths.sessionDir },
 		{ name: "outbox_dir", ok: existsSync(outboxParent) && writable(outboxParent), detail: outboxParent },
-		// 必须看「有效管理员」= 显式 admins + 启动时水合的归属人/协作者。
-		// 只看 config.admins 会误报：admins 常常是空的（本来就靠归属人水合撑着），
-		// 而判定链全部走 effectiveAdmins —— 只看 admins 会谎报"审批将 fail closed"，
+		// 必须看「有效管理员」= 显式 admins + 启动时从开放平台查到的归属人/协作者。
+		// 只看 config.admins 会误报：admins 常常是空的（本来就靠启动时自动查到的归属人），
+		// 而判定链全部走 effectiveAdmins —— 只看 admins 会谎报"审批将默认拒绝"，
 		// 实际审批卡是点得动的。
 		(() => {
 			const effective = effectiveAdmins(input.config);
@@ -162,8 +162,8 @@ export function runDoctor(input: {
 				ok: effective.length > 0,
 				detail: effective.length > 0
 					? `可审批 ${effective.length} 人：应用归属人 ${counts.owner} · 应用协作者 ${counts.collaborator} · 管理员（config.admins）${counts.admin}`
-					: "没有任何管理员（显式与隐式都为空）—— 审批卡将无人能点（fail closed）。"
-						+ "请确认应用归属人能水合（需要 application:application:readonly scope），或在 config.json 的 admins 里显式配置。",
+					: "没有任何管理员（显式与隐式都为空）—— 审批卡将无人能点（默认拒绝）。"
+						+ "请确认能查到应用归属人（需要 application:application:readonly scope），或在 config.json 的 admins 里显式配置。",
 			};
 		})(),
 		// 开通申请开启时：按 accessApprovers 必须至少有一个能审批的人，否则申请无人可批
@@ -175,7 +175,7 @@ export function runDoctor(input: {
 				ok: approvers.length > 0,
 				detail: approvers.length > 0
 					? `群开通审批：${accessApproverHint(policy)}（${approvers.length} 人）`
-					: `群开通审批策略为「${accessApproverHint(policy)}」，但没有符合的人 —— 开通申请无人可批。检查归属人水合，或放宽 onboarding.accessApprovers`,
+					: `群开通审批策略为「${accessApproverHint(policy)}」，但没有符合的人 —— 开通申请无人可批。检查是否查到了应用归属人，或放宽 onboarding.accessApprovers`,
 			};
 		})()] : []),
 		// 权限范围在未实际探测前写「未验证」，不假装通过，也不自动发送测试消息

@@ -176,7 +176,7 @@ test("outbox：fatal 直接终止；同 lane FIFO、不同 lane 并行", async (
 	}
 });
 
-test("outbox：terminal failed dedupe 不得伪装成已可靠接管", async () => {
+test("outbox：terminal failed dedupe 不得伪装成已可靠保存", async () => {
 	const { dir, file } = tempOutbox();
 	try {
 		const outbox = new Outbox({

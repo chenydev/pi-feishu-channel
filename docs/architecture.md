@@ -16,9 +16,9 @@ pi-feishu-channel 是一个 [pi](https://www.npmjs.com/package/@earendil-works/p
 ```
 src/
   types.ts  pi-types.ts  config.ts  config/     核心类型与配置
-  runtime/     单实例锁、状态文件、重连监管、限流熔断、诊断、用量账本、定时任务、告警
-  inbound/     飞书长连接、消息规整、准入、去重与合批、入站流水线
-  outbound/    错误归一化、长文分片、发送、流式通道、持久化 outbox、页脚指标
+  runtime/     单实例锁、状态文件、重连监管、限流熔断、诊断、用量记录、定时任务、告警
+  inbound/     飞书长连接、消息解析、准入、去重与合批、入站流水线
+  outbound/    错误统一分类、长文分片、发送、流式通道、持久化 outbox、页脚指标
   approval/    权限桥、命令分级、审批卡、pi-permission-system 父会话转发
   session/     pi 会话后端、会话管理器、调度、单轮执行、进度、会话指针
   commands/    命令注册表、状态与帮助卡片
@@ -39,7 +39,7 @@ src/
   │  1. 去重（dedupe-store）       平台重投的同一 message_id 只处理一次
   │  2. 合批（pipeline-utils）     短时间内的连续消息合成一轮
   │  3. 准入（admit）              群策略 / 白名单 / @ 判定 / bot 过滤 —— 除去重外唯一的丢弃点
-  │  4. 接管账本（pending-store）  先持久化，再派发：崩溃后可以重放
+  │  4. 待处理记录（pending-store）  先持久化，再派发：崩溃后可以重放
   │  5. 回复解析                   拉取被回复消息的原文
   ▼
 会话管理 session/conversation-manager
@@ -47,8 +47,8 @@ src/
   │  忙碌时：新消息并入当前轮（steer）或排队
   ▼
 单轮执行 session/run-executor
-  │  pi agent 执行；工具调用经过审批闸门（approval/）
-  │  进度消息、流式卡片走易失通道（outbound/live-channel、streaming-card）
+  │  pi agent 执行；工具调用经过审批检查（approval/）
+  │  进度消息、流式卡片走流式更新通道（outbound/live-channel、streaming-card）
   ▼
 最终回复 outbound/outbox → sender
   │  先写入持久化 outbox，再发送；失败按错误类别重试、降级或回退
@@ -62,14 +62,14 @@ src/
 
 | # | 不变量 | 主要实现 | 主要测试 |
 |---|---|---|---|
-| 1 | **先持久化后确认**：入站消息进入内存批次前先写接管账本；最终回复先写 outbox 再发送 | `pending-store`、`outbox` | `intake-persistence`、`outbox` |
+| 1 | **先持久化后确认**：入站消息进入内存批次前先写待处理记录；最终回复先写 outbox 再发送 | `pending-store`、`outbox` | `intake-persistence`、`outbox` |
 | 2 | **一个会话键**：合批、会话、outbox 通道、审批都使用同一个 `conversationKey` | `conversation-key` | `conversation-manager` |
 | 3 | **同 key 串行**：一个会话同时最多一轮在执行；超时的轮次被取消后，下一轮才能开始 | `scheduler`、`run-executor` | `scheduler`、`scheduler-fairness` |
-| 4 | **易失通道不承载正确性**：流式编辑失败不影响最终回复；最终回复由 outbox 对账 | `live-channel`、`streaming-card` | `live-final-ordering`、`streaming-card` |
-| 5 | **ID 优先**：@ 判定两侧都有同层 ID 时，ID 不同即不匹配，不能再用名字翻案 | `normalize` | `normalize`、`admit` |
+| 4 | **流式更新通道不承载正确性**：流式编辑失败不影响最终回复；最终回复由 outbox 确认送达 | `live-channel`、`streaming-card` | `live-final-ordering`、`streaming-card` |
+| 5 | **ID 优先**：@ 判定两侧都有同层 ID 时，ID 不同即不匹配，不能再用名字推翻判定 | `normalize` | `normalize`、`admit` |
 | 6 | **不静默丢弃**：除去重和准入外，所有拒绝、溢出和永久失败都记录原因和关联 ID | 各模块日志 | `pipeline`、`outbox` |
 | 7 | **审批跟随执行**：一轮结束或会话重置时，未决审批立即失效，旧卡片不能再授予权限 | `permission-bridge` | `permission-run-lifecycle` |
-| 8 | **失败即关闭**：白名单为空表示全部拒绝；没有管理员时审批卡无人可点 | `admit`、`permission-bridge` | `admit`、`permission-bridge` |
+| 8 | **默认拒绝**：白名单为空表示全部拒绝；没有管理员时审批卡无人可点 | `admit`、`permission-bridge` | `admit`、`permission-bridge` |
 
 ## 5. 会话模型
 
@@ -86,11 +86,11 @@ src/
 
 工具调用有三道关，依次判定：
 
-1. **pi-permission-system**（如果安装了，并且 `approval.policyEngine` 让权给它）：它的 `tool_call` 闸门先于本扩展执行。它判定 deny 时直接拦截；判定 ask 时，可以通过**父会话转发**把请求变成飞书审批卡。
+1. **pi-permission-system**（如果安装了，并且 `approval.policyEngine` 把策略交给它）：它的 `tool_call` 拦截先于本扩展执行。它判定 deny 时直接拦截；判定 ask 时，可以通过**父会话转发**把请求变成飞书审批卡。
 2. **命令分级**（内置策略）：只读命令免审，危险命令直接拒绝，其余需要审批。
 3. **审批卡**：发给会话，只有管理员（显式配置的管理员 + 应用归属人 / 协作者）能点。选项有「批准一次 / 本会话批准 / 始终批准 / 拒绝」；超时按拒绝处理。
 
 ## 7. 与 pi 的边界
 
 - 只使用 pi 官方导出的 API；本地类型声明（`src/pi-types.ts`）保持独立的类型检查。
-- 每个会话是一个独立的 pi 子会话。子会话加载扩展时会剔除本扩展，否则每个子会话都会再启动一个飞书长连接；同时注入一个内联扩展，提供审批闸门和文件、通知、提问工具。
+- 每个会话是一个独立的 pi 子会话。子会话加载扩展时会剔除本扩展，否则每个子会话都会再启动一个飞书长连接；同时注入一个内联扩展，提供审批检查和文件、通知、提问工具。

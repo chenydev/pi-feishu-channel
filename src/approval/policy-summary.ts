@@ -1,6 +1,6 @@
 /**
  * `/feishu approvals` —— 汇总"哪些操作要审批"。
- * 直接执行命令的放行判定也用这里的 PS 规则匹配（executeBash 不经过 tool_call 闸门，桥得自己把关）。
+ * 直接执行命令的放行判定也用这里的 PS 规则匹配（executeBash 不经过 tool_call 拦截，桥得自己把关）。
  *
  * 只读 pi-permission-system 的配置文件做**摘要**，不复刻它的完整语义：
  * 摘要的目标是让人知道"大致哪些会弹卡、哪些直接拒"，精确判定仍以 PS 运行时为准。
@@ -86,7 +86,7 @@ export function summarizeApprovalPolicy(input: {
 			if (typeof defaultRule === "string") lines.push(`· 其他工具：${label(defaultRule)}`);
 		}
 	} else {
-		if (engine === "pi-permission-system") lines.push("", "⚠️ 配置为 pi-permission-system，但该扩展未安装 —— 已回落到桥自己的审批。");
+		if (engine === "pi-permission-system") lines.push("", "⚠️ 配置为 pi-permission-system，但该扩展未安装 —— 已退回到桥自己的审批。");
 		lines.push("", "引擎：桥内置（bash 命令按语义分级）");
 		const policy = config.approval.commandPolicy;
 		if (policy?.enabled === false) lines.push("· bash：每条命令都弹审批卡（命令分级已关闭）");

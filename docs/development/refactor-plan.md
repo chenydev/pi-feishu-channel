@@ -26,7 +26,7 @@
 
 | 阶段 | 内容 | 条目 |
 |---|---|---|
-| A | 基线整理 | A1 内部编号清理、A2 提交与注释约定 |
+| A | 基线整理 | A1 内部编号清理、A2 提交与注释约定、A3 去掉黑话 |
 | B | 可观测性基线 | B1 结构指标、B2 已启用能力清单 |
 | C | 会话管理器收尾 | C1 删除转发方法 |
 | D | 拆分扩展入口 | D0 行为锁定测试、D1–D6 逐块拆出、D7 网关扩展按路径识别 |
@@ -54,6 +54,15 @@
 - **改动**：新增 `CONTRIBUTING.md`。
 - **可观测 / 单独测试**：不适用（纯文档）。
 
+### A3 去掉黑话
+
+注释、测试名、文档和用户可见的提示里有不少只有作者才懂的词，比如「水合」（hydrate 的直译，实际意思是启动时从开放平台查询应用归属人）、「接管账本」「易失通道」「让权」「fail closed」。
+
+- **改动**：按上下文改写成直白的说法；`CONTRIBUTING.md` 增加对照表。代码标识符与日志事件名（如 `app_owner_hydrated`、`IntakeLedger`）属于对外契约，不改。
+- **可观测**：`grep` 以下词无输出。
+- **单独测试**：`grep -rnE '水合|账本|闸门|易失|自愈|让权|fail[- ]closed|失败即关闭|真源|挖空|翻案|对账|世代|回声|规整|排空|归一' src tests README.md`（docs 里只有本节引用了这些词）
+- **验收**：`npm run check` 全绿（有断言依赖 doctor 的提示文案，已同步修改）。
+
 ## 5. 阶段 B：可观测性基线
 
 先把「怎么观测」建起来，后面每一项才有数可查。
@@ -68,7 +77,7 @@
 
 默认关闭的能力有 13 项：11 项可选能力，加上流式卡片、PS 父会话转发两个实验开关。目前「线上到底开了哪些」只能去翻配置文件，人工翻很容易漏看。
 
-- **改动**：新增 `src/features/switches.ts`，登记 13 个开关及其生效条件（与实际生效条件一致：例如 STT 必须同时有 endpoint，PS 转发必须已让权给 pi-permission-system）；`enabledFeatures(config)` 的结果写进启动日志、`status.json` 和 `/feishu doctor`。
+- **改动**：新增 `src/features/switches.ts`，登记 13 个开关及其生效条件（与实际生效条件一致：例如 STT 必须同时有 endpoint，PS 转发要求策略已交给 pi-permission-system）；`enabledFeatures(config)` 的结果写进启动日志、`status.json` 和 `/feishu doctor`。
 - **可观测**：
   - 日志：`feishu.bridge.features { enabled: [...] }`（在 `bridge started` 之前一行）
   - `status.json`：`features: string[]`
@@ -97,7 +106,7 @@ src/
   commands/dispatch.ts      命令查表分发 + 未知命令提示
   commands/handlers/*.ts    按组拆分的命令处理
   interaction/card-router.ts 卡片回调：去重 → 按 op 查表 → 鉴权 → 处理
-  approval/gate.ts          工具审批闸门（管理员免审、策略引擎让权）
+  approval/gate.ts          工具审批检查（管理员免审、策略交给 pi-permission-system）
   approval/ps-forwarding-sync.ts PS 父会话转发的环境与服务同步
   features/*.ts             11 个可选能力，每个一个模块
 ```
@@ -108,7 +117,7 @@ src/
 
 - **改动**：新增 `tests/integration/extension-entry.test.ts`，用假 pi + 飞书假服务（`tests/integration/fake-feishu.ts`）从扩展入口驱动，覆盖：
   1. 卡片点击鉴权：发起人 / 管理员 / 其他人 / 重复 token / 跨群
-  2. 工具审批闸门：管理员免审、策略引擎让权给 pi-permission-system、无路由放行
+  2. 工具审批检查：管理员免审、策略交给 pi-permission-system、无路由放行
   3. 命令权限：`/feishu policy`、`/feishu always`、`/feishu workspace`、`/model -g`、`/cron` 的管理员判定
   4. 开通审批：只有有权限的人能点「放行此群」
 - **可观测**：新测试文件的用例数（写进 progress）。
@@ -131,12 +140,12 @@ src/
 - **单独测试**：`npx tsx --test tests/card-router.test.ts`（鉴权矩阵 + op 冲突）。
 - **验收**：D0 的卡片用例全绿。
 
-### D3 工具审批闸门
+### D3 工具审批检查
 
 - **改动**：`gateToolCall` 拆到 `approval/gate.ts`；PS 转发的环境变量与服务同步拆到 `approval/ps-forwarding-sync.ts`。
 - **可观测**：日志 `feishu.approval.admin_skip`、`feishu.approval.policy_engine_unavailable`、`feishu.approval.ps_forwarding_started` 不变。
 - **单独测试**：`npx tsx --test tests/approval-gate.test.ts tests/ps-forwarding.test.ts`；再用 G4 的隔离 e2e 脚本跑一次完整转发链路。
-- **验收**：D0 的闸门用例全绿；真实环境走一次审批卡点击（见 [operations.md](../operations.md) §审批链路验证）。
+- **验收**：D0 的审批检查用例全绿；真实环境走一次审批卡点击（见 [operations.md](../operations.md) §审批链路验证）。
 
 ### D4 命令分发
 
@@ -224,7 +233,7 @@ export interface FeatureHooks {
 |---|---|---|
 | G1 | 文档骨架：索引、架构、运维与排障、测试 | 链接检查：`node scripts/check-links.mjs` |
 | G2 | 配置参考（从 README 拆出，按字段列出类型、默认值、含义） | E1 之后由 schema 生成，和 schema 对比无差异 |
-| G3 | 审批链路：内置策略、pi-permission-system 让权、父会话转发 | 文中命令逐条可执行 |
+| G3 | 审批链路：内置策略、把策略交给 pi-permission-system、父会话转发 | 文中命令逐条可执行 |
 | G4 | 不需要凭据的 PS 转发隔离 e2e 脚本（`scripts/e2e/`） | 脚本本身就是测试 |
 
 ## 9. 不做的事

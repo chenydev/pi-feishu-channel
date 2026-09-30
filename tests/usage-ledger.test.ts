@@ -7,7 +7,7 @@ import { UsageLedger, budgetState, formatUsageWeek, localDate } from "../src/run
 
 const base = { conversationKey: "k", input: 10, output: 5, cacheRead: 0, cacheWrite: 0 };
 
-test("用量账本：按天记账，今天的费用按群累计", () => {
+test("用量记录：按天记账，今天的费用按群累计", () => {
 	const dir = mkdtempSync(join(tmpdir(), "usage-"));
 	try {
 		let now = Date.UTC(2026, 8, 28, 4);
@@ -28,7 +28,7 @@ test("用量账本：按天记账，今天的费用按群累计", () => {
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("用量账本：超出保留期与坏行在加载时被压缩掉", () => {
+test("用量记录：超出保留期与坏行在加载时被压缩掉", () => {
 	const dir = mkdtempSync(join(tmpdir(), "usage-"));
 	try {
 		const file = join(dir, "u.jsonl");
@@ -44,7 +44,7 @@ test("用量账本：超出保留期与坏行在加载时被压缩掉", () => {
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("用量账本：预算状态与周报格式", () => {
+test("用量记录：预算状态与周报格式", () => {
 	assert.equal(budgetState(1, undefined), "ok");
 	assert.equal(budgetState(0.79, 1), "ok");
 	assert.equal(budgetState(0.8, 1), "warn");

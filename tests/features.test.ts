@@ -53,7 +53,7 @@ test("能力清单：判定与实际生效条件一致", () => {
 
 	const forwardingWithoutPolicyEngine = base();
 	forwardingWithoutPolicyEngine.approval = { ...forwardingWithoutPolicyEngine.approval, forwarding: { enabled: true } };
-	assert.deepEqual(enabledFeatures(forwardingWithoutPolicyEngine), [], "策略引擎没有让权时转发开关不生效");
+	assert.deepEqual(enabledFeatures(forwardingWithoutPolicyEngine), [], "策略没有交给 pi-permission-system 时转发开关不生效");
 
 	const retentionZero = base();
 	retentionZero.retention = { sessionDays: 0 };

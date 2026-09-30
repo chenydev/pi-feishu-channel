@@ -72,7 +72,7 @@ assert.deepEqual(tools.map((tool) => tool.name), ["feishu_send_local_file", "fei
 	assert.equal(handlers.get("tool_call")?.length, 1);
 });
 
-test("子会话钩子：tool_call 在有路由时经审批 gate，并透传阻断结果", async () => {
+test("子会话钩子：tool_call 在有路由时经审批 gate，并原样返回阻断结果", async () => {
 	const { api, handlers } = fakePi();
 	const { ctx, calls } = fakeCtx(ROUTE);
 	createBridgeInlineExtension(ctx)(api);
@@ -189,5 +189,5 @@ test("内联扩展注册压缩与终局事件（用户侧可见性）", () => {
 	assert.ok(registered.includes("session_compact_failed"), "压缩失败也要说明");
 	// agent_end 之后 Pi 可能继续 auto-retry/compact/follow-up，只有 agent_settled 是终局
 	assert.ok(registered.includes("agent_settled"), "必须订阅终局信号");
-	assert.ok(registered.includes("tool_call"), "原有的工具闸门不能丢");
+	assert.ok(registered.includes("tool_call"), "原有的工具审批检查不能丢");
 });

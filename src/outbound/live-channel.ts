@@ -1,5 +1,5 @@
 /**
- * 易失流式通道 + 单目标串行写入器。
+ * 流式更新通道 + 单目标串行写入器。
  *
  * 为什么不能用单个 `flushing` Promise 表示在途写入：
  * 第二次写入会**覆盖**第一次的引用 —— `claimFinalTarget()` 只等到最后一次写入，
@@ -145,12 +145,12 @@ export interface LiveChannelDeps {
 	now?: () => number;
 	/** 写入截止时间（默认 20s）。 */
 	writeTimeoutMs?: number;
-	/** 共享请求预算 —— 预算不足或限流冷却时跳过本次易失更新（不丢内容）。 */
+	/** 共享请求预算 —— 预算不足或限流冷却时跳过本次流式更新（不丢内容）。 */
 	budget?: RateBudget;
 	log?: (level: "debug" | "info" | "warn" | "error", msg: string, meta?: unknown) => void;
 }
 
-/** 易失流式通道：只改善首 token 体验，正确性始终由 durable final 保证。 */
+/** 流式更新通道：只改善首 token 体验，正确性始终由 durable final 保证。 */
 export class LiveChannel {
 	private states = new Map<string, LiveState>();
 	private readonly writer: SerialWriter;
@@ -188,7 +188,7 @@ export class LiveChannel {
 	}
 
 	/**
-	 * 停止易失更新，把现有消息交给 durable final 编辑。
+	 * 停止流式更新，把现有消息交给 durable final 编辑。
 	 * 返回 undefined 表示不应复用该消息（无内容 / 已熔断 / 存在超时未确认写入）。
 	 */
 	async claimFinalTarget(key: string): Promise<string | undefined> {
@@ -223,7 +223,7 @@ export class LiveChannel {
 		state.timer = setTimeout(() => {
 			state.timer = undefined;
 			if (state.closed || this.states.get(key) !== state) return;
-			// 易失通道让路给最终交付/审批；预算不足只是「这次不发」，文本仍留在 state.text
+			// 流式更新通道让路给最终交付/审批；预算不足只是「这次不发」，文本仍留在 state.text
 			if (this.deps.budget) {
 				const lease = this.deps.budget.tryAcquire("live", key);
 				if (!lease.ok) {

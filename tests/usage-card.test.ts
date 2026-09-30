@@ -69,7 +69,7 @@ test("用量报告：卡片把两段分开（会话 + 分割线 + 小号账户�
 	assert.equal(card.body.elements[1]?.tag, "hr");
 	assert.equal(card.body.elements[2]?.text_size, "notation", "账户段用小号字（次要信息）");
 	assert.equal(card.body.elements[2]?.content, accountSectionLines(fullInput).join("\n"));
-	// 文本回退 = 两段拼起来（同一份行，不会两处口径漂移）
+	// 文本回退 = 两段拼起来（同一份行，不会两处口径不一致）
 	assert.equal(usageReportLines(fullInput).join("\n"), [
 		...sessionSectionLines(fullInput), "", ...accountSectionLines(fullInput),
 	].join("\n"));

@@ -2,8 +2,8 @@
  * CardKit 流式卡片（默认关闭）：
  * - 默认不启用；`streamingCard.enabled` 或环境变量 FEISHU_STREAM_CARD=1 才开；
  * - 创建卡片 → 发送引用 → 节流更新 → 收尾写最终正文；
- * - 任一 API 失败都必须降级（available=false、调用方回落到文本通道），不能抛出打断 run；
- * - 卡片成功承载 final 时必须 ack 接管账本（否则重启会重放成重复任务）。
+ * - 任一 API 失败都必须降级（available=false、调用方退回到文本通道），不能抛出打断 run；
+ * - 卡片成功承载 final 时必须 ack 待处理记录（否则重启会重放成重复任务）。
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -219,7 +219,7 @@ test("开关默认关闭：未配置时 enabled=false", () => {
 	}
 });
 
-test("流式卡片：卡片承载 final 后必须 ack 接管账本（否则重启会重放成重复任务）", async () => {
+test("流式卡片：卡片承载 final 后必须 ack 待处理记录（否则重启会重放成重复任务）", async () => {
 	const dir = mkdtempSync(join(tmpdir(), "pi-feishu-card-pending-"));
 	const pendingFile = join(dir, "pending.jsonl");
 	try {

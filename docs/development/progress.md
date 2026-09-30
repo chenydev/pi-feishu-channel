@@ -22,13 +22,14 @@
 |---|---|---|---|---|---|---|
 | A1 | 内部编号清理 | ✅ | — | `internal_id_refs` = 0 | `grep -rnE '\b[A-HP][0-9]?-[0-9]{2}\b' src tests` | 无输出 |
 | A2 | 提交与注释约定 | ✅ | — | — | — | — |
+| A3 | 去掉黑话 | ✅ | | 对照词 `grep` 无输出 | 见 refactor-plan A3 的 grep 命令 | 66 个文件；doctor 与准入提示文案同步改写 |
 | B1 | 结构指标 | ✅ | `3261ffe` | `npm run metrics` | `npm run metrics -- --json` | 合法 JSON；`tests` = 650，与 `npm test` 一致 |
 | B2 | 已启用能力清单 | ✅ | `1e56fae` | 日志 `feishu.bridge.features`；`status.json.features`；doctor `features` | `npx tsx --test tests/features.test.ts` | 4 例通过；用生产配置离线核对得到 `accessRequest、streamingCard、psForwarding`（此前人工翻配置漏看了 psForwarding） |
-| C1 | 删除转发方法 | ✅ | | `manager_forwarders` 16 → 0 | `npx tsx --test tests/session-browse-resume.test.ts tests/workspace-switch.test.ts tests/model-thinking-commands.test.ts` | 20 例通过；`manager_lines` 1590 → 1510；80 处调用点改为 `.commands.xxx()` |
+| C1 | 删除转发方法 | ✅ | `f4ac6a4` | `manager_forwarders` 16 → 0 | `npx tsx --test tests/session-browse-resume.test.ts tests/workspace-switch.test.ts tests/model-thinking-commands.test.ts` | 20 例通过；`manager_lines` 1590 → 1510；80 处调用点改为 `.commands.xxx()` |
 | D0 | 行为锁定测试 | ⬜ | | 新增用例数 | `tests/integration/extension-entry.test.ts` | |
 | D1 | BridgeRuntime | ⬜ | | `index_closure_state` → ≤ 3 | D0 + `tests/bridge-runtime.test.ts` | |
 | D2 | 卡片回调路由 | ⬜ | | `feishu.card.*` 不变；`feishu.card.op_conflict` | `tests/card-router.test.ts` | |
-| D3 | 工具审批闸门 | ⬜ | | `feishu.approval.*` 不变 | `tests/approval-gate.test.ts` + G4 | |
+| D3 | 工具审批检查 | ⬜ | | `feishu.approval.*` 不变 | `tests/approval-gate.test.ts` + G4 | |
 | D4 | 命令分发 | ⬜ | | `feishu.command` 不变 | `tests/command-dispatch.test.ts` | |
 | D5.1 | 定时任务 | ⬜ | | `features` 含 `cron` | `tests/features/cron.test.ts` | |
 | D5.2 | 桥自身告警 | ⬜ | | `features` 含 `alerts` | `tests/features/alerts.test.ts` | |

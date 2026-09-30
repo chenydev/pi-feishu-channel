@@ -177,7 +177,7 @@ test("运行超时会 abort 并 dispose，下一条消息新建 session", async 
 	assert.ok(sent.every((item) => item.chatId === "oc_real_chat"));
 });
 
-test("最终回复只写入 durable outbox，进度消息保持易失", async () => {
+test("最终回复只写入 durable outbox，进度消息仍走流式更新", async () => {
 	const volatile: Array<{ chatId: string; text: string }> = [];
 	const durable: Array<{ chatId: string; text: string; meta: { dedupeKey: string; laneKey: string; kind: string } }> = [];
 	const logs: Array<{ message: string; meta?: Record<string, unknown> }> = [];
@@ -223,7 +223,7 @@ test("最终回复只写入 durable outbox，进度消息保持易失", async ()
 	assert.equal(delivered?.envelopeId, "envelope-1");
 });
 
-test("流式 delta 编辑进度消息，durable final 接管同一消息并最终对账", async () => {
+test("流式 delta 编辑进度消息，durable final 接管同一消息并最终确认送达", async () => {
 	let listener: (event: unknown) => void = () => {};
 	const edits: Array<{ messageId: string; text: string }> = [];
 	const recalls: string[] = [];
@@ -259,7 +259,7 @@ test("流式 delta 编辑进度消息，durable final 接管同一消息并最�
 	assert.deepEqual(recalls, []);
 });
 
-test("会话控制：model/compact 透传公开 API，/new 使用新 session 文件", async () => {
+test("会话控制：model/compact 直接调用公开 API，/new 使用新 session 文件", async () => {
 	const files: string[] = [];
 	let model = "old";
 	const backend: SessionBackend = {

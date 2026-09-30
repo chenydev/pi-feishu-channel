@@ -198,7 +198,7 @@ test("SDK 重连：开启 SDK 自带重连、带 channel UA 标签；关闭时�
 	assert.deepEqual(fake.sockets[0].closeParams, [undefined], "必须走 close() 而不是 terminate");
 });
 
-test("SDK 重连：onReconnecting → 断线（记 downSince），onReconnected → 恢复；SDK 自愈期间 isSelfHealing=true", async () => {
+test("SDK 重连：onReconnecting → 断线（记 downSince），onReconnected → 恢复；SDK 自动重连期间 isSelfHealing=true", async () => {
 	let now = 1_000;
 	const statuses: string[] = [];
 	const fake = fakeSdk();
@@ -217,7 +217,7 @@ test("SDK 重连：onReconnecting → 断线（记 downSince），onReconnected 
 	assert.equal(instance.getDownSince(), undefined);
 	assert.deepEqual(statuses, ["connected", "reconnecting", "connected"]);
 	ws.status = { state: "failed" };
-	assert.equal(instance.isSelfHealing(), false, "终态不算自愈，交给 supervisor 重建");
+	assert.equal(instance.isSelfHealing(), false, "终态不算自动重连中，交给 supervisor 重建");
 });
 
 test("SDK 重连：transport.sdkAutoReconnect=false 退回自管模式", async () => {

@@ -126,7 +126,7 @@ test("会话列表：/sessions 分页与页码", async () => {
 		const second = await manager.commands.listSessionsFor(message("m1"), 1);
 		assert.ok(second.includes("第 2/2 页"));
 		const overflow = await manager.commands.listSessionsFor(message("m1"), 99);
-		assert.ok(overflow.includes("第 2/2 页"), "越界页回落到最后一页");
+		assert.ok(overflow.includes("第 2/2 页"), "越界页退回到最后一页");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -172,7 +172,7 @@ test("会话恢复：/resume #N 切换指针并让旧审批失效", async () => 
 		assert.equal(pointer?.sessionFile, old, "指针必须切到目标会话");
 		assert.equal(pointer?.generation, 4, "generation 必须递增");
 		assert.ok(invalidations.some((event) => event.reason === "reset"), "恢复后旧审批必须失效");
-		assert.equal(manager.residentCount(), 0, "旧句柄必须被处置（下条消息懒恢复）");
+		assert.equal(manager.residentCount(), 0, "旧句柄必须被处置（下条消息按需恢复）");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -46,7 +46,7 @@ test("DeepSeek 费率：比值等于官方双币定价（Flash 20/3，Pro 75/11�
 	assert.ok(Math.abs((cnyPerUsdForModel("deepseek-v4-pro") ?? 0) - 75 / 11) < 1e-9);
 });
 
-test("DeepSeek 费率：旧 id 归一到同一价表，未知模型不给 ¥（宁缺勿错）", () => {
+test("DeepSeek 费率：旧 id 映射到同一价表，未知模型不给 ¥（宁缺勿错）", () => {
 	assert.equal(canonicalDeepSeekModel("deepseek-v4-flash"), "deepseek-flash");
 	assert.equal(canonicalDeepSeekModel("deepseek-v4-flash-vision-exp"), "deepseek-flash");
 	// 大小写不敏感（provider 层可能给大写）

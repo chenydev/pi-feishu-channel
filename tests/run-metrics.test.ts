@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { adaptAgentEvent } from "../src/outbound/agent-event-adapter.js";
 import { createRunMetrics, recordUsage, renderFooter, stripFooterFromQuote, stripMarkdown } from "../src/outbound/run-metrics.js";
 
-test("页脚与用量：adapter 透传 provider/model/usage，reasoning 不计入独立字段", () => {
+test("页脚与用量：adapter 原样传递 provider/model/usage，reasoning 不计入独立字段", () => {
 	const adapted = adaptAgentEvent({
 		type: "message_end",
 		message: {
