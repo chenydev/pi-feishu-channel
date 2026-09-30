@@ -13,7 +13,8 @@
     "test": "tsx --test tests/*.test.ts tests/features/*.test.ts tests/integration/*.test.ts",
     "check": "npm run lint && npm test",
     "metrics": "node scripts/metrics.mjs",
-    "docs:check": "node scripts/check-links.mjs"
+    "docs:check": "node scripts/check-links.mjs",
+    "docs:config": "tsx scripts/config-reference.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

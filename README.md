@@ -151,55 +151,36 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 
 ## 配置
 
-env 优先，`config.json` 持久化（路径 `$FEISHU_CHANNEL_HOME/feishu-channel/config.json`；
-`FEISHU_CHANNEL_HOME` 未设时取 pi 的 agent 目录，即默认 `~/.pi/agent/feishu-channel/config.json`）。
+配置文件是 `$FEISHU_CHANNEL_HOME/feishu-channel/config.json`（`FEISHU_CHANNEL_HOME` 未设时取 pi 的 agent 目录，即默认 `~/.pi/agent/feishu-channel/config.json`），
+完整模板见 `config.example.json`。**每个字段的类型、默认值、对应的环境变量和含义见 [docs/configuration.md](docs/configuration.md)**（由 schema 生成）。
 
-完整模板见 `config.example.json`。常用项：
+- 环境变量优先于配置文件 —— 注意 shell 里残留的同名变量会静默覆盖配置文件；
+- 启动时校验配置，类型或取值不对时拒绝启动并列出全部问题；拼错的字段不报错，`/feishu doctor` 的 `config_fields` 项会列出来；
+- 必填的只有 `appId` / `appSecret`。准入是默认拒绝的：`allowChats` 为空时不响应任何群，`allowUsers` 为空时只有管理员能私聊。
 
-| env | config.json | 说明 |
-|---|---|---|
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | `appId` / `appSecret` | 必填 |
-| `FEISHU_DOMAIN` | `domain` | `feishu` \| `lark` |
-| `FEISHU_GROUP_POLICY` | `groupPolicy` | 群策略默认值 |
-| `FEISHU_ALLOW_CHATS` / `FEISHU_ALLOW_USERS` / `FEISHU_ADMINS` | 同名字段 | csv |
-| `FEISHU_STREAMING_CARD` | `streamingCard.enabled` | `1` 打开流式卡片（默认关） |
-| `FEISHU_PS_FORWARDING` | `approval.forwarding.enabled` | `1` 打开「pi-permission-system 父会话转发」（默认关，见下） |
-| `FEISHU_TIMEZONE` | `timezone` | 展示用时区（IANA 名，默认 `Asia/Shanghai`）。判定顺序：`FEISHU_TIMEZONE` > 配置文件 > 容器 `TZ` > 默认。无效值自动跳过，不会导致启动失败 |
-| — | `approval.forwarding.parentSessionId` | 桥侧父会话 id（默认 `feishu-channel-parent`） |
-| `FEISHU_PS_ALWAYS` | `approval.forwarding.alwaysApprove` | 转发路径的「始终批准」（默认 **开**）：命中已记规则的 ask 直接放行、不再弹卡。`0` 关闭（关掉后卡片只剩三档） |
-| — | `streamingCard.printFrequencyMs` / `printStep` | 打字机节奏：每 N 毫秒上屏 M 字。**平台默认 1字/70ms（500 字要播 35 秒）**，推荐 3字/20ms（150 字/秒） |
-| — | `approval.adminSkipApproval` | 管理员/归属人免审批（默认 `false`） |
-| — | `adminBypassMention` | 管理员是否豁免 @（默认 `false`） |
-| — | `runIdleTimeoutMs` | 空闲超时（默认 10 分钟）；`runMaxDurationMs` 默认 `0` 不限制总时长 |
-| — | `workspaces.aliases` | 工作区别名白名单（默认空 = 功能关闭） |
+**时区**：在容器里运行时，基础镜像通常是 UTC，需要给容器设置 `TZ`（例如 `Asia/Shanghai`），或设置 `timezone` / `FEISHU_TIMEZONE`。
+用 compose 时，改环境变量要 `docker compose up -d` 重建容器才生效，`restart` 不行。
+⚠️ **`docker logs --timestamps` 的时间戳永远是 UTC** —— 那是 Docker 守护进程加的，容器 `TZ` 影响不了它。
 
-环境变量优先级**高于** `config.json` —— 注意 shell 里残留的同名变量会静默覆盖配置文件。
+### 可选能力（默认全部关闭）
 
-**时区**：在容器里运行时，基础镜像通常是 UTC，需要给容器设置 `TZ`（例如 `Asia/Shanghai`）。用 compose 时，改环境变量要 `docker compose up -d` 重建容器才生效，`restart` 不行。
-⚠️ **`docker logs --timestamps` 的时间戳永远是 UTC** —— 那是 Docker 守护进程加的，容器 `TZ` 影响不了它；容器内的 `date` 和应用内的时间显示才跟随 `TZ`。排障时对齐时间记得差 8 小时。
-
-### 0.2.0 新增的可选能力（默认全部关闭）
-
-| config.json | 说明 |
+| 能力 | 打开方式 |
 |---|---|
-| `longReply: { asFile: true, thresholdChars: 6000 }` | 超长回答只发开头，全文作为 .md 附件 |
-| `directBash: { enabled: true, allowAsk: false, p2pOnly: false }` | 管理员 `!<命令>`；deny 规则直接拒，ask 规则需 `allowAsk`；全部审计日志 |
-| `cron: { enabled: true, catchUp: "skip" }` | 定时任务；错过的触发默认跳过（`"once"` 补跑一次） |
-| `alerts: { enabled: true }` | 断线 / 抖动 / 永久发送失败 / 审批积压 私聊管理员（带冷却与恢复通知） |
-| `cardTool: { enabled: true }` | 给 agent 一个 `feishu_card` 工具发自定义交互卡 |
-| `stt: { provider: "openai", endpoint, model, apiKeyEnv: "STT_API_KEY" }` | 语音消息转写 |
-| `retention: { sessionDays: 30 }` | 超期会话文件 gzip 归档 |
-| `groupRules.<chatId>.dailyBudgetUsd` | 群每日费用上限（也可 `/feishu budget` 设置） |
-| `usage: { provider: "none" }` | 不查厂商余额、页脚不折算人民币（默认 `deepseek`） |
-| `docComments: { enabled: true, allowUsers: [...] }` | 云文档评论里 @ 机器人 → 在评论区回复（需订阅 `drive.notice.comment_add_v1` 与云文档评论权限；工具缺省只读） |
-| `meetingInvite: { enabled: true }` | 会议邀请（`vc.bot.meeting_invited_v1`）→ 在邀请人私聊里开一轮任务 |
-| `onboarding: { accessRequest: true }` | 开通申请：未放行群里有人 @ 机器人 → 应用归属人/应用协作者/管理员（三种角色分开展示，按此顺序 @）在群里就在群内弹审批卡并 @ 他们，否则私聊应用归属人（没有归属人依次找协作者、管理员）；群里回告申请人已发给谁、放行后通知。同群 1 小时内只申请一次（`accessRequestCooldownMs`），"暂不放行"后 24 小时不再提醒。谁能审批由 `accessApprovers` 决定：`owner`（**默认**，仅应用归属人）/ `owner_collaborators` / `all`（再加 config.admins）。需要「获取群成员」权限，缺失时一律私聊归属人 |
-| `docTools: { enabled: true, maxChars: 30000 }` | 给 agent 一个 `feishu_doc_read` 工具（docx / 知识库 docx） |
+| 超长回答转文件：只发开头，全文作为 .md 附件 | `longReply.asFile` |
+| 直接执行命令：管理员发 `!<命令>`，不经过模型，全部写审计日志 | `directBash.enabled` |
+| 定时任务 | `cron.enabled` |
+| 告警：断线、连接抖动、消息永久发送失败、审批积压时私聊管理员 | `alerts.enabled` |
+| agent 自定义卡片工具 `feishu_card` | `cardTool.enabled` |
+| 语音消息转写 | `stt.provider: "openai"` |
+| 会话文件按天归档 | `retention.sessionDays` |
+| 云文档评论里 @ 机器人，在评论区回复 | `docComments.enabled` |
+| 会议邀请：在邀请人私聊里开一轮任务 | `meetingInvite.enabled` |
+| 群开通申请：未放行的群里有人 @ 机器人时，把申请发给能审批的人 | `onboarding.accessRequest` |
+| 云文档读取工具 `feishu_doc_read` | `docTools.enabled` |
+| 流式卡片展示处理过程 | `streamingCard.enabled` |
+| pi-permission-system 父会话转发 | `approval.forwarding.enabled`（见 [docs/approval.md](docs/approval.md)） |
 
-默认开启、可关：`queueNotice`（排队提示）、`onboarding.welcome` / `onboarding.notifyAdmins`（入群欢迎 / 未放行群提示管理员）、
-`feedback.enabled`（表情反馈计数）、`statusHeartbeatMs`（status.json 心跳，默认 30000，0 关闭）。
-
-配置里拼错的字段不会导致启动失败，`/feishu doctor` 的 `config_fields` 项会列出来。变更记录见 `CHANGELOG.md`。
+当前打开了哪些，看启动日志 `feishu.bridge.features`、`status.json` 的 `features` 字段或 `/feishu doctor`。变更记录见 `CHANGELOG.md`。
 
 ### 工具审批
 
