@@ -99,7 +99,7 @@ export function admit(
 					+ `放行方式：内容里带上 <at user_id="<botOpenId>">（botOpenId 见 status.json）；`
 					+ `或把 "${msg.senderAppId ?? msg.senderId}" 直接加进 config.json 的 allowBots。`
 				: `非人类发送者不在 allowBots 白名单。放行方式（任选其一）：`
-					+ `① 在 pi-config/feishu-bridge/config.json 的 allowBots 里加 "${msg.senderAppId ?? msg.senderId}"；`
+					+ `① 在 feishu-channel/config.json 的 allowBots 里加 "${msg.senderAppId ?? msg.senderId}"；`
 					+ `② 加特殊值 "mentions"（任何 bot 只要 @ 了本 bot 就放行 —— 不依赖 id，换应用后不会失效）。`,
 		);
 	}

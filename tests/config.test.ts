@@ -9,8 +9,8 @@ import { DEFAULT_CONFIG } from "../src/types.js";
 function withConfigFile(value: unknown, run: (home: string) => void): void {
 	const home = mkdtempSync(join(tmpdir(), "pi-feishu-channel-config-"));
 	try {
-		mkdirSync(join(home, "feishu-bridge"), { recursive: true });
-		writeFileSync(join(home, "feishu-bridge", "config.json"), JSON.stringify(value));
+		mkdirSync(join(home, "feishu-channel"), { recursive: true });
+		writeFileSync(join(home, "feishu-channel", "config.json"), JSON.stringify(value));
 		run(home);
 	} finally {
 		rmSync(home, { recursive: true, force: true });
@@ -141,7 +141,7 @@ test("页脚群级开关：群级优先于全局，缺省跟随全局，非法�
 		assert.deepEqual(reloaded.footerByChat, { oc_a: false });
 
 		// 非法值不能被静默当成默认值
-		writeFileSync(join(dir, "feishu-bridge", "config.json"), JSON.stringify({ ...base, footerByChat: { oc_a: "yes" } }));
+		writeFileSync(join(dir, "feishu-channel", "config.json"), JSON.stringify({ ...base, footerByChat: { oc_a: "yes" } }));
 		assert.throws(() => loadConfig(dir, {}), /config\.footerByChat\.oc_a：必须是 true\/false/);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

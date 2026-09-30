@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import type { BridgeConfig, GroupPolicy, ProgressMode } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { validateFileConfig } from "./config/schema.js";
+import { channelEnv, RUNTIME_DIR_NAME } from "./runtime/identity.js";
 
 export interface ConfigPaths {
 	configFile: string;
@@ -32,27 +33,28 @@ export interface ConfigPaths {
 }
 
 export function resolvePaths(homeDir: string): ConfigPaths {
+	const dir = join(homeDir, RUNTIME_DIR_NAME);
 	return {
-		configFile: join(homeDir, "feishu-bridge", "config.json"),
-		statusFile: join(homeDir, "feishu-bridge", "status.json"),
-		sessionDir: join(homeDir, "feishu-bridge", "sessions"),
-		outboxFile: join(homeDir, "feishu-bridge", "outbox.jsonl"),
-		dedupeFile: join(homeDir, "feishu-bridge", "dedupe.jsonl"),
-		knownChatsFile: join(homeDir, "feishu-bridge", "known-chats.json"),
-		alwaysApprovedFile: join(homeDir, "feishu-bridge", "ps-always-approved.json"),
-		balanceSnapshotsFile: join(homeDir, "feishu-bridge", "deepseek-balance-snapshots.jsonl"),
-		usageDailyFile: join(homeDir, "feishu-bridge", "usage-daily.jsonl"),
-		cronJobsFile: join(homeDir, "feishu-bridge", "cron-jobs.json"),
-		feedbackFile: join(homeDir, "feishu-bridge", "feedback.jsonl"),
-		modelUsageFile: join(homeDir, "feishu-bridge", "model-usage.json"),
-		exportsDir: join(homeDir, "feishu-bridge", "exports"),
+		configFile: join(dir, "config.json"),
+		statusFile: join(dir, "status.json"),
+		sessionDir: join(dir, "sessions"),
+		outboxFile: join(dir, "outbox.jsonl"),
+		dedupeFile: join(dir, "dedupe.jsonl"),
+		knownChatsFile: join(dir, "known-chats.json"),
+		alwaysApprovedFile: join(dir, "ps-always-approved.json"),
+		balanceSnapshotsFile: join(dir, "deepseek-balance-snapshots.jsonl"),
+		usageDailyFile: join(dir, "usage-daily.jsonl"),
+		cronJobsFile: join(dir, "cron-jobs.json"),
+		feedbackFile: join(dir, "feedback.jsonl"),
+		modelUsageFile: join(dir, "model-usage.json"),
+		exportsDir: join(dir, "exports"),
 	};
 }
 
 export function resolveAppLockFile(homeDir: string, appId: string): string {
 	const safeAppId = appId.replace(/[^a-zA-Z0-9_-]/g, "_");
 	const identity = createHash("sha256").update(appId).digest("hex").slice(0, 12);
-	return join(homeDir, "feishu-bridge", `bridge-${safeAppId.slice(0, 48)}-${identity}.lock`);
+	return join(homeDir, RUNTIME_DIR_NAME, `bridge-${safeAppId.slice(0, 48)}-${identity}.lock`);
 }
 
 function parseGroupPolicy(v: unknown): GroupPolicy | undefined {
@@ -199,7 +201,7 @@ export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env
 		approval: {
 			...DEFAULT_CONFIG.approval,
 			// env 优先：便于在 compose 里声明，不必改仓库配置
-			policyEngine: (process.env.FEISHU_BRIDGE_POLICY_ENGINE as "bridge" | "pi-permission-system" | undefined)
+			policyEngine: (channelEnv(env, "POLICY_ENGINE") as "bridge" | "pi-permission-system" | undefined)
 				?? fileCfg.approval?.policyEngine
 				?? DEFAULT_CONFIG.approval.policyEngine,
 			...fileCfg.approval,

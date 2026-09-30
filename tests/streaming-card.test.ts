@@ -185,8 +185,8 @@ test("流式卡片：abandon 写入中止说明并停止更新", async () => {
 
 test("开关默认关闭：未配置时 enabled=false", () => {
 	const dir = mkdtempSync(join(tmpdir(), "pi-feishu-card-"));
-	// 真实路径是 <homeDir>/feishu-bridge/config.json（resolvePaths 会加一层 feishu-bridge）
-	const cfgDir = join(dir, "feishu-bridge");
+	// 真实路径是 <homeDir>/feishu-channel/config.json（resolvePaths 会加一层 feishu-channel）
+	const cfgDir = join(dir, "feishu-channel");
 	mkdirSync(cfgDir, { recursive: true });
 	try {
 		writeFileSync(join(cfgDir, "config.json"), JSON.stringify({

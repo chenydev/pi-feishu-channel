@@ -49,7 +49,7 @@ function setup(opts: { cardOk?: boolean; convManager?: Partial<ConversationManag
 		messageId: "om_1", chatId: "oc_g", chatType: "group", senderId: "ou_user", isBot: false, msgType: "text",
 		text, mentions: [], resources: [], raw: undefined, ts: Date.now(), ...over,
 	} as FeishuInboundMessage);
-	const savedConfig = () => JSON.parse(readFileSync(join(home, "feishu-bridge", "config.json"), "utf8"));
+	const savedConfig = () => JSON.parse(readFileSync(join(home, "feishu-channel", "config.json"), "utf8"));
 	return { rt, dispatcher, send, replies, cards, logs, savedConfig, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
 

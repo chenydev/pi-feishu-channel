@@ -112,14 +112,18 @@ pi install git:github.com/chenydev/pi-feishu-channel@<new-tag-or-commit>
 ### 3) 准备配置
 
 ```bash
-mkdir -p ~/.pi/agent/feishu-bridge
-cp <clone-or-repo>/config.example.json ~/.pi/agent/feishu-bridge/config.json
-chmod 600 ~/.pi/agent/feishu-bridge/config.json
+mkdir -p ~/.pi/agent/feishu-channel
+cp <clone-or-repo>/config.example.json ~/.pi/agent/feishu-channel/config.json
+chmod 600 ~/.pi/agent/feishu-channel/config.json
 # 填入 appId / appSecret，并把 allowChats 限定为测试群
 ```
 
 配置目录默认取 pi 的 agent 目录（`pi.getAgentDir()`，通常 `~/.pi/agent`）；
-可用 `FEISHU_BRIDGE_HOME` 改写（容器里就是显式设成 pi 的配置目录）。
+可用 `FEISHU_CHANNEL_HOME` 改写（容器里就是显式设成 pi 的配置目录）。
+
+> 从 `pi-feishu-bridge` 升级：旧目录 `feishu-bridge/` 会在首次启动时自动改名为 `feishu-channel/`，
+> 原位置留一个软链接（日志 `feishu.config.migrated`）；旧环境变量 `FEISHU_BRIDGE_*` 仍然识别，
+> 但每次启动告警一次（`feishu.config.deprecated_env`），请改成对应的 `FEISHU_CHANNEL_*`。
 
 ### 4) 启动
 
@@ -148,8 +152,8 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 
 ## 配置
 
-env 优先，`config.json` 持久化（路径 `$FEISHU_BRIDGE_HOME/feishu-bridge/config.json`；
-`FEISHU_BRIDGE_HOME` 未设时取 pi 的 agent 目录，即默认 `~/.pi/agent/feishu-bridge/config.json`）。
+env 优先，`config.json` 持久化（路径 `$FEISHU_CHANNEL_HOME/feishu-channel/config.json`；
+`FEISHU_CHANNEL_HOME` 未设时取 pi 的 agent 目录，即默认 `~/.pi/agent/feishu-channel/config.json`）。
 
 完整模板见 `config.example.json`。常用项：
 
@@ -162,7 +166,7 @@ env 优先，`config.json` 持久化（路径 `$FEISHU_BRIDGE_HOME/feishu-bridge
 | `FEISHU_STREAMING_CARD` | `streamingCard.enabled` | `1` 打开流式卡片（默认关） |
 | `FEISHU_PS_FORWARDING` | `approval.forwarding.enabled` | `1` 打开「pi-permission-system 父会话转发」（默认关，见下） |
 | `FEISHU_TIMEZONE` | `timezone` | 展示用时区（IANA 名，默认 `Asia/Shanghai`）。判定顺序：`FEISHU_TIMEZONE` > 配置文件 > 容器 `TZ` > 默认。无效值自动跳过，不会导致启动失败 |
-| — | `approval.forwarding.parentSessionId` | 桥侧父会话 id（默认 `feishu-bridge-parent`） |
+| — | `approval.forwarding.parentSessionId` | 桥侧父会话 id（默认 `feishu-channel-parent`） |
 | `FEISHU_PS_ALWAYS` | `approval.forwarding.alwaysApprove` | 转发路径的「始终批准」（默认 **开**）：命中已记规则的 ask 直接放行、不再弹卡。`0` 关闭（关掉后卡片只剩三档） |
 | — | `streamingCard.printFrequencyMs` / `printStep` | 打字机节奏：每 N 毫秒上屏 M 字。**平台默认 1字/70ms（500 字要播 35 秒）**，推荐 3字/20ms（150 字/秒） |
 | — | `approval.adminSkipApproval` | 管理员/归属人免审批（默认 `false`） |

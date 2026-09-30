@@ -123,14 +123,14 @@ function collectValues(node: unknown, out: Array<Record<string, unknown>>): void
 	for (const child of Object.values(record)) collectValues(child, out);
 }
 
-/** 启动一个完整的扩展实例。`config` 写入 `<home>/feishu-bridge/config.json`。 */
+/** 启动一个完整的扩展实例。`config` 写入 `<home>/feishu-channel/config.json`。 */
 export async function startHarness(config: Record<string, unknown>): Promise<Harness> {
 	const home = mkdtempSync(join(tmpdir(), "pi-feishu-channel-entry-"));
-	mkdirSync(join(home, "feishu-bridge"), { recursive: true });
-	const configFile = join(home, "feishu-bridge", "config.json");
+	mkdirSync(join(home, "feishu-channel"), { recursive: true });
+	const configFile = join(home, "feishu-channel", "config.json");
 	writeFileSync(configFile, JSON.stringify({ appId: "cli_test", appSecret: "secret", batch: { enabled: false }, ...config }, null, 2));
 	for (const key of Object.keys(process.env)) if (key.startsWith("FEISHU_") || key.startsWith("LARK_")) delete process.env[key];
-	process.env.FEISHU_BRIDGE_HOME = home;
+	process.env.FEISHU_CHANNEL_HOME = home;
 
 	const fake = new FakeFeishu();
 	const handlers: Record<string, (data: unknown) => unknown> = {};
@@ -163,7 +163,7 @@ export async function startHarness(config: Record<string, unknown>): Promise<Har
 	const original = { log: console.log, info: console.info, warn: console.warn, error: console.error, debug: console.debug };
 	const capture = (level: string) => (first: unknown, meta?: unknown) => {
 		const text = String(first ?? "");
-		logs.push({ level, event: text.replace(/^\[feishu-bridge\] /, ""), meta });
+		logs.push({ level, event: text.replace(/^\[feishu-channel\] /, ""), meta });
 	};
 	console.log = capture("info"); console.info = capture("info"); console.warn = capture("warn"); console.error = capture("error"); console.debug = capture("debug");
 
@@ -229,7 +229,7 @@ export async function startHarness(config: Record<string, unknown>): Promise<Har
 			sessions.release();
 			await pi.emit("session_shutdown");
 			Object.assign(console, original);
-			delete process.env.FEISHU_BRIDGE_HOME;
+			delete process.env.FEISHU_CHANNEL_HOME;
 			rmSync(home, { recursive: true, force: true });
 		},
 	};

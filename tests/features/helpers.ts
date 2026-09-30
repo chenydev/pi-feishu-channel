@@ -33,7 +33,7 @@ export async function withHarness(config: Record<string, unknown>, body: (h: Har
 
 /** status.json 与启动日志里列出的已启用能力。 */
 export function enabledIn(h: Harness): { status: string[]; log: string[] } {
-	const status = JSON.parse(readFileSync(join(h.home, "feishu-bridge", "status.json"), "utf8")) as { features?: string[] };
+	const status = JSON.parse(readFileSync(join(h.home, "feishu-channel", "status.json"), "utf8")) as { features?: string[] };
 	const line = h.logs.find((l) => l.event === "feishu.bridge.features");
 	return { status: status.features ?? [], log: (line?.meta as { enabled?: string[] } | undefined)?.enabled ?? [] };
 }

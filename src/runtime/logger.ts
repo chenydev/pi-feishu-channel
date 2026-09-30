@@ -9,7 +9,7 @@ export interface BridgeLogger {
 	error(msg: string, meta?: unknown): void;
 }
 
-export const LOG_PREFIX = "[feishu-bridge]";
+export const LOG_PREFIX = "[feishu-channel]";
 
 export function createConsoleLogger(prefix = LOG_PREFIX): BridgeLogger {
 	return {

@@ -246,7 +246,7 @@ test("入口·可观测：启动日志与 status.json 列出已打开的能力",
 	await withHarness({ ...baseConfig, cron: { enabled: true } }, async (h) => {
 		const line = h.logs.find((l) => l.event === "feishu.bridge.features");
 		assert.deepEqual((line?.meta as { enabled?: string[] })?.enabled, ["cron", "accessRequest"]);
-		const status = JSON.parse(readFileSync(join(h.home, "feishu-bridge", "status.json"), "utf8"));
+		const status = JSON.parse(readFileSync(join(h.home, "feishu-channel", "status.json"), "utf8"));
 		assert.deepEqual(status.features, ["cron", "accessRequest"]);
 	});
 });

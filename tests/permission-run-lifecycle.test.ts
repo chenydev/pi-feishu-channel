@@ -195,7 +195,7 @@ test("管理员免审批：adminSkipApproval 打开时，归属人的工具调�
 	const { tmpdir } = await import("node:os");
 	const { join } = await import("node:path");
 	const dir = mkdtempSync(join(tmpdir(), "pi-feishu-admin-skip-"));
-	const cfgDir = join(dir, "feishu-bridge");
+	const cfgDir = join(dir, "feishu-channel");
 	mkdirSync(cfgDir, { recursive: true });
 	const base = {
 		appId: "cli_x", appSecret: "s".repeat(32), domain: "feishu",
@@ -274,6 +274,6 @@ test("策略交给 pi-permission-system 时必须默认拒绝（扩展缺席时�
 	assert.equal(cfg.approval.policyEngine ?? "bridge", "bridge", "默认不能自动交给它判定");
 
 	// env 覆盖优先于文件配置（便于 compose 声明）
-	const env = process.env.FEISHU_BRIDGE_POLICY_ENGINE;
+	const env = process.env.FEISHU_CHANNEL_POLICY_ENGINE ?? process.env.FEISHU_BRIDGE_POLICY_ENGINE;
 	assert.ok(env === undefined || ["bridge", "pi-permission-system"].includes(env), "env 取值受限于两个合法值");
 });

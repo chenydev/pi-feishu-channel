@@ -4,6 +4,7 @@ import type { SendOptions } from "../types.js";
 import type { ExtensionToolResult } from "../pi-types.js";
 import type { EnqueueOptions } from "./outbox.js";
 import type { ValidatedArtifact } from "./artifact.js";
+import { RUNTIME_DIR_NAME } from "../runtime/identity.js";
 import { stageArtifact, validateLocalArtifact } from "./artifact.js";
 
 export interface ActiveFeishuRoute {
@@ -43,7 +44,7 @@ export async function queueLocalFile(params: {
 	let mediaEnqueued = false;
 	try {
 		const validated = validateLocalArtifact(requestedPath, params.cwd);
-		staged = stageArtifact(validated, join(params.homeDir, "feishu-bridge", "media-outbox"));
+		staged = stageArtifact(validated, join(params.homeDir, RUNTIME_DIR_NAME, "media-outbox"));
 		const sendOptions = { replyTo: params.route.sourceMessageId, threadId: params.route.threadId };
 		params.outbox.enqueueMedia(params.route.chatId, staged, sendOptions, {
 			dedupeKey: mediaDedupeKey, laneKey: params.route.conversationKey, kind: "media",

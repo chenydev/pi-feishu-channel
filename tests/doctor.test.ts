@@ -50,7 +50,7 @@ test("doctor：转发已启用且心跳正常时两项都通过", () => {
 		diagnostics: {
 			forwarding: {
 				enabled: true,
-				parentSessionId: "feishu-bridge-parent",
+				parentSessionId: "feishu-channel-parent",
 				serving: true,
 				alwaysApproved: { enabled: true, count: 1, patterns: ["echo PS-TEST-*"] },
 			},
@@ -58,7 +58,7 @@ test("doctor：转发已启用且心跳正常时两项都通过", () => {
 	});
 	const fwd = checks.find((c) => c.name === "ps_forwarding");
 	assert.equal(fwd?.ok, true);
-	assert.match(fwd?.detail ?? "", /feishu-bridge-parent/);
+	assert.match(fwd?.detail ?? "", /feishu-channel-parent/);
 	assert.match(fwd?.detail ?? "", /心跳正常/);
 
 	const always = checks.find((c) => c.name === "ps_always_approved");

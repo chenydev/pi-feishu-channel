@@ -38,6 +38,7 @@ import { createConsoleLogger } from "./runtime/logger.js";
 import { Onboarding } from "./runtime/onboarding.js";
 import { StatusReporter } from "./runtime/status-reporter.js";
 import type { ConversationManagerDeps } from "./session/conversation-manager.js";
+import { channelEnv, prepareRuntimeDir, RUNTIME_DIR_NAME } from "./runtime/identity.js";
 import { bashCommandOf } from "./session/pi-bridge-hooks.js";
 import type { BridgeConfig, FeishuInboundMessage, SessionBackend } from "./types.js";
 
@@ -118,7 +119,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	const sendLocalFileToChat: NonNullable<ConversationManagerDeps["sendLocalFile"]> = (chatId, path, opts, meta) => {
 		if (!rt.outbox) return { ok: false, error: "outbox 不可用" };
 		try {
-			const staged = stageArtifact(validateLocalArtifact(path, dirname(path)), join(rt.homeDir, "feishu-bridge", "media-outbox"));
+			const staged = stageArtifact(validateLocalArtifact(path, dirname(path)), join(rt.homeDir, RUNTIME_DIR_NAME, "media-outbox"));
 			rt.outbox.enqueueMedia(chatId, staged, opts, { ...meta, kind: "media" });
 			return { ok: true };
 		} catch (error) {
@@ -198,7 +199,8 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 
 
 	pi.on("session_start", async () => {
-		rt.homeDir = process.env.FEISHU_BRIDGE_HOME ?? pi.getAgentDir();
+		rt.homeDir = channelEnv(process.env, "HOME") ?? pi.getAgentDir();
+		if (!prepareRuntimeDir(rt.homeDir, process.env, log)) return;
 		rt.config = loadConfig(rt.homeDir);
 		// PS 父会话转发的父子声明越早越好：它要在任何桥会话被创建之前就位。
 		psForwardingSync.syncEnv();

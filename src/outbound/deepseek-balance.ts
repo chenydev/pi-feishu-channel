@@ -110,7 +110,7 @@ export interface BalanceClientDeps {
 	/** 缓存窗口；0 表示每次都打接口。 */
 	ttlMs?: number;
 	timeoutMs?: number;
-	/** 快照文件路径（默认 `~/.pi/agent/feishu-bridge/deepseek-balance-snapshots.jsonl`）。 */
+	/** 快照文件路径（默认 `~/.pi/agent/feishu-channel/deepseek-balance-snapshots.jsonl`）。 */
 	snapshotPath?: string;
 	now?: () => number;
 	log?: (level: "debug" | "info" | "warn", message: string, meta?: Record<string, unknown>) => void;

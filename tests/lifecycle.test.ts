@@ -71,7 +71,7 @@ test("生命周期：从入口启动后重复启动返回 already；停止后可
 	const h = await startHarness({ admins: ["ou_admin"], cron: { enabled: true } });
 	try {
 		const run = (name: string) => h.pi.commands.get(name)!.handler("", {} as never, []);
-		const statusFile = join(h.home, "feishu-bridge", "status.json");
+		const statusFile = join(h.home, "feishu-channel", "status.json");
 		assert.ok(h.logs.findIndex((l) => l.event === "feishu.bridge.features") < h.logs.findIndex((l) => l.event === "bridge started"));
 		assert.equal(await run("feishu:start"), "already");
 		assert.equal(await run("feishu:stop"), "stopped");

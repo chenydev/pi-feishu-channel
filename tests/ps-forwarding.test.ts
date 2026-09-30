@@ -294,7 +294,7 @@ test("stop 等未决应答落盘：关停时被撤销的审批要如实答复为
 });
 
 test("父会话 id 默认值与 env 声明/撤回：规范变量名 + 兼容名，只动自己设过的值", () => {
-	assert.equal(DEFAULT_PS_FORWARDING_PARENT_ID, "feishu-bridge-parent");
+	assert.equal(DEFAULT_PS_FORWARDING_PARENT_ID, "feishu-channel-parent");
 	// 主变量必须是 PS 文档推荐的 subagent adapter convention 名
 	assert.equal(PS_FORWARDING_PARENT_ENV_KEY, "PI_SUBAGENT_PARENT_SESSION");
 	assert.deepEqual(PS_FORWARDING_PARENT_ENV_KEYS, ["PI_SUBAGENT_PARENT_SESSION", "PI_AGENT_ROUTER_PARENT_SESSION_ID"]);

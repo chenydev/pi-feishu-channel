@@ -3,16 +3,16 @@
 本文说明怎么判断一个运行中的实例是否健康、消息卡在了哪一环，以及上线后怎么验收。
 各个环节的职责见 [architecture.md](architecture.md)。
 
-下文的 `<home>` 指状态目录：设置了 `FEISHU_BRIDGE_HOME` 时用它，否则是 pi 的 agent 目录（通常是 `~/.pi/agent`）。
-状态文件在 `<home>/feishu-bridge/` 下。
+下文的 `<home>` 指状态目录：设置了 `FEISHU_CHANNEL_HOME` 时用它，否则是 pi 的 agent 目录（通常是 `~/.pi/agent`）。
+状态文件在 `<home>/feishu-channel/` 下（从旧版升级时会自动迁移，见下文 `feishu.config.migrated`）。
 
 ## 1. 三个观测入口
 
 | 入口 | 适合回答的问题 | 怎么看 |
 |---|---|---|
-| `status.json` | 进程还活着吗？连上了吗？有没有积压？ | `cat <home>/feishu-bridge/status.json`，**同时看 mtime** |
+| `status.json` | 进程还活着吗？连上了吗？有没有积压？ | `cat <home>/feishu-channel/status.json`，**同时看 mtime** |
 | `/feishu doctor` | 配置和权限有没有问题？ | 在飞书里发送（pi 里的 `/feishu:status` 只显示连接与队列概况） |
-| 结构化日志 | 某一条消息走到了哪一步？ | 所有日志以 `[feishu-bridge]` 开头，事件名形如 `feishu.<模块>.<事件>` |
+| 结构化日志 | 某一条消息走到了哪一步？ | 所有日志以 `[feishu-channel]` 开头，事件名形如 `feishu.<模块>.<事件>` |
 
 ### 1.1 status.json
 
@@ -65,7 +65,7 @@
 准入是**默认拒绝**的：白名单为空表示全部拒绝。所以「消息被丢」很常见，而丢弃日志会说明原因：
 
 ```
-[feishu-bridge] feishu.pipeline.drop {
+[feishu-channel] feishu.pipeline.drop {
   messageId: 'om_…', chatId: 'oc_…', chatType: 'group',
   reason: 'bots_disabled',
   senderId: 'ou_…',
@@ -97,6 +97,9 @@
 | 回复半截，或提示「回复发送失败」 | 编辑次数用尽、没有发言权限、接口持续报错 | 看 `feishu.outbox.failed` 的 `lastError` |
 | 页脚费用一直显示「未知」 | 模型配置里没有费率 | 在 pi 的模型配置里补上 `cost` |
 | 每开一个会话就多一条 `ws_ready`，连接互相顶掉 | 子会话没有剔除桥自身，又启动了一个长连接 | 看 `feishu.session.resource_loader_ready` 的 `strippedGateways`，应为 1 |
+| 升级后启动失败，日志 `feishu.config.migrate_failed` | 旧目录 `feishu-bridge/` 改名为 `feishu-channel/` 失败（多为目录没有写权限，或两者不在同一个文件系统） | 按日志里的 `from` / `to` 手动 `mv`，再重启 |
+| 日志 `feishu.config.legacy_dir_ignored` | 新旧目录同时存在，只用新目录 | 确认旧目录里没有要保留的东西后删除它 |
+| 日志 `feishu.config.deprecated_env` | 还在用旧环境变量 `FEISHU_BRIDGE_*` | 改成日志里 `replacement` 给出的新名字 |
 | 容器日志时间差 8 小时 | `docker logs --timestamps` 始终是 UTC | 对时间时换算时区 |
 
 ## 5. 上线验收
@@ -115,5 +118,5 @@
 
 ### 不要这样测
 
-- **不要在运行中的实例旁边再启动一个 pi 进程**：第二个进程会争抢同一个应用的连接，还会把 `status.json` 写成断开，让人误以为实例挂了。确实需要隔离测试时，给第二个进程设置独立的 `PI_CODING_AGENT_DIR` 和 `FEISHU_BRIDGE_HOME`。
+- **不要在运行中的实例旁边再启动一个 pi 进程**：第二个进程会争抢同一个应用的连接，还会把 `status.json` 写成断开，让人误以为实例挂了。确实需要隔离测试时，给第二个进程设置独立的 `PI_CODING_AGENT_DIR` 和 `FEISHU_CHANNEL_HOME`。
 - **不要用 `/proc/<pid>/environ` 检查运行时设置的环境变量**：那是进程启动时的快照，看不到运行时对 `process.env` 的修改。

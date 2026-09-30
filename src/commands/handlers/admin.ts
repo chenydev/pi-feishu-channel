@@ -178,7 +178,7 @@ function handlePromptCommand(svc: CommandServices, msg: FeishuInboundMessage, ar
 async function sendDiagnosticsToAdmin(svc: CommandServices, openId: string, bundle: unknown): Promise<boolean> {
 	if (!svc.rt.transport) return false;
 	try {
-		const fileKey = await svc.rt.transport.uploadFile(`feishu-bridge-diagnostics-${Date.now()}.json`, Buffer.from(JSON.stringify(bundle, null, 2), "utf8"));
+		const fileKey = await svc.rt.transport.uploadFile(`feishu-channel-diagnostics-${Date.now()}.json`, Buffer.from(JSON.stringify(bundle, null, 2), "utf8"));
 		await svc.rt.transport.sendToUser(openId, "file", { file_key: fileKey });
 		return true;
 	} catch (error) {

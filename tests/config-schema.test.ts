@@ -17,8 +17,8 @@ const noExtra: [ExtraInSchema] extends [never] ? true : ExtraInSchema = true;
 function loadFrom(file: string): unknown {
 	const home = mkdtempSync(join(tmpdir(), "cfg-schema-"));
 	try {
-		mkdirSync(join(home, "feishu-bridge"));
-		copyFileSync(file, join(home, "feishu-bridge", "config.json"));
+		mkdirSync(join(home, "feishu-channel"));
+		copyFileSync(file, join(home, "feishu-channel", "config.json"));
 		return JSON.parse(JSON.stringify(loadConfig(home, { TZ: "UTC" })));
 	} finally {
 		rmSync(home, { recursive: true, force: true });
@@ -29,8 +29,8 @@ function loadInline(value: unknown): () => unknown {
 	return () => {
 		const home = mkdtempSync(join(tmpdir(), "cfg-schema-"));
 		try {
-			mkdirSync(join(home, "feishu-bridge"));
-			writeFileSync(join(home, "feishu-bridge", "config.json"), JSON.stringify(value));
+			mkdirSync(join(home, "feishu-channel"));
+			writeFileSync(join(home, "feishu-channel", "config.json"), JSON.stringify(value));
 			return loadConfig(home, {});
 		} finally {
 			rmSync(home, { recursive: true, force: true });

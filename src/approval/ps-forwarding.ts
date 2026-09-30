@@ -72,7 +72,7 @@ export const PS_FORWARDING_PARENT_ENV_KEYS: readonly string[] = [
 /** 主变量（规范约定名）。 */
 export const PS_FORWARDING_PARENT_ENV_KEY = PS_FORWARDING_PARENT_ENV_KEYS[0]!;
 /** 桥侧父会话 id 默认值：稳定、且绝不可能等于任何真实 pi session id（UUID）。 */
-export const DEFAULT_PS_FORWARDING_PARENT_ID = "feishu-bridge-parent";
+export const DEFAULT_PS_FORWARDING_PARENT_ID = "feishu-channel-parent";
 /** PS 的转发超时上限（PERMISSION_FORWARDING_TIMEOUT_MS）——用于判断清理时机。 */
 export const PS_FORWARDING_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
 /**

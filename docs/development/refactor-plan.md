@@ -221,7 +221,7 @@ export interface FeatureHooks {
 - **单独测试**：`npx tsx --test tests/config.test.ts tests/config-schema.test.ts`，外加一个快照测试：`config.example.json` 与一份完整样例配置的解析结果，逐字段与迁移前一致。
 - **验收**：配置向后兼容，没有任何字段的含义变化。
 
-### F1 运行时标识更名（待确认，见 [decisions.md](decisions.md) ADR-6）
+### F1 运行时标识更名（见 [decisions.md](decisions.md) ADR-6）
 
 - **改动**：配置目录 `feishu-bridge/` → `feishu-channel/`，环境变量 `FEISHU_BRIDGE_*` → `FEISHU_CHANNEL_*`，日志前缀同步更名。启动时如果新目录不存在、旧目录存在，自动迁移。旧环境变量继续识别一个版本，并给出告警。
 - **可观测**：迁移时记录日志 `feishu.config.migrated { from, to }`；使用旧环境变量时记录 `feishu.config.deprecated_env { name }`。

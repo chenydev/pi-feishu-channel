@@ -12,7 +12,15 @@
   （已打码、截断到 1500 字），解析不出命令，所有 bash 调用都落到弹卡审批。现在改用原始命令分级；
   危险部分出现在 1500 字之后也能识别。只影响 `approval.policyEngine` 为默认 `bridge` 的部署。
 - 项目更名为 `pi-feishu-channel`（原 `pi-feishu-bridge`）。安装地址改为 `git:github.com/chenydev/pi-feishu-channel`；
-  运行时配置目录、环境变量暂不变。子会话剔除网关扩展时同时识别新旧两个名字。
+  子会话剔除网关扩展时同时识别新旧两个名字。
+- 运行时标识同步更名：
+  - 运行时目录 `feishu-bridge/` → `feishu-channel/`。首次启动时自动改名，原位置留指向新目录的软链接
+    （日志 `feishu.config.migrated`）；新旧都在时只用新目录（`feishu.config.legacy_dir_ignored`）；
+    改名失败时不启动（`feishu.config.migrate_failed`）。
+  - 环境变量 `FEISHU_BRIDGE_HOME` / `FEISHU_BRIDGE_POLICY_ENGINE` → `FEISHU_CHANNEL_*`。旧名仍然识别，启动时告警
+    （`feishu.config.deprecated_env`）。
+  - 日志前缀 `[feishu-bridge]` → `[feishu-channel]`；PS 父会话默认 id `feishu-bridge-parent` → `feishu-channel-parent`
+    （可用 `approval.forwarding.parentSessionId` 固定为旧值）。
 - 可观测：启动日志 `feishu.bridge.features`、`status.json` 的 `features` 字段与 `/feishu doctor` 的 `features` 项，
   列出当前打开的默认关闭能力（11 项可选能力 + 流式卡片、PS 父会话转发）。
 
