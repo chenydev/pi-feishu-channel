@@ -1,0 +1,122 @@
+{
+  "appId": "cli_xxxxxxxxxxxxxxxx",
+  "appSecret": "replace-me",
+  "domain": "feishu",
+  "timezone": "Asia/Shanghai",
+  "groupPolicy": "mention",
+  "allowChats": [
+    "oc_test_chat_id"
+  ],
+  "allowUsers": [],
+  "admins": [
+    "ou_admin_open_id"
+  ],
+  "adminBypassMention": false,
+  "groupAlsoOnReply": true,
+  "groupSessionsPerUser": true,
+  "requireMention": true,
+  "ignoreAtAll": true,
+  "groupPolicyByChat": {
+    "oc_test_chat_id": "mention"
+  },
+  "groupRules": {},
+  "batch": {
+    "enabled": true,
+    "textWindowMs": 3000,
+    "maxMessages": 8,
+    "maxChars": 12000
+  },
+  "forwarding": {
+    "acceptMergeForward": true
+  },
+  "approval": {
+    "autoApprove": [],
+    "timeoutMs": 300000,
+    "forwarding": {
+      "enabled": false
+    }
+  },
+  "reaction": {
+    "processingEmoji": "Typing",
+    "enabled": true
+  },
+  "footer": {
+    "enabled": true,
+    "showCost": true,
+    "showCny": true,
+    "showContext": true,
+    "showSession": true
+  },
+  "usage": {
+    "balanceTtlMs": 300000,
+    "snapshots": true,
+    "provider": "deepseek"
+  },
+  "progress": {
+    "showThinking": false
+  },
+  "workspaces": {
+    "aliases": {}
+  },
+  "maxActiveSessions": 8,
+  "debug": false,
+  "allowBots": [],
+  "streamingCard": {
+    "enabled": false,
+    "throttleMs": 1000,
+    "_comment": "CardKit 流式卡片（默认关）。开启需应用具备 cardkit:card:write 权限。",
+    "printFrequencyMs": 20,
+    "printStep": 3,
+    "_comment_typing": "打字机效果：每 printFrequencyMs 毫秒上屏 printStep 个字。平台默认 1字/70ms（500 字要播 35 秒）。实测 3字/20ms（150 字/秒）体感最佳。"
+  },
+  "footerByChat": {},
+  "queueNotice": true,
+  "longReply": {
+    "asFile": false,
+    "thresholdChars": 6000
+  },
+  "directBash": {
+    "enabled": false,
+    "allowAsk": false,
+    "p2pOnly": false,
+    "timeoutMs": 60000
+  },
+  "cron": {
+    "enabled": false,
+    "catchUp": "skip"
+  },
+  "alerts": {
+    "enabled": false
+  },
+  "onboarding": {
+    "welcome": true,
+    "notifyAdmins": true,
+    "accessRequest": false,
+    "accessRequestCooldownMs": 3600000,
+    "accessApprovers": "owner"
+  },
+  "feedback": {
+    "enabled": true
+  },
+  "cardTool": {
+    "enabled": false
+  },
+  "stt": {
+    "provider": "off"
+  },
+  "retention": {
+    "sessionDays": 0
+  },
+  "statusHeartbeatMs": 30000,
+  "docComments": {
+    "enabled": false,
+    "allowUsers": []
+  },
+  "meetingInvite": {
+    "enabled": false
+  },
+  "docTools": {
+    "enabled": false,
+    "maxChars": 30000
+  }
+}
