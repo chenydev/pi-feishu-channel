@@ -12,7 +12,6 @@ import type { LarkSdkLike } from "./inbound/transport.js";
 import { InboundPipeline } from "./inbound/pipeline.js";
 import { LastSentCache, effectiveAdmins } from "./inbound/admit.js";
 import { deliverDocCommentReply, readDocText } from "./inbound/doc-comments.js";
-import { buildMeetingInvitePrompt, meetingInviteKey } from "./inbound/meeting-invite.js";
 import { Sender } from "./outbound/sender.js";
 import { Outbox } from "./outbound/outbox.js";
 import { ConversationManager } from "./session/conversation-manager.js";
@@ -466,9 +465,6 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 				log.info("feishu.onboarding.p2p_entered", { chatId: event.chatId, allowed });
 				return;
 			}
-			case "meeting_invite":
-				await handleMeetingInvite(event.invite);
-				return;
 			case "reaction": {
 				// 只记用户对本 bot 回复的 👍/👎（机器人自己加的"处理中"表情不算），默认不触发新一轮
 				if (rt.config.feedback?.enabled === false) return;
@@ -484,40 +480,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 
 
 
-	/** 外部事件去重（平台重投同一事件时不重复开任务）；只在内存里，容量有限。 */
-	const seenExternalEvents = new Set<string>();
-	function firstSeen(key: string): boolean {
-		if (seenExternalEvents.has(key)) return false;
-		seenExternalEvents.add(key);
-		if (seenExternalEvents.size > 512) seenExternalEvents.delete(seenExternalEvents.values().next().value as string);
-		return true;
-	}
 
-	/** 会议邀请 → 邀请人私聊里开一轮任务（邀请人需通过私聊准入）。 */
-	async function handleMeetingInvite(invite: import("./inbound/meeting-invite.js").MeetingInvite): Promise<void> {
-		if (!rt.config.meetingInvite?.enabled || !rt.transport || !rt.convManager) return;
-		const allowed = rt.config.allowUsers.includes(invite.inviterOpenId) || effectiveAdmins(rt.config).includes(invite.inviterOpenId);
-		if (!allowed) {
-			log.info("feishu.meeting_invite.denied", { meetingNo: invite.meetingNo, inviter: invite.inviterOpenId, hint: "邀请人不是管理员，也不在 allowUsers 里（回复要走私聊）" });
-			return;
-		}
-		if (!firstSeen(meetingInviteKey(invite))) return;
-		const sent = await rt.transport.sendToUserDetailed(invite.inviterOpenId, "text", { text: `收到会议邀请「${invite.topic ?? invite.meetingNo}」，正在处理…` });
-		if (!sent.chatId) {
-			log.warn("feishu.meeting_invite.no_p2p_chat", { meetingNo: invite.meetingNo });
-			return;
-		}
-		log.info("feishu.meeting_invite.accepted", { meetingNo: invite.meetingNo, chatId: sent.chatId });
-		await rt.convManager.route({
-			messageId: `meeting:${meetingInviteKey(invite)}`,
-			chatId: sent.chatId, chatType: "p2p",
-			senderId: invite.inviterOpenId, ...(invite.inviterName ? { senderName: invite.inviterName } : {}),
-			isBot: false, msgType: "text",
-			text: buildMeetingInvitePrompt(invite, (ms) => formatTimeInZone(ms, rt.config.timezone)),
-			mentions: [], resources: [], raw: undefined, ts: Date.now(),
-			synthetic: true, replyTarget: sent.messageId,
-		}, { behavior: "queue" });
-	}
 
 	/** 反馈计数（只记 id 与方向，不含正文）。 */
 	const feedbackCounts = { up: 0, down: 0 };
