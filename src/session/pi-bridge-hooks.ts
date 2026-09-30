@@ -11,6 +11,9 @@
  *   2. `feishu_send_local_file` → outer conversation/outbox
  * 子会话的扩展发现结果另由 `stripGatewayExtensions()` 剔除网关扩展自身。
  */
+import { realpathSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionRuntimeContext, ExtensionToolResult } from "../pi-types.js";
 
 export interface BridgeRoute {
@@ -345,7 +348,16 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 	};
 }
 
-/** 网关扩展（桥自身）在扩展路径里的识别特征；保留旧名，兼容仍按旧路径安装的部署。 */
+/**
+ * 本扩展的包根目录（本文件在 `<包根>/src/session/` 下）。子会话按它识别并剔除桥自身，
+ * 与安装目录叫什么名字无关。
+ */
+export const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+/**
+ * 按名字识别网关扩展的兜底特征：包根目录识别不到时（例如扩展被复制到别处加载）才用。
+ * 保留旧名，兼容仍按旧路径安装的部署。
+ */
 export const GATEWAY_EXTENSION_MARKERS = ["pi-feishu-channel", "pi-feishu-bridge"];
 
 /** 扩展发现结果的最小结构（pi LoadExtensionsResult 的子集）。 */
@@ -353,16 +365,32 @@ export interface ExtensionDiscoveryResult<T = { path?: string; resolvedPath?: st
 	extensions: T[];
 }
 
+function realpathOrSelf(path: string): string {
+	try { return realpathSync(path); } catch { return path; }
+}
+
+/** `path` 是否在 `root` 目录之内（按真实路径比较，软链接安装也能识别）。 */
+function isInside(path: string, root: string): boolean {
+	const target = realpathOrSelf(path);
+	return target === root || target.startsWith(`${root}${sep}`);
+}
+
 /**
  * 从子会话扩展发现结果中剔除网关扩展（默认桥自身）：
  * 否则每个子会话都会重新执行桥扩展工厂 —— 重复启动飞书 WS、创建空状态并争抢 app 锁。
+ *
+ * 先按包根目录识别，再按名字特征兜底。
  */
 export function stripGatewayExtensions<T extends { path?: string; resolvedPath?: string }>(
 	result: ExtensionDiscoveryResult<T>,
 	markers: string[] = GATEWAY_EXTENSION_MARKERS,
+	packageRoots: string[] = [PACKAGE_ROOT],
 ): ExtensionDiscoveryResult<T> {
+	const roots = packageRoots.map(realpathOrSelf);
 	const extensions = result.extensions.filter((extension) => {
-		const haystack = `${extension.path ?? ""}\u0000${extension.resolvedPath ?? ""}`;
+		const paths = [extension.path, extension.resolvedPath].filter((path): path is string => Boolean(path));
+		if (paths.some((path) => roots.some((root) => isInside(path, root)))) return false;
+		const haystack = paths.join("\u0000");
 		return !markers.some((marker) => haystack.includes(marker));
 	});
 	if (extensions.length === result.extensions.length) return result;

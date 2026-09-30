@@ -99,8 +99,10 @@ export interface PiSessionBackendDeps {
 	bridgeExtensionFactory?: InlineBridgeExtension;
 	/** 子会话扩展发现时剔除网关扩展（默认启用，防止每个子会话重复启动飞书 WS）。 */
 	filterGatewayExtensions?: boolean;
-	/** 网关扩展识别特征（默认 GATEWAY_EXTENSION_MARKERS）。 */
+	/** 网关扩展识别特征（默认 GATEWAY_EXTENSION_MARKERS，包根目录识别不到时兜底）。 */
 	gatewayExtensionMarkers?: string[];
+	/** 网关扩展的包根目录（默认本扩展的包根目录）。 */
+	gatewayPackageRoots?: string[];
 	/** agent 配置目录；默认用 sdk.getAgentDir()。 */
 	agentDir?: string;
 }
@@ -133,15 +135,21 @@ export class PiSessionBackend implements SessionBackend {
 			agentDir,
 			extensionFactories: factory ? [factory] : [],
 		};
+		// 被剔除的网关扩展数：正常为 1（桥自身）；0 说明子会话会再启动一个飞书长连接
+		let strippedGateways = 0;
 		if (filter) {
-			options.extensionsOverride = (base: unknown) =>
-				stripGatewayExtensions(base as ExtensionDiscoveryResult, markers);
+			options.extensionsOverride = (base: unknown) => {
+				const discovered = base as ExtensionDiscoveryResult;
+				const result = stripGatewayExtensions(discovered, markers, this.deps.gatewayPackageRoots);
+				strippedGateways = discovered.extensions.length - result.extensions.length;
+				return result;
+			};
 		}
 		try {
 			const loader = new sdk.DefaultResourceLoader(options as never);
 			await loader.reload();
-			this.deps.log?.("debug", "feishu.session.resource_loader_ready", {
-				cwd, agentDir, injected: Boolean(factory), filtered: filter,
+			this.deps.log?.("info", "feishu.session.resource_loader_ready", {
+				cwd, agentDir, injected: Boolean(factory), filtered: filter, strippedGateways,
 			});
 			return loader;
 		} catch (error) {

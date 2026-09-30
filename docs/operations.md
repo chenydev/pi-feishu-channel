@@ -54,7 +54,7 @@
 | 去重 / 合批 | `feishu.pipeline.batched` | `feishu.pipeline.drop_duplicate` |
 | 准入 | —— | **`feishu.pipeline.drop`**（见 §3） |
 | 命令 | `feishu.command` | `feishu.card.command_failed` |
-| 执行 | `feishu.session.created`、`feishu.conv.send_reply_start` | `feishu.conv.run_error`、`run_idle_timeout`、`budget_exceeded` |
+| 执行 | `feishu.session.resource_loader_ready`（`strippedGateways` 正常为 1）、`feishu.session.created`、`feishu.conv.send_reply_start` | `feishu.conv.run_error`、`run_idle_timeout`、`budget_exceeded` |
 | 审批 | `feishu.approval.audit`、`command_allow` / `command_ask` / `command_deny` | `feishu.approval.invalidated`、`card_terminal_failed` |
 | 回复 | `feishu.conv.reply_sent`、`feishu.outbox.delivered` | `feishu.outbox.failed`、`feishu.sender.*_fallback` |
 
@@ -96,6 +96,7 @@
 | 点审批卡提示「已失效」 | 超时（默认 5 分钟），或这一轮已经结束 | 尽快点；或调大 `approval.timeoutMs` |
 | 回复半截，或提示「回复发送失败」 | 编辑次数用尽、没有发言权限、接口持续报错 | 看 `feishu.outbox.failed` 的 `lastError` |
 | 页脚费用一直显示「未知」 | 模型配置里没有费率 | 在 pi 的模型配置里补上 `cost` |
+| 每开一个会话就多一条 `ws_ready`，连接互相顶掉 | 子会话没有剔除桥自身，又启动了一个长连接 | 看 `feishu.session.resource_loader_ready` 的 `strippedGateways`，应为 1 |
 | 容器日志时间差 8 小时 | `docker logs --timestamps` 始终是 UTC | 对时间时换算时区 |
 
 ## 5. 上线验收

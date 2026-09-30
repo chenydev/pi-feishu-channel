@@ -3,15 +3,20 @@
  * 以及从子会话扩展发现中剔除网关扩展（避免重复启动飞书 WS）。
  */
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
 	createBridgeInlineExtension,
+	PACKAGE_ROOT,
 	stripGatewayExtensions,
 	type BridgeGateInput,
 	type BridgeHookContext,
 	type BridgeRoute,
 } from "../src/session/pi-bridge-hooks.js";
 import type { ExtensionAPI } from "../src/pi-types.js";
+import { PiSessionBackend } from "../src/session/pi-session-backend.js";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -203,4 +208,50 @@ test("子会话钩子：gate 输入带上完整的原始 bash 命令（不截断
 	assert.equal(calls.gated[0].command, command);
 	await handler({ toolCallId: "tc2", toolName: "read", input: { command: "x" } }, RUNTIME);
 	assert.equal(calls.gated[1].command, undefined, "非 bash 工具不带 command");
+});
+
+test("子会话钩子：按包根目录识别桥自身，与安装目录名无关；前缀相同的其他目录不误伤", () => {
+	const root = mkdtempSync(join(tmpdir(), "any-name-"));
+	try {
+		mkdirSync(join(root, "src"));
+		const extensions = [
+			{ path: join(root, "src", "index.ts") },
+			{ path: `${root}-sibling/src/index.ts` },
+			{ path: "/opt/pi/extensions/other/index.ts" },
+		];
+		const result = stripGatewayExtensions({ extensions }, [], [root]);
+		assert.deepEqual(result.extensions.map((e) => e.path), [`${root}-sibling/src/index.ts`, "/opt/pi/extensions/other/index.ts"]);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("子会话钩子：通过软链接加载的桥自身也能识别", () => {
+	const root = mkdtempSync(join(tmpdir(), "real-"));
+	const link = `${root}-link`;
+	try {
+		mkdirSync(join(root, "src"));
+		writeFileSync(join(root, "src", "index.ts"), "");
+		symlinkSync(root, link);
+		const result = stripGatewayExtensions({ extensions: [{ path: join(link, "src", "index.ts") }] }, [], [root]);
+		assert.equal(result.extensions.length, 0);
+	} finally { rmSync(link, { force: true }); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("子会话钩子：默认包根目录就是本仓库", () => {
+	assert.ok(existsSync(join(PACKAGE_ROOT, "package.json")));
+	assert.equal(stripGatewayExtensions({ extensions: [{ path: join(PACKAGE_ROOT, "src", "index.ts") }] }, []).extensions.length, 0);
+});
+
+test("子会话会话后端：resource_loader_ready 记录剔除的网关扩展数", async () => {
+	const logs: Array<{ msg: string; meta: unknown }> = [];
+	const backend = new PiSessionBackend({ sessionDir: tmpdir(), log: (_level, msg, meta) => { logs.push({ msg, meta }); } });
+	class FakeLoader {
+		constructor(private readonly options: { extensionsOverride?: (base: unknown) => unknown }) {}
+		async reload() {
+			this.options.extensionsOverride?.({ extensions: [{ path: join(PACKAGE_ROOT, "src", "index.ts") }, { path: "/opt/other/index.ts" }] });
+		}
+	}
+	const sdk = { DefaultResourceLoader: FakeLoader, getAgentDir: () => tmpdir() };
+	await (backend as unknown as { buildResourceLoader(sdk: unknown, cwd: string): Promise<unknown> }).buildResourceLoader(sdk, "/");
+	const ready = logs.find((l) => l.msg === "feishu.session.resource_loader_ready");
+	assert.equal((ready?.meta as { strippedGateways?: number })?.strippedGateways, 1);
 });
