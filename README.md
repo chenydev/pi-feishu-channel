@@ -131,8 +131,7 @@ chmod 600 ~/.pi/agent/feishu-channel/config.json
 pi --mode rpc --provider <provider> --model <model>
 ```
 
-桥随 pi 进程启动；装了 `pi-permission-system` 时还需配 `ask` 规则才会弹飞书审批卡
-（见下面「让 pi-permission-system 的 `ask` 走飞书审批卡」）。
+扩展随 pi 进程启动。审批的几种工作方式见 [docs/approval.md](docs/approval.md)。
 
 依赖：`@larksuiteoapi/node-sdk`
 peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一并装进 clone；桥用它创建子会话）
@@ -202,23 +201,10 @@ env 优先，`config.json` 持久化（路径 `$FEISHU_CHANNEL_HOME/feishu-chann
 
 配置里拼错的字段不会导致启动失败，`/feishu doctor` 的 `config_fields` 项会列出来。变更记录见 `CHANGELOG.md`。
 
-### 让 pi-permission-system 的 `ask` 走飞书审批卡（实验性，默认关）
+### 工具审批
 
-`approval.policyEngine = "pi-permission-system"` 时策略归该扩展，但它的 `ask` 需要一个**父会话**来应答：
-子会话把请求写进文件信箱，父会话写回响应。桥可以扮演这个父会话（而且不要求是 pi 进程）：
-
-```jsonc
-// config.json
-"approval": { "forwarding": { "enabled": true } }   // 或 FEISHU_PS_FORWARDING=1
-```
-
-- 桥向进程环境声明父子关系：`PI_SUBAGENT_PARENT_SESSION`（PS 文档的 subagent adapter convention，主变量）
-  与 `PI_AGENT_ROUTER_PARENT_SESSION_ID`（历史兼容名，同值）—— 两者都指向桥侧父会话 id，
-  因此进程内所有会话的 ask 都会转发给桥；然后在 `$PI_CODING_AGENT_DIR/sessions/permission-forwarding/`
-  下发布心跳、轮询子会话的请求文件，把每个 `ask` 变成飞书审批卡；用户点完写回响应。
-- 卡片只提供**「仅本次 / 本会话 / 拒绝」** —— 转发路径写不进对方策略引擎的配置，所以不给「始终批准」这种做不到的按钮。
-- 打不开时的降级行为：扩展缺席则不声明父子关系（退回到现状）；关掉开关会撤掉自己的声明。
-- 轮询/心跳参数（`PS_FORWARDING_POLL_INTERVAL_MS` 等）对齐 33.0.3 的实现，见 `src/approval/ps-forwarding.ts`。
+默认由本扩展判定（bash 命令分级 + 审批卡）；也可以把判定交给 pi-permission-system，并由本扩展把它的「询问」转成审批卡。
+详见 [docs/approval.md](docs/approval.md)。
 
 ---
 

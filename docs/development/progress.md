@@ -49,8 +49,8 @@
 | F1 | 运行时标识更名 | ✅ | `c047630` | `feishu.config.migrated`；`feishu.config.deprecated_env` | `tests/runtime-identity.test.ts` | 标识集中在 `src/runtime/identity.ts`；只有旧目录时改名并在原位置留相对软链接，新旧都在时只用新目录，改名失败不启动；旧环境变量仍识别并告警；日志前缀、PS 父会话默认 id、诊断包文件名同步改名；新增 6 例（默认路径、迁移、无事可做、新旧并存、改名失败、旧环境变量）；真实环境迁移待部署切换 |
 | G1 | 文档骨架 | ✅ | `5f9ad2d` | — | `npm run docs:check` | 链接检查通过 |
 | G2 | 配置参考 | ⬜ | | — | 与 schema 对比 | |
-| G3 | 审批链路文档 | ⬜ | | — | 文中命令可执行 | |
-| G4 | PS 转发隔离 e2e | ✅ |  | 脚本输出 | 脚本本身 | `scripts/e2e/ps-forwarding.ts`：临时目录里准备只装 pi-permission-system 的 pi 配置；判据改为命令的副作用（随机串写文件，并禁用 write/edit 工具）—— 旧脚本看 pi 输出，实测模型会在命令被拒时直接答出 echo 的内容造成误判；pi 0.87.1 + PS 33.0.3 下 both / convention / none / --delay 6 四种均通过；顺带发现并修复转发卡片只显示规则匹配部分的缺陷（`7257867`） |
+| G3 | 审批链路文档 | ✅ |  | — | 文中命令可执行 | 新增 `docs/approval.md`：三种方式（内置策略 / 交给 pi-permission-system / 父会话转发）、审批卡、始终批准的两种含义、转发日志序列、验证方法；README 的转发一节改为指向它；文中命令已逐条核对（`/feishu always`、e2e 脚本三种用法均实际执行） |
+| G4 | PS 转发隔离 e2e | ✅ | `0f6d14e` | 脚本输出 | 脚本本身 | `scripts/e2e/ps-forwarding.ts`：临时目录里准备只装 pi-permission-system 的 pi 配置；判据改为命令的副作用（随机串写文件，并禁用 write/edit 工具）—— 旧脚本看 pi 输出，实测模型会在命令被拒时直接答出 echo 的内容造成误判；pi 0.87.1 + PS 33.0.3 下 both / convention / none / --delay 6 四种均通过；顺带发现并修复转发卡片只显示规则匹配部分的缺陷（`7257867`） |
 
 ## 真实环境验收记录
 
