@@ -32,6 +32,8 @@ export interface BridgeGateInput {
 	toolCallId: string;
 	toolName: string;
 	paramsText: string;
+	/** bash 工具的原始命令（未打码、未截断），只用于命令分级，不展示也不落盘。 */
+	command?: string;
 	/** 需要审批的理由（命令级策略判定结果，用于审批卡展示）。 */
 	reason?: string;
 	chatId: string;
@@ -331,6 +333,7 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 				toolCallId: input.toolCallId,
 				toolName: input.toolName,
 				paramsText: ctx.redactParams(input.input, input.toolName),
+				command: bashCommandOf(input.toolName, input.input),
 				chatId: route.chatId,
 				threadId: route.threadId,
 				sourceMessageId: route.sourceMessageId,
@@ -364,4 +367,9 @@ export function stripGatewayExtensions<T extends { path?: string; resolvedPath?:
 	});
 	if (extensions.length === result.extensions.length) return result;
 	return { ...result, extensions };
+}
+
+/** 取 bash 工具调用的原始命令；其他工具或参数不合法时返回 undefined。 */
+export function bashCommandOf(toolName: string, params: Record<string, unknown> | undefined): string | undefined {
+	return toolName === "bash" && typeof params?.command === "string" ? params.command : undefined;
 }

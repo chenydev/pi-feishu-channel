@@ -14,7 +14,7 @@
 | `manager_forwarders` | 16 | 0 | 0 |
 | `manager_lines` | 1590 | 1510 | 只减不增 |
 | `internal_id_refs` | 0 | 0 | 0 |
-| `tests` | 650 | 668 | 只增不减 |
+| `tests` | 650 | 672 | 只增不减 |
 
 ## 条目
 
@@ -26,7 +26,8 @@
 | B1 | 结构指标 | ✅ | `3261ffe` | `npm run metrics` | `npm run metrics -- --json` | 合法 JSON；`tests` = 650，与 `npm test` 一致 |
 | B2 | 已启用能力清单 | ✅ | `1e56fae` | 日志 `feishu.bridge.features`；`status.json.features`；doctor `features` | `npx tsx --test tests/features.test.ts` | 4 例通过；用生产配置离线核对得到 `accessRequest、streamingCard、psForwarding`（此前人工翻配置漏看了 psForwarding） |
 | C1 | 删除转发方法 | ✅ | `f4ac6a4` | `manager_forwarders` 16 → 0 | `npx tsx --test tests/session-browse-resume.test.ts tests/workspace-switch.test.ts tests/model-thinking-commands.test.ts` | 20 例通过；`manager_lines` 1590 → 1510；80 处调用点改为 `.commands.xxx()` |
-| D0 | 行为锁定测试 | ✅ | | 新增 14 例 | `npx tsx --test tests/integration/extension-entry.test.ts` | 14 例通过；入口新增可选注入 `BridgeDeps.larkSdk` / `sessionBackend`（生产不传）；发现命令分级失效的缺陷，见 D0-fix |
+| D0 | 行为锁定测试 | ✅ | `d9be39f` | 新增 14 例 | `npx tsx --test tests/integration/extension-entry.test.ts` | 14 例通过；入口新增可选注入 `BridgeDeps.larkSdk` / `sessionBackend`（生产不传）；发现命令分级失效的缺陷，见 D0-fix |
+| D0-fix | 命令分级改用原始命令 | ✅ | | `feishu.approval.command_allow` / `command_deny` 重新出现 | `npx tsx --test --test-name-pattern '危险命令\|只读命令\|完整原始命令\|原始 bash' tests/integration/extension-entry.test.ts tests/pi-bridge-hooks.test.ts` | 4 例通过（修复前危险命令卡在等待审批）；只影响 `policyEngine` 为 bridge 的部署 |
 | D1 | BridgeRuntime | ⬜ | | `index_closure_state` → ≤ 3 | D0 + `tests/bridge-runtime.test.ts` | |
 | D2 | 卡片回调路由 | ⬜ | | `feishu.card.*` 不变；`feishu.card.op_conflict` | `tests/card-router.test.ts` | |
 | D3 | 工具审批检查 | ⬜ | | `feishu.approval.*` 不变 | `tests/approval-gate.test.ts` + G4 | |
@@ -45,7 +46,7 @@
 | D6 | 生命周期 | ⬜ | | `index_lines` < 300；`bridge started`；status mtime | `tests/lifecycle.test.ts` | |
 | D7 | 网关扩展按路径识别 | ⬜ | | `resource_loader_ready.strippedGateways` = 1 | `tests/pi-bridge-hooks.test.ts` | |
 | E1 | 配置 schema（zod） | ⬜ | | doctor `config_fields` 不变 | 配置快照测试 | |
-| F1 | 运行时标识更名 | ⏸ | | `feishu.config.migrated` | `tests/runtime-identity.test.ts` | 待 ADR-6 决策 |
+| F1 | 运行时标识更名 | ⬜ | | `feishu.config.migrated`；`feishu.config.deprecated_env` | `tests/runtime-identity.test.ts` | ADR-6 已定：改名并自动迁移 |
 | G1 | 文档骨架 | ✅ | `5f9ad2d` | — | `npm run docs:check` | 链接检查通过 |
 | G2 | 配置参考 | ⬜ | | — | 与 schema 对比 | |
 | G3 | 审批链路文档 | ⬜ | | — | 文中命令可执行 | |

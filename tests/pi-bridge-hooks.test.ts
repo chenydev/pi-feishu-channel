@@ -88,6 +88,7 @@ test("子会话钩子：tool_call 在有路由时经审批 gate，并原样返�
 		toolCallId: "tc1",
 		toolName: "bash",
 		paramsText: "[redacted]",
+		command: "rm -rf /",
 		chatId: "oc_group",
 		threadId: "om_thread",
 		sourceMessageId: "om_src",
@@ -190,4 +191,16 @@ test("内联扩展注册压缩与终局事件（用户侧可见性）", () => {
 	// agent_end 之后 Pi 可能继续 auto-retry/compact/follow-up，只有 agent_settled 是终局
 	assert.ok(registered.includes("agent_settled"), "必须订阅终局信号");
 	assert.ok(registered.includes("tool_call"), "原有的工具审批检查不能丢");
+});
+
+test("子会话钩子：gate 输入带上完整的原始 bash 命令（不截断、不打码），供命令分级使用", async () => {
+	const { api, handlers } = fakePi();
+	const { ctx, calls } = fakeCtx(ROUTE);
+	createBridgeInlineExtension(ctx)(api);
+	const handler = handlers.get("tool_call")![0];
+	const command = `${"echo ok; ".repeat(200)}TOKEN=abc rm -rf /`;
+	await handler({ toolCallId: "tc1", toolName: "bash", input: { command } }, RUNTIME);
+	assert.equal(calls.gated[0].command, command);
+	await handler({ toolCallId: "tc2", toolName: "read", input: { command: "x" } }, RUNTIME);
+	assert.equal(calls.gated[1].command, undefined, "非 bash 工具不带 command");
 });

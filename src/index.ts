@@ -25,7 +25,7 @@ import { compensateKnownChats } from "./runtime/history-compensation.js";
 import { ResourceResolver } from "./inbound/resource-resolver.js";
 import { queueLocalFile } from "./outbound/local-file-tool.js";
 import { stageArtifact, validateLocalArtifact } from "./outbound/artifact.js";
-import { createBridgeInlineExtension, type BridgeGateInput } from "./session/pi-bridge-hooks.js";
+import { bashCommandOf, createBridgeInlineExtension, type BridgeGateInput } from "./session/pi-bridge-hooks.js";
 import { PermissionBridge, redactParams, type ApprovalChoice } from "./approval/permission-bridge.js";
 import { AlwaysApprovedStore } from "./approval/always-approved-store.js";
 import {
@@ -1779,7 +1779,8 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		// 命令级策略：只读命令免审、危险命令直接拒绝，其余才弹卡。
 		// 没有这一层时 bash 只能「全审」—— 每个 ls 都要点一次审批，用户会无脑点批准，审批就失去意义。
 		if (input.toolName === "bash" && config.approval?.commandPolicy?.enabled) {
-			const command = extractBashCommand(input.paramsText);
+			// 必须用原始命令：展示用的 paramsText 已打码并截断，危险部分可能恰好落在截断位置之后
+			const command = input.command;
 			if (command) {
 				const verdict = classifyCommand(command, config.approval.commandPolicy);
 				if (verdict.verdict === "allow") {
@@ -1818,6 +1819,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			toolCallId: input.toolCallId,
 			toolName: input.toolName,
 			paramsText: redactParams(input.input, input.toolName),
+			command: bashCommandOf(input.toolName, input.input),
 			chatId: route.chatId,
 			threadId: route.threadId,
 			sourceMessageId: route.sourceMessageId,
@@ -2218,16 +2220,6 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		clearInterval(watchdog);
 		await stopBridge();
 	});
-}
-
-/** 从脱敏后的工具参数里取出 bash 命令文本。 */
-function extractBashCommand(paramsText: string): string | undefined {
-	try {
-		const parsed = JSON.parse(paramsText) as { command?: unknown };
-		return typeof parsed?.command === "string" ? parsed.command : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 /**

@@ -138,6 +138,36 @@ test("入口·审批检查：管理员拒绝后工具调用被阻断", T, async 
 	});
 });
 
+test("入口·审批检查：危险命令直接拒绝，不弹卡", T, async () => {
+	await withHarness(baseConfig, async (h) => {
+		const { chatId, sessionId } = await startRun(h);
+		const verdict = await toolCall(h, sessionId, "bash", { command: "rm -rf /" }) as { block?: boolean };
+		assert.equal(verdict?.block, true);
+		assert.ok(h.hasLog("feishu.approval.command_deny"));
+		assert.equal(h.buttonValues((v) => v.op === "approval").length, 0, "不得弹出审批卡");
+		assert.ok(!h.sent(chatId).some((c) => c.includes('"op":"approval"')));
+	});
+});
+
+test("入口·审批检查：只读命令直接放行，不弹卡", T, async () => {
+	await withHarness(baseConfig, async (h) => {
+		const { sessionId } = await startRun(h);
+		assert.equal(await toolCall(h, sessionId, "bash", { command: "ls -la" }), undefined);
+		assert.ok(h.hasLog("feishu.approval.command_allow"));
+		assert.equal(h.buttonValues((v) => v.op === "approval").length, 0);
+	});
+});
+
+test("入口·审批检查：命令分级看的是完整原始命令，而不是卡片上截断、打码后的文本", T, async () => {
+	await withHarness(baseConfig, async (h) => {
+		const { sessionId } = await startRun(h);
+		// 前 1500 个字符都是无害的只读命令：只看展示文本就会漏掉末尾的危险部分
+		const command = `${"echo ok; ".repeat(200)}rm -rf /`;
+		const verdict = await toolCall(h, sessionId, "bash", { command }) as { block?: boolean };
+		assert.equal(verdict?.block, true, "危险部分在截断位置之后也必须被拒绝");
+	});
+});
+
 test("入口·审批检查：开启管理员免审时，管理员自己发起的调用不弹卡", T, async () => {
 	await withHarness({ ...baseConfig, approval: { adminSkipApproval: true } }, async (h) => {
 		const { sessionId } = await startRun(h, ADMIN);
