@@ -1,0 +1,207 @@
+{
+  "appId": "cli_example",
+  "appSecret": "example-secret",
+  "domain": "feishu",
+  "timezone": "Asia/Shanghai",
+  "groupPolicy": "mention",
+  "groupPolicyByChat": {
+    "oc_example_a": "open",
+    "oc_example_b": "admin_only"
+  },
+  "groupRules": {
+    "oc_example_c": {
+      "policy": "allowlist",
+      "allowlist": [
+        "ou_example_1"
+      ],
+      "requireMention": false,
+      "prompt": "用中文回答",
+      "tools": "readonly",
+      "dailyBudgetUsd": 5
+    },
+    "oc_example_d": {
+      "blacklist": [
+        "ou_example_2"
+      ],
+      "tools": [
+        "read",
+        "grep"
+      ]
+    }
+  },
+  "allowChats": [
+    "oc_example_a",
+    "oc_example_b"
+  ],
+  "allowUsers": [
+    "ou_example_1"
+  ],
+  "admins": [
+    "ou_example_admin"
+  ],
+  "groupAlsoOnReply": true,
+  "allowBots": [
+    "mentions"
+  ],
+  "runIdleTimeoutMs": 600000,
+  "runMaxDurationMs": 0,
+  "groupSessionsPerUser": true,
+  "requireMention": true,
+  "adminBypassMention": false,
+  "batch": {
+    "enabled": true,
+    "textWindowMs": 800,
+    "debounceMs": 800,
+    "media": false,
+    "maxMessages": 8,
+    "maxChars": 12000
+  },
+  "forwarding": {
+    "acceptMergeForward": true
+  },
+  "approval": {
+    "autoApprove": [
+      "read"
+    ],
+    "timeoutMs": 300000,
+    "adminSkipApproval": false,
+    "commandPolicy": {
+      "enabled": true,
+      "extraReadOnly": [
+        "kubectl get"
+      ],
+      "extraDangerous": [
+        "terraform destroy"
+      ]
+    },
+    "forwarding": {
+      "enabled": true,
+      "parentSessionId": "example-parent",
+      "alwaysApprove": true
+    },
+    "policyEngine": "pi-permission-system"
+  },
+  "reaction": {
+    "processingEmoji": "Typing",
+    "enabled": true,
+    "failureEmoji": "CrossMark",
+    "steerEmoji": "JIAYI"
+  },
+  "queueNotice": true,
+  "footer": {
+    "enabled": true,
+    "showCost": true,
+    "showCny": true,
+    "showContext": true,
+    "showSession": true
+  },
+  "footerByChat": {
+    "oc_example_a": false
+  },
+  "usage": {
+    "balanceTtlMs": 300000,
+    "snapshots": true,
+    "provider": "deepseek"
+  },
+  "sessionLifecycle": {
+    "idleTtlMs": 3600000,
+    "maxResidentSessions": 32,
+    "sweepIntervalMs": 60000
+  },
+  "progress": {
+    "mode": "new",
+    "showThinking": false,
+    "maxLines": 8,
+    "previewChars": 40,
+    "keepOnFinish": true
+  },
+  "workspaces": {
+    "aliases": {
+      "demo": "/workspace/demo"
+    }
+  },
+  "sessionDir": "sessions/feishu",
+  "debug": false,
+  "lastSentCacheSize": 64,
+  "quotedFetchTtlMs": 300000,
+  "dedupCacheSize": 2000,
+  "dedupTtlMs": 86400000,
+  "maxActiveSessions": 8,
+  "_comment": "覆盖全部已知字段的样例配置（ID 均为虚构），用于配置解析的快照测试",
+  "botName": "示例机器人",
+  "defaultGroupPolicy": "mention",
+  "ignoreAtAll": true,
+  "longReply": {
+    "asFile": true,
+    "thresholdChars": 6000,
+    "previewChars": 1500
+  },
+  "directBash": {
+    "enabled": false,
+    "timeoutMs": 60000,
+    "allowAsk": false,
+    "p2pOnly": true
+  },
+  "cron": {
+    "enabled": true,
+    "catchUp": "skip",
+    "maxJobs": 20
+  },
+  "alerts": {
+    "enabled": true,
+    "disconnectMs": 300000,
+    "recipients": [
+      "ou_example_admin"
+    ]
+  },
+  "onboarding": {
+    "welcome": true,
+    "notifyAdmins": true,
+    "accessRequest": true,
+    "accessApprovers": "owner"
+  },
+  "feedback": {
+    "enabled": true
+  },
+  "cardTool": {
+    "enabled": false
+  },
+  "stt": {
+    "provider": "openai",
+    "endpoint": "http://stt.example/v1",
+    "model": "whisper-1"
+  },
+  "userPrompts": {
+    "ou_example_1": "回答简短一点"
+  },
+  "retention": {
+    "sessionDays": 30
+  },
+  "statusHeartbeatMs": 30000,
+  "streamingCard": {
+    "enabled": true,
+    "throttleMs": 1000,
+    "printFrequencyMs": 50,
+    "printStep": 50
+  },
+  "docComments": {
+    "enabled": false,
+    "allowUsers": [
+      "ou_example_1"
+    ]
+  },
+  "meetingInvite": {
+    "enabled": false
+  },
+  "docTools": {
+    "enabled": true,
+    "maxChars": 20000
+  },
+  "agentContext": {
+    "sender": "shared",
+    "mentions": true
+  },
+  "transport": {
+    "selfHealMaxMs": 600000
+  }
+}

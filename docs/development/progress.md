@@ -14,7 +14,7 @@
 | `manager_forwarders` | 16 | 0 | 0 |
 | `manager_lines` | 1590 | 1522 | 只减不增 |
 | `internal_id_refs` | 0 | 0 | 0 |
-| `tests` | 650 | 734 | 只增不减 |
+| `tests` | 650 | 739 | 只增不减 |
 
 ## 条目
 
@@ -44,8 +44,8 @@
 | D5.10 | 会话归档 | ✅ | `cc2aa87` | `features` 含 `retention` | `tests/features/retention.test.ts` | 归档迁到 `features/retention.ts`；收紧会话文件权限仍是核心行为（每次启动都做）；`feishu.retention` 分成两条（收紧 / 归档各一条，字段不变）；开、关各 1 例通过 |
 | D5.11 | 群开通申请 | ✅ | `258e8d5` | `features` 含 `accessRequest` | `tests/features/access-request.test.ts` | 迁到 `features/access-request.ts`（申请、「暂不放行」按钮）；审批人称呼、私聊管理员、群里发卡片抽到 `runtime/onboarding.ts` 供入口与插件共用；`enabledFeatures()` 改为从 `FEATURES` 派生；开、关各 1 例通过。**D5 整体验收**：默认配置下 `/feishu doctor` 输出与 `d9be39f` 逐字相同（只有临时目录名不同） |
 | D6 | 生命周期 | ✅ | `1716439` | `index_lines` < 300；`bridge started`；status mtime | `tests/lifecycle.test.ts` | 拆出 `runtime/lifecycle.ts`（启停、心跳、断线补收、重连监管）、`runtime/assemble.ts`（组件装配）、`runtime/status-reporter.ts`、`runtime/app-admins.ts`、`interaction/platform-events.ts`、`commands/tui.ts`；index 236 行；新增 3 例（启动失败回滚、启停串行、重复启停）；SIGTERM 退出预算会调用 process.exit，未做自动化测试，真实环境验收时观察 `feishu.shutdown.done` |
-| D7 | 网关扩展按路径识别 | ✅ |  | `resource_loader_ready.strippedGateways` = 1 | `tests/pi-bridge-hooks.test.ts` | 按包根目录（`import.meta.url` 上两级，按真实路径比较）识别桥自身，名字特征只作兜底；`resource_loader_ready` 升为 info 并带 `strippedGateways`；新增 4 例（任意目录名、前缀相同不误伤、软链接、日志字段）；真实环境核对待部署切换 |
-| E1 | 配置 schema（zod） | ⬜ | | doctor `config_fields` 不变 | 配置快照测试 | |
+| D7 | 网关扩展按路径识别 | ✅ | `22a6a62` | `resource_loader_ready.strippedGateways` = 1 | `tests/pi-bridge-hooks.test.ts` | 按包根目录（`import.meta.url` 上两级，按真实路径比较）识别桥自身，名字特征只作兜底；`resource_loader_ready` 升为 info 并带 `strippedGateways`；新增 4 例（任意目录名、前缀相同不误伤、软链接、日志字段）；真实环境核对待部署切换 |
+| E1 | 配置 schema（zod） | ✅ |  | doctor `config_fields` 不变 | 配置快照测试 | schema 在 `src/config/schema.ts`（zod v4）；默认值与合并仍在 `DEFAULT_CONFIG` / `loadConfig`；示例配置与全字段样例的加载结果与改动前快照逐字相同，生产配置离线核对相同，未知字段报告（doctor `config_fields`）相同；新增 5 例（字段集合一致、快照、错误路径、注释键）；更严格：开关写成字符串等写法现在报错 |
 | F1 | 运行时标识更名 | ⬜ | | `feishu.config.migrated`；`feishu.config.deprecated_env` | `tests/runtime-identity.test.ts` | ADR-6 已定：改名并自动迁移 |
 | G1 | 文档骨架 | ✅ | `5f9ad2d` | — | `npm run docs:check` | 链接检查通过 |
 | G2 | 配置参考 | ⬜ | | — | 与 schema 对比 | |

@@ -142,7 +142,7 @@ test("页脚群级开关：群级优先于全局，缺省跟随全局，非法�
 
 		// 非法值不能被静默当成默认值
 		writeFileSync(join(dir, "feishu-bridge", "config.json"), JSON.stringify({ ...base, footerByChat: { oc_a: "yes" } }));
-		assert.throws(() => loadConfig(dir, {}), /footerByChat\.oc_a 必须是 true\/false/);
+		assert.throws(() => loadConfig(dir, {}), /config\.footerByChat\.oc_a：必须是 true\/false/);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -156,7 +156,7 @@ test("进度档位：默认 all，env 可覆盖，非法值报错而不是静默
 	assert.throws(() => loadConfig("/not-used", { FEISHU_PROGRESS_MODE: "quiet" }), /invalid progress mode/);
 });
 
-test("进度档位：文件里非法 mode / 数值 fail-fast，keepOnFinish 只认 false", () => {
+test("进度档位：文件里非法 mode / 数值 / 开关 fail-fast", () => {
 	withConfigFile({ progress: { mode: "off", maxLines: 2, previewChars: 12, keepOnFinish: false } }, (home) => {
 		const cfg = loadConfig(home, {});
 		assert.equal(cfg.progress.mode, "off");
@@ -166,10 +166,10 @@ test("进度档位：文件里非法 mode / 数值 fail-fast，keepOnFinish 只�
 	});
 
 	withConfigFile({ progress: { mode: "quiet" } }, (home) => {
-		assert.throws(() => loadConfig(home, {}), /invalid progress mode/);
+		assert.throws(() => loadConfig(home, {}), /config\.progress\.mode：进度档位「quiet」无效（可选 off\/new\/all\/verbose）/);
 	});
 	withConfigFile({ progress: { maxLines: "很多" } }, (home) => {
-		assert.throws(() => loadConfig(home, {}), /invalid number at config\.progress\.maxLines/);
+		assert.throws(() => loadConfig(home, {}), /config\.progress\.maxLines：必须是数字/);
 	});
 	withConfigFile({ progress: { maxLines: 0 } }, (home) => {
 		assert.equal(loadConfig(home, {}).progress.maxLines, 1, "行数下限收敛到 1，不能配成 0 行");
@@ -178,7 +178,7 @@ test("进度档位：文件里非法 mode / 数值 fail-fast，keepOnFinish 只�
 		assert.equal(loadConfig(home, {}).progress.previewChars, 4, "预览下限收敛到 4");
 	});
 	withConfigFile({ progress: { keepOnFinish: "yes" } }, (home) => {
-		assert.equal(loadConfig(home, {}).progress.keepOnFinish, true, "只显式 false 才关掉保留");
+		assert.throws(() => loadConfig(home, {}), /config\.progress\.keepOnFinish：必须是 true\/false/, "开关写成字符串要报错，而不是静默当成 true");
 	});
 });
 

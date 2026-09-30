@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { BridgeConfig, GroupPolicy, ProgressMode } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
+import { validateFileConfig } from "./config/schema.js";
 
 export interface ConfigPaths {
 	configFile: string;
@@ -185,6 +186,8 @@ export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env
 		try { chmodSync(paths.configFile, 0o600); } catch { /* 只读文件系统仍由后续读取决定是否可用 */ }
 	}
 	const fileCfg = loadJson<Partial<BridgeConfig>>(paths.configFile) ?? {};
+	// 先按 schema 校验整份文件：类型或取值不对就报出完整字段路径，不带着错配置启动
+	validateFileConfig(fileCfg);
 	const merged: BridgeConfig = {
 		...DEFAULT_CONFIG,
 		...fileCfg,

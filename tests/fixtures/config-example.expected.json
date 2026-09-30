@@ -1,0 +1,145 @@
+{
+  "appId": "cli_xxxxxxxxxxxxxxxx",
+  "appSecret": "replace-me",
+  "domain": "feishu",
+  "timezone": "Asia/Shanghai",
+  "groupPolicy": "mention",
+  "groupPolicyByChat": {
+    "oc_test_chat_id": "mention"
+  },
+  "groupRules": {},
+  "allowChats": [
+    "oc_test_chat_id"
+  ],
+  "allowUsers": [],
+  "admins": [
+    "ou_admin_open_id"
+  ],
+  "groupAlsoOnReply": true,
+  "allowBots": [],
+  "runIdleTimeoutMs": 600000,
+  "runMaxDurationMs": 0,
+  "groupSessionsPerUser": true,
+  "requireMention": true,
+  "adminBypassMention": false,
+  "batch": {
+    "enabled": true,
+    "textWindowMs": 3000,
+    "debounceMs": 800,
+    "media": false,
+    "maxMessages": 8,
+    "maxChars": 12000
+  },
+  "forwarding": {
+    "acceptMergeForward": true
+  },
+  "approval": {
+    "autoApprove": [],
+    "timeoutMs": 300000,
+    "adminSkipApproval": false,
+    "commandPolicy": {
+      "enabled": true
+    },
+    "forwarding": {
+      "enabled": false,
+      "alwaysApprove": true
+    }
+  },
+  "reaction": {
+    "processingEmoji": "Typing",
+    "enabled": true,
+    "failureEmoji": "CrossMark",
+    "steerEmoji": "JIAYI"
+  },
+  "queueNotice": true,
+  "footer": {
+    "enabled": true,
+    "showCost": true,
+    "showCny": true,
+    "showContext": true,
+    "showSession": true
+  },
+  "footerByChat": {},
+  "usage": {
+    "balanceTtlMs": 300000,
+    "snapshots": true,
+    "provider": "deepseek"
+  },
+  "sessionLifecycle": {
+    "idleTtlMs": 1800000,
+    "maxResidentSessions": 32,
+    "sweepIntervalMs": 60000
+  },
+  "progress": {
+    "mode": "all",
+    "showThinking": false,
+    "maxLines": 6,
+    "previewChars": 40,
+    "keepOnFinish": true
+  },
+  "workspaces": {
+    "aliases": {}
+  },
+  "sessionDir": "sessions/feishu",
+  "debug": false,
+  "lastSentCacheSize": 64,
+  "quotedFetchTtlMs": 300000,
+  "dedupCacheSize": 4096,
+  "dedupTtlMs": 86400000,
+  "maxActiveSessions": 8,
+  "ignoreAtAll": true,
+  "streamingCard": {
+    "enabled": false,
+    "throttleMs": 1000,
+    "printFrequencyMs": 20,
+    "printStep": 3
+  },
+  "longReply": {
+    "asFile": false,
+    "thresholdChars": 6000
+  },
+  "directBash": {
+    "enabled": false,
+    "allowAsk": false,
+    "p2pOnly": false,
+    "timeoutMs": 60000
+  },
+  "cron": {
+    "enabled": false,
+    "catchUp": "skip"
+  },
+  "alerts": {
+    "enabled": false
+  },
+  "onboarding": {
+    "welcome": true,
+    "notifyAdmins": true,
+    "accessRequest": false,
+    "accessRequestCooldownMs": 3600000,
+    "accessApprovers": "owner"
+  },
+  "feedback": {
+    "enabled": true
+  },
+  "cardTool": {
+    "enabled": false
+  },
+  "stt": {
+    "provider": "off"
+  },
+  "retention": {
+    "sessionDays": 0
+  },
+  "statusHeartbeatMs": 30000,
+  "docComments": {
+    "enabled": false,
+    "allowUsers": []
+  },
+  "meetingInvite": {
+    "enabled": false
+  },
+  "docTools": {
+    "enabled": false,
+    "maxChars": 30000
+  }
+}
