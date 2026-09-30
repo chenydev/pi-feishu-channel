@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { Readable } from "node:stream";
 import { FeishuTransport, type LarkSdkLike } from "../src/inbound/transport.js";
 import { DEFAULT_CONFIG } from "../src/types.js";
+import { holdEventLoop } from "./hold-event-loop.js";
 
 interface WsOptions {
 	onReady?: () => void;
@@ -266,10 +267,10 @@ test("回调处理：卡片回调超出预算先回 toast，算完用 PATCH 刷�
 		onCardAction: () => new Promise((resolve) => { finish = resolve; }),
 	});
 	await instance.start();
-	const res = await fake.handlers["card.action.trigger"]({
+	const res = await holdEventLoop(async () => await fake.handlers["card.action.trigger"]({
 		operator: { open_id: "ou_op" }, token: "tok_1",
 		context: { open_message_id: "om_card", open_chat_id: "oc_a" }, action: { value: { op: "x" } },
-	}) as { toast?: { content: string } };
+	}) as { toast?: { content: string } });
 	assert.equal(res.toast?.content, "处理中…");
 	finish({ card: { type: "raw", data: { hello: 1 } } });
 	await new Promise((r) => setTimeout(r, 10));

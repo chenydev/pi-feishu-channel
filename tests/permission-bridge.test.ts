@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { PermissionBridge, classifyToolCall, redactParams } from "../src/approval/permission-bridge.js";
+import { holdEventLoop } from "./hold-event-loop.js";
 
 function input(toolCallId = "tc1") {
 	return { conversationKey: "oc:u:ou", sessionId: "sid", runId: toolCallId, toolCallId, toolName: "bash", paramsText: "{\"command\":\"git status\"}", chatId: "oc", sourceMessageId: "om", allowedOperatorIds: ["ou_admin", "admin"] };
@@ -56,7 +57,7 @@ test("审批：卡片发送挂起时仍按 TTL 返回 timeout", async () => {
 		onAsk: async () => new Promise<string>(() => {}),
 	});
 	const gate = await bridge.gate(input("hung-card"));
-	assert.equal(await gate.verdict, "timeout");
+	assert.equal(await holdEventLoop(async () => gate.verdict), "timeout");
 	assert.equal(bridge.pendingCount(), 0);
 });
 
@@ -146,11 +147,11 @@ test("外部审批源：卡片发送失败按拒绝收尾（与自研路径一�
 
 test("外部审批源：审批卡等待上限可以单独指定（不得越过上游转发超时）", async () => {
 	const bridge = new PermissionBridge({ getConfig: () => ({ autoApprove: [], timeoutMs: 60_000 }), onAsk: async () => "card" });
-	const result = await bridge.requestExternal({
+	const result = await holdEventLoop(() => bridge.requestExternal({
 		conversationKey: "oc:u:ou_admin", sessionId: "s", runId: "r", toolCallId: "req-3",
 		toolName: "bash", paramsText: "echo hi", chatId: "oc", allowedOperatorIds: ["ou_admin"],
 		choices: ["once", "deny"],
-	}, { timeoutMs: 5 });
+	}, { timeoutMs: 5 }));
 	assert.equal(result.verdict, "timeout", "转发路径用 5ms 上限而不是全局的 60s");
 });
 

@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { LiveChannel, SerialWriter } from "../src/outbound/live-channel.js";
+import { holdEventLoop } from "./hold-event-loop.js";
 
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -59,8 +60,10 @@ test("最终回复交接：写入超时的消息不再作为 final 目标", asyn
 	});
 	live.open("k", "om_live");
 	live.append("k", "内容");
-	await tick(5);
-	const messageId = await live.claimFinalTarget("k");
+	const messageId = await holdEventLoop(async () => {
+		await tick(5);
+		return live.claimFinalTarget("k");
+	});
 	assert.equal(messageId, undefined, "超时消息不可复用：迟到写入可能覆盖 final，改发新消息");
 });
 

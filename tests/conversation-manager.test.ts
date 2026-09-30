@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { ConversationManager, sanitizeCommand } from "../src/session/conversation-manager.js";
 import { PendingStore } from "../src/session/pending-store.js";
 import { DEFAULT_CONFIG, type BridgeConfig, type FeishuInboundMessage, type SessionBackend } from "../src/types.js";
+import { holdEventLoop } from "./hold-event-loop.js";
 
 function config(over: Partial<BridgeConfig> = {}): BridgeConfig {
 	return {
@@ -597,7 +598,7 @@ test("shutdown 对挂起的外部进度发送有界返回", async () => {
 	await manager.route(message("hung-progress"));
 	await new Promise((resolve) => setImmediate(resolve));
 	const startedAt = Date.now();
-	await manager.shutdown();
+	await holdEventLoop(() => manager.shutdown());
 	assert.ok(Date.now() - startedAt < 100);
 	assert.equal(backendCreated, 0);
 	releaseSend();

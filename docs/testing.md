@@ -14,7 +14,7 @@ npx tsx --test tests/admit.test.ts
 npx tsx --test --test-name-pattern "审批生命周期" tests/*.test.ts
 ```
 
-CI（`.github/workflows/ci.yml`）在 Node 20 和 22 上执行 `npm run lint` 与 `npm test`。
+CI（`.github/workflows/ci.yml`）在 Node 22 和 24 上执行 `npm run lint` 与 `npm test`。
 
 ## 2. 分层
 
