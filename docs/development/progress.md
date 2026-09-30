@@ -8,13 +8,13 @@
 
 | 指标 | 基线 | 当前 | 目标 |
 |---|---|---|---|
-| `index_lines` | 2267 | 1869 | < 300 |
+| `index_lines` | 2267 | 1473 | < 300 |
 | `index_closure_state` | 33 | 0 | ≤ 3 |
-| `index_inner_functions` | 50 | 45 | ≤ 5 |
+| `index_inner_functions` | 50 | 38 | ≤ 5 |
 | `manager_forwarders` | 16 | 0 | 0 |
 | `manager_lines` | 1590 | 1510 | 只减不增 |
 | `internal_id_refs` | 0 | 0 | 0 |
-| `tests` | 650 | 688 | 只增不减 |
+| `tests` | 650 | 699 | 只增不减 |
 
 ## 条目
 
@@ -31,7 +31,7 @@
 | D1 | BridgeRuntime | ✅ | | `index_closure_state` → ≤ 3 | D0 + `tests/bridge-runtime.test.ts` | 34 个闭包状态（含 `accessRequests`）集中到 `src/runtime/bridge-runtime.ts`，用 TypeScript 语言服务按引用改写为 `rt.xxx`；D0 14 例 + 新增 2 例通过；日志事件名未变 |
 | D2 | 卡片回调路由 | ✅ |  | `feishu.card.*` 不变；`feishu.card.op_conflict` | `tests/card-router.test.ts` | 路由（查表、token 去重、会话类授权、op 冲突检测）在 `interaction/card-router.ts`；核心按钮在 `interaction/card-ops.ts`；群开通与 agent 卡片的按钮暂在入口登记，随 D5.11 / D5.6 移走；新增 5 例 + D0 卡片用例通过 |
 | D3 | 工具审批检查 | 🔄 |  | `feishu.approval.*` 不变 | `tests/approval-gate.test.ts` + G4 | 审批检查拆到 `approval/gate.ts`，PS 转发起停拆到 `approval/ps-forwarding-sync.ts`，PS 位置与安装检测拆到 `approval/pi-permission-system.ts`，日志器拆到 `runtime/logger.ts`；新增 9 例 + D0 审批用例通过；G4 隔离 e2e 与真实环境点击待 G4 / 部署切换时补 |
-| D4 | 命令分发 | ⬜ | | `feishu.command` 不变 | `tests/command-dispatch.test.ts` | |
+| D4 | 命令分发 | ✅ |  | `feishu.command` 不变 | `tests/command-dispatch.test.ts` | 分发器在 `commands/dispatch.ts`（注册表外的命令名与重复登记启动即报错，日志 `feishu.command.handler_conflict`）；处理函数按组拆到 `commands/handlers/{info,admin,session,model}.ts`；`/cron` 与 `!<命令>` 暂在入口登记，随 D5.1 / D5.8 移走；新增 11 例 + D0 命令用例通过 |
 | D5.1 | 定时任务 | ⬜ | | `features` 含 `cron` | `tests/features/cron.test.ts` | |
 | D5.2 | 桥自身告警 | ⬜ | | `features` 含 `alerts` | `tests/features/alerts.test.ts` | |
 | D5.3 | 语音转写 | ⬜ | | `features` 含 `stt` | `tests/features/stt.test.ts` | |

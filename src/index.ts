@@ -7,7 +7,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "./pi-types.js";
 import type { BridgeConfig, FeishuInboundMessage, GroupPolicy, SessionBackend } from "./types.js";
-import { loadConfig, resolveAppLockFile, resolvePaths, resolveFooterEnabled, saveConfigFields, formatTimeInZone } from "./config.js";
+import { loadConfig, resolveAppLockFile, resolvePaths, saveConfigFields, formatTimeInZone } from "./config.js";
 import type { LarkSdkLike } from "./inbound/transport.js";
 import { InboundPipeline } from "./inbound/pipeline.js";
 import { LastSentCache, effectiveAdmins } from "./inbound/admit.js";
@@ -28,40 +28,40 @@ import { bashCommandOf, createBridgeInlineExtension } from "./session/pi-bridge-
 import { PermissionBridge, redactParams } from "./approval/permission-bridge.js";
 import { classifyCommand } from "./approval/command-policy.js";
 import { buildApprovalCard } from "./approval/cards.js";
-import { buildModelStatusCard, buildModelsTable } from "./commands/models-card.js";
-import { buildUsageCard, formatUsageReport } from "./commands/usage-card.js";
 import { createUsageProvider, type UsageProvider } from "./outbound/usage-provider.js";
-import { splitModelTarget, writeGlobalDefaults } from "./config/global-defaults.js";
 import {
 	ClarificationStore,
 	buildClarificationCard,
 	clarificationTextFallback,
 } from "./interaction/clarification-store.js";
 import type { CardAction } from "./inbound/transport.js";
-import { formatDoctor, runDoctor } from "./runtime/doctor.js";
-import { buildDiagnosticsBundle, writeDiagnosticsBundle } from "./runtime/diagnostics.js";
-import { buildConversationKey } from "./session/conversation-key.js";
 import { KnownChatStore } from "./runtime/known-chat-store.js";
 import { ReconnectSupervisor } from "./runtime/reconnect-supervisor.js";
 import { CardRouter } from "./interaction/card-router.js";
 import { approvalCardOps, clarifyCardOps, commandCardOps, modelCardOps } from "./interaction/card-ops.js";
-import { COMMANDS, DIRECT_BASH_PREFIX, formatHelpText, resolveCommand, suggestCommand } from "./commands/registry.js";
-import { atList, buildAccessNoticeCard, buildAccessRequestCard, buildAllowChatCard, buildHelpCard, buildNewSessionCard, buildResultCard, buildSessionsCard, buildWelcomeCard } from "./commands/cards.js";
+import { DIRECT_BASH_PREFIX } from "./commands/registry.js";
+import { atList, buildAccessNoticeCard, buildAccessRequestCard, buildAllowChatCard, buildResultCard, buildWelcomeCard } from "./commands/cards.js";
 import { AccessRequestTracker, planAccessRequest } from "./runtime/access-request.js";
 import { accessApproverHint, accessApproverPolicy, accessApprovers, canApproveAccess, describeByRole, roleOf } from "./runtime/admin-roles.js";
-import { loadPsConfig, psBashVerdict, summarizeApprovalPolicy } from "./approval/policy-summary.js";
-import { UsageLedger, formatUsageWeek } from "./runtime/usage-ledger.js";
+import { loadPsConfig, psBashVerdict } from "./approval/policy-summary.js";
+import { UsageLedger } from "./runtime/usage-ledger.js";
 import { CronScheduler, parseCronAdd } from "./runtime/cron.js";
 import { AlertMonitor, DEFAULT_ALERT_OPTIONS } from "./runtime/alerts.js";
 import type { LifecycleEvent } from "./inbound/transport.js";
 import { archiveOldSessions, tightenSessionPermissions } from "./runtime/retention.js";
 import { createTranscriber } from "./inbound/stt.js";
 import { enabledFeatures } from "./features/switches.js";
+import { CommandDispatcher, createCommandReplier } from "./commands/dispatch.js";
+import type { CommandServices } from "./commands/handlers/services.js";
+import { infoCommands } from "./commands/handlers/info.js";
+import { VALID_POLICIES, adminCommands, alwaysApprovedCommand, setChatPolicy } from "./commands/handlers/admin.js";
+import { sessionCommands } from "./commands/handlers/session.js";
+import { modelCommands } from "./commands/handlers/model.js";
 import { BridgeRuntime } from "./runtime/bridge-runtime.js";
 import { createConsoleLogger } from "./runtime/logger.js";
 import { createToolGate } from "./approval/gate.js";
 import { PsForwardingSync } from "./approval/ps-forwarding-sync.js";
-import { piPermissionSystemInstalled, psConfigFile, setReportedAgentDir } from "./approval/pi-permission-system.js";
+import { psConfigFile, setReportedAgentDir } from "./approval/pi-permission-system.js";
 
 export type { BridgeLogger } from "./runtime/logger.js";
 
@@ -197,428 +197,44 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		return rt.usageProvider;
 	}
 
-	/** 命令回执：走 durable outbox（合成消息按 dedupeNonce 区分，卡片按钮可以点很多次）。 */
-	function commandReplier(msg: FeishuInboundMessage) {
-		const replyTo = msg.replyTarget === null ? undefined : msg.replyTarget ?? msg.messageId;
-		const reply = (text: string, suffix = "command") => {
-			if (!rt.outbox) throw new Error("outbox unavailable");
-			rt.outbox.enqueue(msg.chatId, text, { replyTo, threadId: msg.threadId }, {
-				dedupeKey: `${msg.messageId}${msg.dedupeNonce ?? ""}:${suffix}`, laneKey: buildConversationKey(msg, rt.config), kind: "notify",
-			});
-		};
-		/** 卡片优先；发送失败（无权限/业务码非 0）返回 false，调用方退回文本回执。 */
-		const trySendCard = async (card: unknown, what: string): Promise<boolean> => {
-			if (!rt.transport) return false;
-			try {
-				await rt.transport.sendCard(msg.chatId, card, { replyTo, threadId: msg.threadId });
-				return true;
-			} catch (error) {
-				log.warn("feishu.command.card_failed", { command: what, error: error instanceof Error ? error.message : String(error) });
-				return false;
-			}
-		};
-		return { reply, trySendCard };
-	}
 
 	/** Pi 侧的命令/模板/技能（纠错时不误伤、帮助里列出）。 */
 	function piCommandList(): Array<{ name: string; description?: string; source?: string }> {
 		try { return pi.getCommands?.() ?? []; } catch { return []; }
 	}
 
-	/** 会话是否多人共用（话题、不按人隔离的群）：导出这类会话要二次确认。 */
-	function isSharedConversation(msg: FeishuInboundMessage): boolean {
-		return buildConversationKey(msg, rt.config).includes(":t:") || (msg.chatType === "group" && !rt.config.groupSessionsPerUser);
-	}
 
-	/** `--global`/`-g` 在任意位置都算（对齐 hermes 的 /reasoning 解析）；去掉它之后剩下的才是值。 */
-	function splitGlobalFlag(raw: string): { wantsGlobal: boolean; value: string } {
-		const pattern = /(^|\s)(--global|-g)(\s|$)/;
-		return { wantsGlobal: pattern.test(raw), value: raw.replace(/(^|\s)(--global|-g)(\s|$)/g, " ").trim() };
-	}
 
-	async function handleFeishuCommand(msg: FeishuInboundMessage): Promise<boolean> {
-		const raw = msg.text.trim();
+	/** 命令分发：处理函数按组登记（见 commands/handlers/）；定时任务与直接执行命令随各自能力登记。 */
+	const replierFor = createCommandReplier(rt, log);
+	const commandServices: CommandServices = {
+		rt, log,
+		piCommands: () => piCommandList(),
+		statusText: () => statusText(),
+		diagnosticsContext: () => diagnosticsContext(),
+		usageProvider: () => usageProviderFor(rt.config),
+	};
+	const commandDispatcher = new CommandDispatcher({ log, isAdmin: isAdminSender, replier: replierFor, piCommands: () => piCommandList() })
 		// `!<命令>` 直接执行（默认关闭；不属于斜杠命令表）
-		if (raw.startsWith(DIRECT_BASH_PREFIX) && rt.config.directBash?.enabled) {
+		.intercept("directBash", async (msg) => {
+			const raw = msg.text.trim();
+			if (!raw.startsWith(DIRECT_BASH_PREFIX) || !rt.config.directBash?.enabled) return false;
 			await handleDirectBash(msg, raw.slice(DIRECT_BASH_PREFIX.length).trim());
 			return true;
-		}
-		const resolved = resolveCommand(raw);
-		if (!resolved) {
-			// 像是打错的桥命令（且不是 Pi 的命令/模板/技能）→ 提示，而不是默默交给模型
-			if (raw.startsWith("/")) {
-				const known = new Set(piCommandList().map((command) => `/${command.name.toLowerCase()}`));
-				const suggestion = suggestCommand(raw, known);
-				if (suggestion) {
-					commandReplier(msg).reply(`未知命令 ${raw.split(/\s+/)[0]}，是否想用 ${suggestion}？（/help 查看全部命令）`);
-					return true;
-				}
-			}
-			return false;
-		}
-		const { spec, args, rest } = resolved;
-		const { reply, trySendCard } = commandReplier(msg);
-		const isAdmin = isAdminSender(msg);
-		const buttonCtx = { chatType: msg.chatType, threadId: msg.threadId, ownerOpenId: msg.senderId };
-		log.info("feishu.command", { command: spec.name, chatId: msg.chatId, operator: msg.senderId, synthetic: Boolean(msg.synthetic) });
+		})
+		.register("info", infoCommands(commandServices))
+		.register("admin", adminCommands(commandServices))
+		.register("session", sessionCommands(commandServices))
+		.register("model", modelCommands(commandServices))
+		.register("cron", { "/cron": async ({ msg, args, rest, isAdmin, reply }) => reply(await handleCronCommand(msg, args, rest, isAdmin)) });
 
-		switch (spec.name) {
-			case "/help": {
-				const piCommands = piCommandList();
-				if (await trySendCard(buildHelpCard({ ...buttonCtx, isAdmin, piCommands, directBash: Boolean(rt.config.directBash?.enabled) }), "help")) return true;
-				reply(formatHelpText(COMMANDS, { piCommands: piCommands.filter((command) => command.source !== "extension") }));
-				return true;
-			}
-			case "/feishu usage": {
-				if (args[0]?.toLowerCase() === "week") {
-					// 近 7 天汇总（本群；管理员在私聊里看全部）
-					const all = isAdmin && msg.chatType === "p2p";
-					const filter = all ? undefined : (record: { chatId: string }) => record.chatId === msg.chatId;
-					const byDate = rt.usageLedger?.summary(7, "date", filter) ?? [];
-					const bySender = rt.usageLedger?.summary(7, "sender", filter) ?? [];
-					const names = new Map<string, string>();
-					for (const row of bySender.slice(0, 10)) {
-						const name = await rt.transport?.resolveUserName(row.key).catch(() => undefined);
-						if (name) names.set(row.key, name);
-					}
-					const budget = rt.convManager?.budgetStatus(msg.chatId);
-					const budgetLine = budget?.limit ? `\n\n本群今日：$${budget.spent.toFixed(2)} / 上限 $${budget.limit}` : "";
-					reply(`${all ? "（全部会话）" : "（本群）"}${formatUsageWeek({ byDate, bySender }, (id) => names.get(id) ?? `…${id.slice(-4)}`)}${budgetLine}`);
-					return true;
-				}
-				// 余额查询会打外部接口，所以走 TTL 缓存；失败也不阻止会话用量展示。
-				const snapshot = rt.convManager?.usageSnapshot(msg);
-				const input = {
-					...(snapshot ?? {}),
-					tierText: usageProviderFor(rt.config).tierLabel(new Date()),
-					accountLabel: usageProviderFor(rt.config).accountLabel ?? null,
-					cnyPerUsd: (model: string | undefined) => usageProviderFor(rt.config).cnyPerUsd(model),
-					balance: await usageProviderFor(rt.config).balance(),
-					localTimeLabel: formatTimeInZone(Date.now(), rt.config.timezone),
-				};
-				if (await trySendCard(buildUsageCard(input), "usage")) return true;
-				reply(formatUsageReport(input));
-				return true;
-			}
-			case "/feishu status":
-				reply(`${statusText()}\n本群工具档位: ${rt.convManager?.toolPolicyFor(msg.chatId) ?? "?"}`);
-				return true;
-			case "/feishu doctor":
-				reply(formatDoctor(runDoctor({ config: rt.config, paths: resolvePaths(rt.homeDir), transport: rt.transport, diagnostics: diagnosticsContext() })));
-				return true;
-			case "/feishu approvals":
-				reply(summarizeApprovalPolicy({
-					config: rt.config,
-					ps: loadPsConfig(psConfigFile()),
-					psInstalled: piPermissionSystemInstalled(),
-					...(rt.alwaysApproved ? { alwaysRules: rt.alwaysApproved.list() } : {}),
-					pendingApprovals: rt.permissionBridge?.pendingCount() ?? 0,
-				}));
-				return true;
-			case "/feishu export": {
-				if (!isAdmin) { reply("仅管理员或应用归属人可导出诊断包"); return true; }
-				try {
-					const bundle = buildDiagnosticsBundle({
-						config: rt.config, context: diagnosticsContext(),
-						checks: runDoctor({ config: rt.config, paths: resolvePaths(rt.homeDir), transport: rt.transport, diagnostics: diagnosticsContext() }),
-						redactPaths: [rt.homeDir, resolvePaths(rt.homeDir).sessionDir, process.cwd()],
-					});
-					const dir = writeDiagnosticsBundle(rt.homeDir, bundle);
-					// 同时以文件形式私聊发给操作的管理员（不必再登录宿主机取）
-					const sent = await sendDiagnosticsToAdmin(msg.senderId, bundle);
-					reply(`已导出脱敏诊断包：${dir}/（0600，仅含计数与枚举；不含密钥、正文与绝对路径）${sent ? "\n已私聊发送给你。" : ""}`);
-				} catch (error) {
-					reply(`诊断包导出失败：${error instanceof Error ? error.message.slice(0, 120) : "未知错误"}`);
-				}
-				return true;
-			}
-			case "/feishu policy": {
-				if (!isAdmin) { reply("仅管理员或应用归属人可修改群策略"); return true; }
-				if (msg.chatType === "p2p") { reply("群策略只能在群聊或话题中修改"); return true; }
-				const policy = args[0] as GroupPolicy | undefined;
-				if (!policy || !VALID_POLICIES.includes(policy)) { reply(`用法：/feishu policy <${VALID_POLICIES.join("|")}>`); return true; }
-				reply(setChatPolicy(msg.chatId, policy) ? `已设置本群策略：${policy}` : "策略落盘失败，运行态未修改");
-				return true;
-			}
-			case "/feishu footer": {
-				// 页脚是"给人看的元信息"，每个群的信息密度需求不同 —— 交给该群管理员当场决定，
-				// 而不是让所有人一起去改配置文件。缺省跟随全局 footer.enabled（默认开）。
-				const state = resolveFooterEnabled(rt.config, msg.chatId);
-				const action = args[0]?.toLowerCase();
-				if (!action) {
-					reply([
-						`本会话页脚：${state.enabled ? "开" : "关"}（${state.source === "chat" ? "管理员设置" : "全局默认"}）`,
-						"用法：/feishu footer off 关闭本会话页脚；/feishu footer on 恢复显示（仅管理员或应用归属人）。",
-					].join("\n"));
-					return true;
-				}
-				if (action !== "on" && action !== "off") { reply("用法：/feishu footer [on|off]"); return true; }
-				if (!isAdmin) { reply("仅管理员或应用归属人可修改本会话页脚设置"); return true; }
-				const wanted = action === "on";
-				const previous = rt.config.footerByChat?.[msg.chatId];
-				rt.config.footerByChat = { ...(rt.config.footerByChat ?? {}), [msg.chatId]: wanted };
-				if (saveConfigFields(rt.homeDir, rt.config, [`footerByChat.${msg.chatId}`])) {
-					log.info("feishu.footer.toggled", { chatId: msg.chatId, enabled: wanted, operator: msg.senderId });
-					reply(wanted
-						? "已开启本会话页脚（模型/耗时/上下文/累计用量/费用）。用 /feishu footer off 可关闭。"
-						: "已关闭本会话页脚。用 /feishu footer on 可恢复；/feishu usage 仍可随时查看完整用量。");
-				} else {
-					// 落盘失败就回滚运行态：否则重启后又变回去，用户以为设置没生效
-					if (previous === undefined) delete rt.config.footerByChat[msg.chatId];
-					else rt.config.footerByChat[msg.chatId] = previous;
-					reply("页脚设置落盘失败，运行态未修改");
-				}
-				return true;
-			}
-			case "/feishu always":
-				// 「始终批准」是持久放行：必须能看、能撤，否则一次点击就等于永久放开一部分审批。
-				reply(isAdmin ? alwaysApprovedCommand(args, { prefix: "/feishu always", operator: msg.senderId }) : "仅管理员或应用归属人可查看或撤销「始终批准」规则");
-				return true;
-			case "/feishu prompt":
-				reply(await handlePromptCommand(msg, args, rest));
-				return true;
-			case "/feishu budget": {
-				const current = rt.convManager?.budgetStatus(msg.chatId);
-				const action = args[0]?.toLowerCase();
-				if (!action) {
-					reply(current?.limit
-						? `本群每日费用上限：$${current.limit}；今日已用 $${current.spent.toFixed(4)}。\n用法：/feishu budget <美元> 设置；/feishu budget off 取消（管理员）。`
-						: `本群未设每日费用上限；今日已用 $${(current?.spent ?? 0).toFixed(4)}。\n用法：/feishu budget <美元>（管理员）。`);
-					return true;
-				}
-				if (!isAdmin) { reply("仅管理员或应用归属人可设置费用上限"); return true; }
-				const value = action === "off" ? undefined : Number.parseFloat(action.replace(/^\$/, ""));
-				if (value !== undefined && (!Number.isFinite(value) || value <= 0)) { reply("用法：/feishu budget <大于 0 的美元数> | off"); return true; }
-				const previous = rt.config.groupRules[msg.chatId];
-				const next = { ...(previous ?? {}) };
-				if (value === undefined) delete next.dailyBudgetUsd;
-				else next.dailyBudgetUsd = value;
-				rt.config.groupRules[msg.chatId] = next;
-				if (saveConfigFields(rt.homeDir, rt.config, [`groupRules.${msg.chatId}.dailyBudgetUsd`])) {
-					log.info("feishu.budget.set", { chatId: msg.chatId, value: value ?? null, operator: msg.senderId });
-					reply(value === undefined ? "已取消本群每日费用上限。" : `已设置本群每日费用上限：$${value}（超限后新任务暂停到次日，80% 时提醒一次）。`);
-				} else {
-					if (previous === undefined) delete rt.config.groupRules[msg.chatId];
-					else rt.config.groupRules[msg.chatId] = previous;
-					reply("预算落盘失败，运行态未修改");
-				}
-				return true;
-			}
-			case "/new": {
-				const force = args[0]?.toLowerCase() === "force";
-				const result = await rt.convManager?.resetConversation(msg, { force });
-				if (!result) { reply("会话不可用"); return true; }
-				if (result.status === "error") { reply(`开新会话失败：${result.reason}`); return true; }
-				if (result.status === "busy") {
-					reply(`当前有 ${result.pending} 个任务在执行或排队。回复 /new force 可取消它们并开新会话；或先 /stop 处理当前任务。`);
-					return true;
-				}
-				rt.permissionBridge?.resetSession(buildConversationKey(msg, rt.config));
-				const text = result.cancelled > 0 ? `已取消 ${result.cancelled} 个排队任务，并创建新的会话上下文` : "已创建新的会话上下文";
-				// 回执带上一个会话的名字和"恢复"按钮（误操作能找回）
-				if (result.hadPrevious && await trySendCard(buildNewSessionCard(text, { name: result.previousName, selector: "#2" }, buttonCtx), "new")) return true;
-				reply(result.hadPrevious ? `${text}\n上一个会话${result.previousName ? `「${result.previousName}」` : ""}可用 /resume #2 找回。` : text);
-				return true;
-			}
-			case "/stop":
-				rt.permissionBridge?.resetSession(buildConversationKey(msg, rt.config));
-				reply(await rt.convManager?.stopConversation(msg)
-					? "已请求停止当前任务；通过 /queue 排队的后续任务将继续执行"
-					: "当前没有正在执行的任务");
-				return true;
-			case "/queue": {
-				const sub = args[0]?.toLowerCase();
-				if (sub === "list" && args.length === 1) {
-					const snap = rt.convManager?.queueSnapshot(msg);
-					if (!snap || (!snap.active && snap.queued.length === 0)) { reply("当前没有执行中或排队的任务"); return true; }
-					reply([
-						snap.active ? `执行中：${snap.active}${snap.steered ? `（并入 ${snap.steered} 条）` : ""}` : "当前没有执行中的任务",
-						...(snap.queued.length ? ["排队：", ...snap.queued.map((text, index) => `${index + 1}. ${text}`)] : ["排队：无"]),
-					].join("\n"));
-					return true;
-				}
-				if (sub === "clear" && args.length === 1) {
-					const removed = await rt.convManager?.clearQueued(msg) ?? 0;
-					reply(removed > 0 ? `已清空 ${removed} 个排队任务（执行中的任务不受影响，要停止用 /stop）` : "队列本来就是空的");
-					return true;
-				}
-				if (!rest) { reply("用法：/queue <内容> | list | clear（别名 /q）"); return true; }
-				const result = await rt.convManager?.queueConversation({ ...msg, text: rest });
-				const position = rt.convManager?.queueSnapshot(msg).queued.length ?? 0;
-				reply(result === "rejected" ? "当前队列已满，请稍后再试" : position > 0 ? `已排队，第 ${position} 个` : "已加入后续任务队列");
-				return true;
-			}
-			case "/steer": {
-				if (!rest) { reply("用法：/steer <内容>"); return true; }
-				const result = await rt.convManager?.steerConversation({ ...msg, text: rest });
-				reply(result === "steered" ? "已注入当前任务" : result === "queued" ? "当前任务已结束，已作为新任务执行" : "当前队列已满，请稍后再试");
-				return true;
-			}
-			case "/retry":
-				reply(await rt.convManager?.retryConversation(msg) ?? "会话不可用");
-				return true;
-			case "/undo":
-				reply(await rt.convManager?.undoConversation(msg) ?? "会话不可用");
-				return true;
-			case "/fork":
-				reply(args[0]?.toLowerCase() === "list"
-					? await rt.convManager?.forkCandidates(msg) ?? "会话不可用"
-					: await rt.convManager?.forkConversation(msg, args[0]) ?? "会话不可用");
-				return true;
-			case "/export": {
-				const format = (args[0]?.toLowerCase() ?? "html") as "html" | "md" | "summary";
-				if (!["html", "md", "summary"].includes(format)) { reply("用法：/export [html|md|summary]"); return true; }
-				// 多人共用的会话：导出会把别人的发言一起带走 —— 非管理员要显式确认
-				if (isSharedConversation(msg) && !isAdmin && args[1]?.toLowerCase() !== "confirm") {
-					reply(`这是多人共用的会话，导出会包含其他人的发言。确认导出请发送 /export ${format} confirm`);
-					return true;
-				}
-				reply(await rt.convManager?.exportConversation(msg, format) ?? "会话不可用");
-				return true;
-			}
-			case "/compact":
-				reply(await rt.convManager?.compactConversation(msg, rest || undefined) ?? "会话不可用");
-				return true;
-			case "/model": {
-				// 无参 = 状态卡（当前模型 + 最近使用 + 档位按钮 + 「查看全部模型」按钮）。
-				// 带参仍是命令式切换，保持文本回执 —— 那是一次性动作，不需要卡片。
-				if (!args[0]) {
-					const data = await rt.convManager?.commands.modelStatusCardData(msg);
-					if (data && await trySendCard(buildModelStatusCard({ ...data, ownerOpenId: msg.senderId }), "model")) return true;
-				}
-				const { wantsGlobal, value: target } = splitGlobalFlag(rest);
-				const result = await rt.convManager?.commands.modelConversation(msg, target || undefined) ?? "会话不可用";
-				if (!wantsGlobal || !target) { reply(result); return true; }
-				if (!isAdmin) { reply(`${result}\n（--global/-g 需要管理员或应用归属人）`); return true; }
-				// 模糊匹配后以实际切换到的模型为准（回执里 "已切换模型：provider/id"）
-				const switched = /^已切换模型：(\S+)/.exec(result)?.[1];
-				if (!switched) { reply(result); return true; }
-				const { model, provider } = splitModelTarget(switched);
-				const written = writeGlobalDefaults(rt.homeDir, { defaultModel: model, ...(provider ? { defaultProvider: provider } : {}) });
-				reply(written.ok ? `${result}\n已设为全局默认：新建会话的模型 = ${switched}` : `${result}\n⚠️ 全局默认写入失败：${written.reason}`);
-				log.info("feishu.global_default.written", { kind: "model", value: switched, ok: written.ok, operator: msg.senderId, reason: written.reason ?? null });
-				return true;
-			}
-			case "/models": {
-				// 表格卡片：飞书客户端自带分页（page_size）；页码只在文本降级时有意义，对用户一律从 1 开始数。
-				const pageIndex = Math.max(1, Number.parseInt(args[0] ?? "1", 10) || 1) - 1;
-				const data = pageIndex === 0 ? await rt.convManager?.commands.modelsCardData(msg) : undefined;
-				if (data && await trySendCard(buildModelsTable(data), "models")) return true;
-				reply(await rt.convManager?.commands.listModels(msg, pageIndex) ?? "会话不可用");
-				return true;
-			}
-			case "/sessions": {
-				const pageIndex = Math.max(1, Number.parseInt(args[0] ?? "1", 10) || 1) - 1;
-				const page = await rt.convManager?.commands.sessionsPage(msg, pageIndex);
-				if (page === undefined) { reply("会话不可用"); return true; }
-				if (typeof page === "string") { reply(page); return true; }
-				// 卡片，每行一个"恢复"按钮
-				if (await trySendCard(buildSessionsCard(page.entries, buttonCtx, page.footer), "sessions")) return true;
-				reply(await rt.convManager?.commands.listSessionsFor(msg, pageIndex) ?? "会话不可用");
-				return true;
-			}
-			case "/name":
-				reply(await rt.convManager?.commands.renameConversation(msg, rest) ?? "会话不可用");
-				return true;
-			case "/resume":
-				reply(await rt.convManager?.commands.resumeConversation(msg, args[0]) ?? "会话不可用");
-				return true;
-			case "/workspace":
-				// 查看（任何人）/ 切换（仅管理员）
-				reply(await rt.convManager?.commands.switchWorkspace(msg, args[0], { isAdmin }) ?? "会话不可用");
-				return true;
-			case "/thinking": {
-				const { wantsGlobal, value: level } = splitGlobalFlag(rest);
-				const result = await rt.convManager?.commands.thinkingConversation(msg, level || undefined) ?? "会话不可用";
-				if (!wantsGlobal || !level) { reply(result); return true; }
-				// 改全局默认 = 影响所有人 → 限管理员/归属人（与会话级改动不同）
-				if (!isAdmin) { reply(`${result}\n（--global/-g 需要管理员或应用归属人）`); return true; }
-				const written = writeGlobalDefaults(rt.homeDir, { defaultThinkingLevel: level });
-				reply(written.ok ? `${result}\n已设为全局默认：新建会话的思考等级 = ${level}` : `${result}\n⚠️ 全局默认写入失败：${written.reason}`);
-				log.info("feishu.global_default.written", { kind: "thinkingLevel", value: level, ok: written.ok, operator: msg.senderId, reason: written.reason ?? null });
-				return true;
-			}
-			case "/cron":
-				reply(await handleCronCommand(msg, args, rest, isAdmin));
-				return true;
-			default:
-				return false;
-		}
+	function handleFeishuCommand(msg: FeishuInboundMessage): Promise<boolean> {
+		return commandDispatcher.dispatch(msg);
 	}
 
-	const VALID_POLICIES: readonly GroupPolicy[] = ["open", "mention", "disabled", "allowlist", "blacklist", "admin_only"];
 
-	/** 设置单群策略（飞书与 TUI 共用；落盘失败回滚运行态 —— 两边语义一致）。 */
-	function setChatPolicy(chatId: string, policy: GroupPolicy): boolean {
-		const previous = rt.config.groupPolicyByChat[chatId];
-		rt.config.groupPolicyByChat[chatId] = policy;
-		if (saveConfigFields(rt.homeDir, rt.config, [`groupPolicyByChat.${chatId}`])) return true;
-		if (previous === undefined) delete rt.config.groupPolicyByChat[chatId];
-		else rt.config.groupPolicyByChat[chatId] = previous;
-		return false;
-	}
 
-	/**
-	 * 「始终批准」查看/撤销 —— 飞书 `/feishu always` 与 TUI `/feishu:always` 共用一份逻辑，
-	 * 不要各写一份（文案与撤销语义会不一致）。身份校验由调用方负责。
-	 */
-	function alwaysApprovedCommand(args: string[], opts: { prefix: string; operator?: string }): string {
-		if (!rt.alwaysApproved) return "「始终批准」未启用（需要 pi-permission-system 转发模式）";
-		if (args[0]?.toLowerCase() === "revoke") {
-			const pattern = args.slice(1).join(" ").trim();
-			if (!pattern) return `用法：${opts.prefix} revoke <规则名>（规则名见 ${opts.prefix}）`;
-			const removed = rt.alwaysApproved.remove(pattern);
-			log.info("feishu.approval.always_revoked", { pattern, removed, operator: opts.operator ?? "tui" });
-			return removed ? `已撤销规则「${pattern}」—— 下次同类请求会重新弹卡。` : `没有找到规则「${pattern}」。`;
-		}
-		const rules = rt.alwaysApproved.list();
-		if (rules.length === 0) return "当前没有「始终批准」的规则（所有 ask 都会弹卡）。";
-		const lines = rules.map((rule) => `· ${rule.pattern}（${formatTimeInZone(rule.approvedAt, rt.config.timezone)}${rule.approvedBy ? ` · ${rule.approvedBy}` : ""}）`);
-		return [`「始终批准」规则共 ${rules.length} 条：`, ...lines, `用 ${opts.prefix} revoke <规则名> 撤销。`].join("\n");
-	}
 
-	/** `/feishu prompt [show|set <内容>|clear]` —— 群里改本群设定（管理员），私聊改个人偏好（本人）。 */
-	async function handlePromptCommand(msg: FeishuInboundMessage, args: string[], rest: string): Promise<string> {
-		const personal = msg.chatType === "p2p";
-		const action = args[0]?.toLowerCase() ?? "show";
-		const current = personal ? rt.config.userPrompts?.[msg.senderId] : rt.config.groupRules[msg.chatId]?.prompt;
-		const scope = personal ? "你的个人提示词" : "本群提示词";
-		if (action === "show") {
-			return current
-				? `${scope}：\n${current}\n\n/feishu prompt set <内容> 修改；/feishu prompt clear 清除。`
-				: `${scope}未设置。/feishu prompt set <内容> 设置（${personal ? "只影响你的私聊" : "管理员；会话首轮注入，/new 后对新会话生效"}）。`;
-		}
-		if (action !== "set" && action !== "clear") return "用法：/feishu prompt [show|set <内容>|clear]";
-		if (!personal && !isAdminSender(msg)) return "仅管理员或应用归属人可修改本群提示词";
-		const text = action === "set" ? rest.replace(/^set\s*/i, "").trim() : "";
-		if (action === "set" && !text) return "用法：/feishu prompt set <内容>";
-		if (text.length > 2_000) return "提示词过长（最多 2000 字）";
-		if (personal) {
-			const previous = rt.config.userPrompts?.[msg.senderId];
-			const next = { ...(rt.config.userPrompts ?? {}) };
-			if (text) next[msg.senderId] = text;
-			else delete next[msg.senderId];
-			rt.config.userPrompts = next;
-			if (!saveConfigFields(rt.homeDir, rt.config, [`userPrompts.${msg.senderId}`])) {
-				if (previous === undefined) delete rt.config.userPrompts[msg.senderId];
-				else rt.config.userPrompts[msg.senderId] = previous;
-				return "提示词落盘失败，运行态未修改";
-			}
-		} else {
-			const previous = rt.config.groupRules[msg.chatId];
-			const next = { ...(previous ?? {}) };
-			if (text) next.prompt = text;
-			else delete next.prompt;
-			rt.config.groupRules[msg.chatId] = next;
-			if (!saveConfigFields(rt.homeDir, rt.config, [`groupRules.${msg.chatId}.prompt`])) {
-				if (previous === undefined) delete rt.config.groupRules[msg.chatId];
-				else rt.config.groupRules[msg.chatId] = previous;
-				return "提示词落盘失败，运行态未修改";
-			}
-		}
-		log.info("feishu.prompt.updated", { scope: personal ? "user" : "chat", chatId: msg.chatId, operator: msg.senderId, cleared: !text });
-		return text ? `已更新${scope}（下一轮起生效）。` : `已清除${scope}。`;
-	}
 
 	/** `/cron add|list|rm|pause|resume`。 */
 	async function handleCronCommand(msg: FeishuInboundMessage, args: string[], rest: string, isAdmin: boolean): Promise<string> {
@@ -673,7 +289,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	 * 每次执行都写审计日志。
 	 */
 	async function handleDirectBash(msg: FeishuInboundMessage, command: string): Promise<void> {
-		const { reply } = commandReplier(msg);
+		const { reply } = replierFor(msg);
 		const audit = (outcome: string, extra: Record<string, unknown> = {}) => log.info("feishu.direct_bash.audit", {
 			outcome, chatId: msg.chatId, operator: msg.senderId, command: redactParams({ command }, "bash").slice(0, 300), ...extra,
 		});
@@ -704,18 +320,6 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		reply(`$ ${command.slice(0, 200)}\n${status}${result.truncated ? "（输出已被截断）" : ""}\n\`\`\`\n${shown}\n\`\`\``);
 	}
 
-	/** 诊断包以文件形式私聊给管理员。 */
-	async function sendDiagnosticsToAdmin(openId: string, bundle: unknown): Promise<boolean> {
-		if (!rt.transport) return false;
-		try {
-			const fileKey = await rt.transport.uploadFile(`feishu-bridge-diagnostics-${Date.now()}.json`, Buffer.from(JSON.stringify(bundle, null, 2), "utf8"));
-			await rt.transport.sendToUser(openId, "file", { file_key: fileKey });
-			return true;
-		} catch (error) {
-			log.warn("feishu.diagnostics.dm_failed", { error: error instanceof Error ? error.message : String(error) });
-			return false;
-		}
-	}
 
 	/** 同一群的放行提示 1 小时内只发一次。 */
 	const allowPromptSentAt = new Map<string, number>();
@@ -1789,14 +1393,14 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	pi.registerCommand("feishu:always", {
 		description: "查看/撤销「始终批准」规则：/feishu:always [revoke <规则名>]",
 		// TUI 是本地操作（能开 TUI 的人本来就持有进程），不做身份校验；飞书侧同名命令有管理员校验。
-		handler: (_args, _ctx, args: string[]) => alwaysApprovedCommand(args ?? [], { prefix: "/feishu:always" }),
+		handler: (_args, _ctx, args: string[]) => alwaysApprovedCommand({ rt, log }, args ?? [], { prefix: "/feishu:always" }),
 	});
 	pi.registerCommand("feishu:policy", {
 		description: "设置单群策略：/feishu:policy <chatId> <open|mention|disabled|allowlist|blacklist|admin_only>",
 		handler: (_args, _ctx, args: string[]) => {
 			const [chatId, policy] = args;
 			if (!chatId || !policy || !VALID_POLICIES.includes(policy as GroupPolicy)) return `用法：/feishu:policy <chatId> <${VALID_POLICIES.join("|")}>`;
-			return setChatPolicy(chatId, policy as GroupPolicy) ? `已设置 ${chatId} → ${policy}（已落盘）` : "落盘失败，运行态未修改";
+			return setChatPolicy({ rt }, chatId, policy as GroupPolicy) ? `已设置 ${chatId} → ${policy}（已落盘）` : "落盘失败，运行态未修改";
 		},
 	});
 	pi.registerCommand("feishu:debug", {
