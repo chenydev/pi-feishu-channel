@@ -1,0 +1,382 @@
+/**
+ * 入站消息规范化（normalize）：把飞书事件原始负载转成 FeishuInboundMessage。
+ * 覆盖：text / image / video / audio / file / post(富文本→markdown) /
+ * merge_forward(合并转发递归展开) / share_chat(共享名片) / interactive。
+ * 参考 hermes feishu adapter normalize 系列函数。
+ */
+import type { BotIdentity, FeishuInboundMessage, FeishuMentionRef, InboundMsgType, ResourceRef } from "../types.js";
+
+export const MSG_TYPE_MAP: Record<string, InboundMsgType> = {
+	text: "text",
+	image: "image",
+	video: "video",
+	audio: "audio",
+	file: "file",
+	post: "post",
+	merge_forward: "merge_forward",
+	share_chat: "share_chat",
+	interactive: "interactive",
+	media: "file",
+	"system": "unknown",
+};
+
+// ------------------------------------------------------------- 富文本 ----
+
+interface PostElement {
+	tag?: string;
+	text?: string;
+	href?: string;
+	user_id?: string;
+	image_key?: string;
+	file_key?: string;
+	language?: string;
+	lines?: unknown[];
+	content?: unknown[];
+	style?: string[];
+}
+
+function isStyleEnabled(style: string[] | undefined, key: string): boolean {
+	return Array.isArray(style) && style.includes(key);
+}
+
+function wrapInline(text: string, style: string[] | undefined): string {
+	let out = text;
+	if (isStyleEnabled(style, "bold")) out = `**${out}**`;
+	if (isStyleEnabled(style, "italic")) out = `*${out}*`;
+	if (isStyleEnabled(style, "strike")) out = `~~${out}~~`;
+	if (isStyleEnabled(style, "code")) out = `\`${out.replace(/`/g, "\\`")}\``;
+	return out;
+}
+
+export function renderTextElement(el: PostElement): string {
+	// 飞书 post <at>.user_id 的值就是占位符本身（"@_user_N" / "@_all"），
+	// 无 text 字段；由 resolveMentionPlaceholders 统一替换为真实名（hermes 对齐）。
+	if (el.tag === "at" && el.user_id) return el.user_id;
+	if (!el.text) return "";
+	if (el.tag === "a" && el.href) return `[${el.text}](${el.href})`;
+	return wrapInline(el.text, el.style);
+}
+
+function renderCodeBlock(el: PostElement): string {
+	const lang = el.language || "";
+	const lines = Array.isArray(el.lines) ? el.lines.map(String) : [];
+	return `\`\`\`${lang}\n${lines.join("\n")}\n\`\`\``;
+}
+
+export function renderPostElement(el: PostElement): string {
+	if (el.tag === "code_block") return renderCodeBlock(el);
+	const text = renderTextElement(el);
+	if (el.tag === "img" && el.image_key) return "[图片附件]";
+	if (el.tag === "file" && el.file_key) return "[文件附件]";
+	return text;
+}
+
+export function renderPostElements(content: unknown): string {
+	const lines: string[] = [];
+	const renderLine = (line: unknown): string => {
+		if (Array.isArray(line)) return line.map((e) => renderPostElement(e as PostElement)).join("");
+		const el = line as PostElement | undefined;
+		if (el && typeof el === "object" && el.tag) return renderPostElement(el);
+		return "";
+	};
+	if (Array.isArray(content)) {
+		for (const row of content) {
+			const text = renderLine(row);
+			if (text.trim()) lines.push(text);
+		}
+	} else if (content && typeof content === "object") {
+		const c = content as Record<string, unknown>;
+		if (Array.isArray(c.content)) return renderPostElements(c.content);
+		if (Array.isArray(c.lines)) lines.push(renderPostElement(content as PostElement));
+	}
+	return lines.join("\n");
+}
+
+export function collectPostResources(content: unknown, messageId: string): ResourceRef[] {
+	const resources: ResourceRef[] = [];
+	const visit = (value: unknown): void => {
+		if (Array.isArray(value)) {
+			for (const item of value) visit(item);
+			return;
+		}
+		if (!value || typeof value !== "object") return;
+		const element = value as PostElement;
+		if (element.tag === "img" && element.image_key) resources.push({ kind: "image", key: element.image_key, messageId });
+		if (element.tag === "file" && element.file_key) resources.push({ kind: "file", key: element.file_key, messageId });
+		if (element.content) visit(element.content);
+		if (element.lines) visit(element.lines);
+	};
+	visit(content);
+	return resources;
+}
+
+// -------------------------------------------------------- 合并转发 ----
+
+/** 递归展开合并转发：返回条目文本列表。 */
+export function collectForwardEntries(payload: unknown, depth = 0): string[] {
+	if (depth > 8) return [];
+	if (!payload || typeof payload !== "object") return [];
+	const p = payload as Record<string, unknown>;
+	const entries: string[] = [];
+	const push = (obj: unknown): void => {
+		if (!obj || typeof obj !== "object") return;
+		const o = obj as Record<string, unknown>;
+		const name = typeof o.name === "string" ? o.name : "";
+		const msgType = typeof o.msg_type === "string" ? o.msg_type : "";
+		let body = "";
+		if (o.body && typeof o.body === "object") {
+			body = extractBodyText(o.body as Record<string, unknown>);
+		}
+		if (o.content) {
+			try {
+				const parsed = typeof o.content === "string" ? JSON.parse(o.content) : o.content;
+				body = extractBodyText(parsed as Record<string, unknown>) || body;
+			} catch {
+				/* ignore */
+			}
+		}
+		entries.push(`${name ? `${name}：` : ""}${body || `[${msgType || "消息"}]`}`);
+	};
+	if (Array.isArray(p.items)) {
+		for (const item of p.items) {
+			const nested = collectForwardEntries(item, depth + 1);
+			if (nested.length > 0) entries.push(...nested);
+			else push(item);
+		}
+	} else if (Array.isArray(p.list)) {
+		for (const item of p.list) push(item);
+	} else {
+		push(payload);
+	}
+	return entries;
+}
+
+function extractBodyText(body: Record<string, unknown>): string {
+	if (!body) return "";
+	if (typeof body.text === "string") return body.text;
+	if (Array.isArray(body.content)) return renderPostElements(body.content);
+	if (body.content && typeof body.content === "object") {
+		const c = body.content as Record<string, unknown>;
+		if (typeof c.text === "string") return c.text;
+		if (Array.isArray(c.content)) return renderPostElements(c.content);
+	}
+	return "";
+}
+
+// ------------------------------------------------------------ 提及 ----
+
+/** 提取 mention 引用（兼容 lark SDK 的 mentions[].id / mentions[].name 结构）。 */
+export function extractMentionIds(mention: unknown): { key?: string; open_id?: string; user_id?: string; union_id?: string; name?: string } {
+	if (!mention || typeof mention !== "object") return {};
+	const m = mention as Record<string, unknown>;
+	// 事件推送里 id 是对象（{ open_id, user_id, union_id }）；
+	// 历史消息接口（im/v1/messages 列表，断线补收用）里 id 是字符串 + id_type。
+	const id = (m.id && typeof m.id === "object"
+		? (m.id as Record<string, unknown>)
+		: typeof m.id === "string"
+			? { [typeof m.id_type === "string" ? m.id_type : "open_id"]: m.id }
+			: {}) as Record<string, string>;
+	return {
+		key: typeof m.key === "string" ? m.key : undefined,
+		open_id: typeof id.open_id === "string" ? id.open_id : undefined,
+		user_id: typeof id.user_id === "string" ? id.user_id : undefined,
+		union_id: typeof id.union_id === "string" ? id.union_id : undefined,
+		name: typeof m.name === "string" ? m.name : undefined,
+	};
+}
+
+/**
+ * mention 判定（对齐 hermes 的设计）：
+ * - mention 的 open_id/user_id 与 bot 对应 ID 相等 → 命中（ID 优先）
+ * - 任一侧缺 ID → name 兜底匹配
+ */
+export function buildMentionsMap(mentions: unknown[] | undefined, bot: BotIdentity): FeishuMentionRef[] {
+	if (!Array.isArray(mentions)) return [];
+	const refs: FeishuMentionRef[] = [];
+	for (const raw of mentions) {
+		const m = extractMentionIds(raw);
+		// Hermes 优先级：open_id > user_id > name。当前层两侧都有值时，
+		// 其结果就是权威结论；只有任一侧缺值才允许降级下一层。
+		let isSelf: boolean;
+		if (m.open_id && bot.openId) isSelf = m.open_id === bot.openId;
+		else if (m.user_id && bot.userId) isSelf = m.user_id === bot.userId;
+		else isSelf = Boolean(m.name && bot.name && m.name === bot.name);
+		refs.push({ key: m.key, id: { open_id: m.open_id, user_id: m.user_id, union_id: m.union_id }, name: m.name, isSelf });
+	}
+	return refs;
+}
+
+/**
+ * 消息是否提及 bot：@_all（@所有人）或任一 mention isSelf。
+ */
+export function mentionsBot(rawContent: string, mentions: FeishuMentionRef[]): boolean {
+	if (rawContent.includes("@_all")) return true;
+	return mentions.some((m) => m.isSelf);
+}
+
+const MENTION_PLACEHOLDER_RE = /@_user_\d+/g;
+
+/**
+ * 把 @_user_N 占位符替换为真实显示名（hermes _render_post_element 对齐）：
+ * mentions 里每个 mention 自带 key（占位符）+ name（真实名），查表替换；
+ * @_all → @all；查不到 → @user。
+ */
+export function resolveMentionPlaceholders(text: string, mentions: FeishuMentionRef[]): string {
+	if (!text || (!MENTION_PLACEHOLDER_RE.test(text) && !text.includes("@_all"))) return text;
+	MENTION_PLACEHOLDER_RE.lastIndex = 0;
+	const byKey = new Map<string, FeishuMentionRef>();
+	for (const m of mentions) {
+		if (m.key) byKey.set(m.key, m);
+		if (m.name) byKey.set(m.name, m); // 兼容无 key 的 mention：名字也能对上
+	}
+	return text.replace(MENTION_PLACEHOLDER_RE, (placeholder) => {
+		const ref = byKey.get(placeholder);
+		if (!ref) return "@user";
+		return `@${ref.name || ref.id?.open_id || "user"}`;
+	}).replace(/@_all/g, "@all");
+}
+
+/** 剥离开头的自身 mention 占位（@_user_xxx）与 @name 前缀。 */
+export function stripEdgeSelfMentions(text: string, mentions: FeishuMentionRef[]): string {
+	// **先去掉前导空白再匹配**：下面的正则都锚在行首（^@...），而飞书送来的文本
+	// 常常以空白开头（用户在 @ 前敲了空格、或客户端插了不可见前导字符）。
+	// 不 trim 的话一个都匹配不上，mention 会留在文本里 → 这条消息**不再被识别为
+	// 命令**（`normalized` 变成 "@机器人名"），于是命令被当成普通问题丢给模型，
+	// 模型看不懂就去执行 env / ls 之类"探索环境"的命令 —— 表现成「发命令却弹审批」。
+	let out = text.replace(/^\s+/, "");
+	const selfNames = mentions.filter((m) => m.isSelf && m.name).map((m) => m.name as string);
+	for (const name of selfNames) {
+		// 最长优先，避免部分匹配
+		const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		out = out.replace(new RegExp(`^@${escaped}\\s*`), "").replace(new RegExp(`^@${escaped}(?=\\s|$)`), "");
+	}
+	// 占位符形式（@_user_1）同样用 \s* 兜住前导空白
+	out = out.replace(/^\s*@_user_\w+\s*/g, "").trim();
+	return out;
+}
+
+// ------------------------------------------------------------ 主入口 ----
+
+export interface NormalizeInput {
+	messageId: string;
+	chatId: string;
+	chatType: string; // p2p | group | topic
+	messageType: string;
+	content: string; // 原始 content JSON 字符串
+	sender: unknown;
+	mentions?: unknown[];
+	parentId?: string;
+	upperMessageId?: string;
+	rootId?: string;
+	threadId?: string;
+	bot: BotIdentity;
+}
+
+/**
+ * 规范化入口：把事件负载归一化为 FeishuInboundMessage。
+ * 纯函数（无 I/O），便于单元测试。
+ */
+export function normalizeFeishuMessage(input: NormalizeInput): FeishuInboundMessage {
+	const msgType: InboundMsgType = MSG_TYPE_MAP[input.messageType] ?? "unknown";
+	let text = "";
+	let rawContent: unknown;
+	let resources: ResourceRef[] = [];
+	const resourceMeta = (value: Record<string, unknown> | undefined): Partial<Pick<ResourceRef, "name" | "mimeType" | "size">> => {
+		const meta: Partial<Pick<ResourceRef, "name" | "mimeType" | "size">> = {};
+		if (typeof value?.file_name === "string") meta.name = value.file_name;
+		if (typeof value?.mime_type === "string") meta.mimeType = value.mime_type;
+		else if (typeof value?.mime === "string") meta.mimeType = value.mime;
+		if (typeof value?.file_size === "number") meta.size = value.file_size;
+		else if (typeof value?.size === "number") meta.size = value.size;
+		return meta;
+	};
+	try {
+		rawContent = input.content ? JSON.parse(input.content) : undefined;
+	} catch {
+		rawContent = undefined;
+	}
+
+	switch (msgType) {
+		case "text": {
+			const t = rawContent as Record<string, unknown> | undefined;
+			text = typeof t?.text === "string" ? t.text : input.content;
+			break;
+		}
+		case "post": {
+			const content = (rawContent as Record<string, unknown> | undefined)?.content;
+			text = renderPostElements(content);
+			resources = collectPostResources(content, input.messageId);
+			break;
+		}
+		case "merge_forward": {
+			const entries = collectForwardEntries(rawContent);
+			text = entries.join("\n———\n");
+			break;
+		}
+		case "share_chat": {
+			const s = rawContent as Record<string, unknown> | undefined;
+			text = `[共享名片] ${typeof s?.chat_name === "string" ? s.chat_name : ""}`.trim();
+			break;
+		}
+		case "image": {
+			const img = rawContent as Record<string, unknown> | undefined;
+			text = "[图片附件]";
+			if (typeof img?.image_key === "string") resources.push({ kind: "image", key: img.image_key, messageId: input.messageId });
+			break;
+		}
+		case "video": {
+			const v = rawContent as Record<string, unknown> | undefined;
+			text = "[视频附件]";
+			if (typeof v?.file_key === "string") resources.push({ kind: "video", key: v.file_key, messageId: input.messageId, ...resourceMeta(v) });
+			break;
+		}
+		case "audio": {
+			const a = rawContent as Record<string, unknown> | undefined;
+			text = "[语音附件]";
+			if (typeof a?.file_key === "string") resources.push({ kind: "audio", key: a.file_key, messageId: input.messageId, ...resourceMeta(a) });
+			break;
+		}
+		case "file": {
+			const f = rawContent as Record<string, unknown> | undefined;
+			text = f?.file_name ? `[文件] ${f.file_name}` : "[文件]";
+			if (typeof f?.file_key === "string") resources.push({ kind: "file", key: f.file_key, messageId: input.messageId, ...resourceMeta(f) });
+			break;
+		}
+		case "interactive": {
+			text = input.content || "[卡片]";
+			break;
+		}
+		default:
+			text = input.content || "";
+	}
+
+	const mentions = buildMentionsMap(input.mentions, input.bot);
+	// @_user_N 占位符 → 真实名（hermes 对齐）；再剥离自身 @ 前缀（不注入提示前缀）。
+	const finalText = stripEdgeSelfMentions(resolveMentionPlaceholders(text, mentions), mentions);
+
+	const sender = (input.sender ?? {}) as Record<string, unknown>;
+	const senderIdObj = (sender.sender_id ?? {}) as Record<string, string>;
+	// 用户消息用 open_id；app/bot 消息没有 sender_id.open_id，退化到 open_bot_id 或 app_id，
+	// 以便 allowBots 白名单与自我回声过滤都能拿到稳定标识。
+	const senderOpenId = senderIdObj.open_id ?? sender.open_id
+		?? (sender.sender_type === "app" || sender.sender_type === "bot"
+			? (typeof sender.open_bot_id === "string" ? sender.open_bot_id : typeof sender.id === "string" ? sender.id : "")
+			: "");
+
+	return {
+		messageId: input.messageId,
+		chatId: input.chatId,
+		chatType: (input.chatType === "p2p" ? "p2p" : input.chatType === "topic" ? "topic" : "group") as FeishuInboundMessage["chatType"],
+		senderId: typeof senderOpenId === "string" ? senderOpenId : "",
+		senderName: typeof sender.sender_name === "string" ? sender.sender_name : undefined,
+		isBot: Boolean(sender.sender_type === "app" || sender.sender_type === "bot"),
+		msgType,
+		text: finalText,
+		mentions,
+		resources,
+		replyToMessageId: input.parentId ?? input.upperMessageId ?? input.rootId ?? undefined,
+		threadId: input.threadId ?? undefined,
+		raw: input,
+		ts: Date.now(),
+	};
+}
