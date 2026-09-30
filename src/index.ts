@@ -66,6 +66,7 @@ import { AlertMonitor, DEFAULT_ALERT_OPTIONS } from "./runtime/alerts.js";
 import type { LifecycleEvent } from "./inbound/transport.js";
 import { archiveOldSessions, tightenSessionPermissions } from "./runtime/retention.js";
 import { createTranscriber } from "./inbound/stt.js";
+import { enabledFeatures } from "./features/switches.js";
 
 export interface BridgeLogger {
 	debug(msg: string, meta?: unknown): void;
@@ -176,6 +177,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 			compensatedMessages,
 			compensationErrors,
 			compensationTruncated,
+			features: enabledFeatures(config),
 		};
 		if (homeDir) {
 			try { writeStatus(resolvePaths(homeDir).statusFile, status); } catch (error) {
@@ -1958,6 +1960,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 			}
 			setStatus("conn", "飞书桥启动中…");
 			setStatus("bridge", "飞书桥已启动");
+			log.info("feishu.bridge.features", { enabled: enabledFeatures(config) });
 			log.info("bridge started", { bot: transport?.getBotIdentity() });
 			updateStatus();
 			return "started";

@@ -7,6 +7,7 @@ import type { ConfigPaths } from "../config.js";
 import { effectiveAdmins } from "../inbound/admit.js";
 import { existsSync as fileExists, readFileSync, statSync } from "node:fs";
 import { unknownConfigFields } from "../config/schema.js";
+import { enabledFeatures } from "../features/switches.js";
 
 export interface DoctorCheck { name: string; ok: boolean; detail: string }
 
@@ -179,6 +180,11 @@ export function runDoctor(input: {
 		})()] : []),
 		// 权限范围在未实际探测前写「未验证」，不假装通过，也不自动发送测试消息
 		{ name: "feishu_scopes", ok: false, detail: "未验证（需要真实调用才能确认租户权限；本诊断不会发送测试消息）" },
+		// 信息项，不判对错：列出打开了哪些默认关闭的能力
+		(() => {
+			const features = enabledFeatures(input.config);
+			return { name: "features", ok: true, detail: features.length ? `已启用：${features.join("、")}` : "无（全部为默认关闭）" };
+		})(),
 		{ name: "runtime", ok: true, detail: input.diagnostics?.piVersion ? `Pi ${input.diagnostics.piVersion}` : "Pi 版本未提供" },
 		...backlogLines,
 	];

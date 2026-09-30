@@ -635,6 +635,8 @@ export interface BridgeStatus {
 	compensatedMessages: number;
 	compensationErrors: number;
 	compensationTruncated: number;
+	/** 已打开的默认关闭能力（见 features/switches.ts）；默认配置下为空数组。 */
+	features?: string[];
 }
 
 export interface BotIdentity {

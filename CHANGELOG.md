@@ -6,6 +6,8 @@
 
 - 项目更名为 `pi-feishu-channel`（原 `pi-feishu-bridge`）。安装地址改为 `git:github.com/chenydev/pi-feishu-channel`；
   运行时配置目录、环境变量暂不变。子会话剔除网关扩展时同时识别新旧两个名字。
+- 可观测：启动日志 `feishu.bridge.features`、`status.json` 的 `features` 字段与 `/feishu doctor` 的 `features` 项，
+  列出当前打开的默认关闭能力（11 项可选能力 + 流式卡片、PS 父会话转发）。
 
 ## 0.2.0
 

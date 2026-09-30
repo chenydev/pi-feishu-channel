@@ -8,13 +8,13 @@
 
 | 指标 | 基线 | 当前 | 目标 |
 |---|---|---|---|
-| `index_lines` | 2267 | 2267 | < 300 |
+| `index_lines` | 2267 | 2270 | < 300 |
 | `index_closure_state` | 33 | 33 | ≤ 3 |
 | `index_inner_functions` | 50 | 50 | ≤ 5 |
 | `manager_forwarders` | 16 | 16 | 0 |
 | `manager_lines` | 1590 | 1590 | < 1450 |
 | `internal_id_refs` | 0 | 0 | 0 |
-| `tests` | 650 | 650 | 只增不减 |
+| `tests` | 650 | 654 | 只增不减 |
 
 ## 条目
 
@@ -23,7 +23,7 @@
 | A1 | 内部编号清理 | ✅ | — | `internal_id_refs` = 0 | `grep -rnE '\b[A-HP][0-9]?-[0-9]{2}\b' src tests` | 无输出 |
 | A2 | 提交与注释约定 | ✅ | — | — | — | — |
 | B1 | 结构指标 | ✅ | `3261ffe` | `npm run metrics` | `npm run metrics -- --json` | 合法 JSON；`tests` = 650，与 `npm test` 一致 |
-| B2 | 已启用能力清单 | ⬜ | | 日志 `feishu.bridge.features`；`status.json.features`；doctor `features` | `tests/features.test.ts` | |
+| B2 | 已启用能力清单 | ✅ | | 日志 `feishu.bridge.features`；`status.json.features`；doctor `features` | `npx tsx --test tests/features.test.ts` | 4 例通过；用生产配置离线核对得到 `accessRequest、streamingCard、psForwarding`（此前人工翻配置漏看了 psForwarding） |
 | C1 | 删除转发方法 | ⬜ | | `manager_forwarders` 16 → 0 | 会话浏览 / 工作区 / 模型命令三组测试 | |
 | D0 | 行为锁定测试 | ⬜ | | 新增用例数 | `tests/integration/extension-entry.test.ts` | |
 | D1 | BridgeRuntime | ⬜ | | `index_closure_state` → ≤ 3 | D0 + `tests/bridge-runtime.test.ts` | |

@@ -66,9 +66,9 @@
 
 ### B2 已启用能力清单
 
-默认关闭的可选能力有 11 项。目前「线上到底开了哪些」只能去翻配置文件。
+默认关闭的能力有 13 项：11 项可选能力，加上流式卡片、PS 父会话转发两个实验开关。目前「线上到底开了哪些」只能去翻配置文件，人工翻很容易漏看。
 
-- **改动**：新增 `enabledFeatures(config): string[]`，启动时记录日志，并写进 `status.json` 和 `/feishu doctor`。
+- **改动**：新增 `src/features/switches.ts`，登记 13 个开关及其生效条件（与实际生效条件一致：例如 STT 必须同时有 endpoint，PS 转发必须已让权给 pi-permission-system）；`enabledFeatures(config)` 的结果写进启动日志、`status.json` 和 `/feishu doctor`。
 - **可观测**：
   - 日志：`feishu.bridge.features { enabled: [...] }`（在 `bridge started` 之前一行）
   - `status.json`：`features: string[]`
