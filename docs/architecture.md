@@ -16,18 +16,36 @@ pi-feishu-channel 是一个 [pi](https://www.npmjs.com/package/@earendil-works/p
 ```
 src/
   types.ts  pi-types.ts  config.ts  config/     核心类型与配置
-  runtime/     单实例锁、状态文件、重连监管、限流熔断、诊断、用量记录、定时任务、告警
+  runtime/     运行期状态（BridgeRuntime）、生命周期与组件装配、状态输出、单实例锁、重连监管、
+               限流熔断、诊断、用量记录、群开通公共操作
   inbound/     飞书长连接、消息解析、准入、去重与合批、入站流水线
   outbound/    错误统一分类、长文分片、发送、流式通道、持久化 outbox、页脚指标
-  approval/    权限桥、命令分级、审批卡、pi-permission-system 父会话转发
+  approval/    工具调用审批检查、权限桥、命令分级、审批卡、pi-permission-system 父会话转发
   session/     pi 会话后端、会话管理器、调度、单轮执行、进度、会话指针
-  commands/    命令注册表、状态与帮助卡片
-  interaction/ 澄清提问、卡片回调鉴权
-  index.ts     扩展入口：装配以上组件，向 pi 注册命令与事件
+  commands/    命令注册表与分发、按组的命令处理函数、TUI 命令、状态与帮助卡片
+  interaction/ 卡片回调路由与核心按钮、平台事件（撤回/入群/欢迎/反馈）、澄清提问
+  features/    可选能力插件（默认全部关闭），见下文
+  index.ts     扩展入口：把以上各部分接起来，向 pi 注册命令与事件
 ```
 
-依赖方向自上而下：`types` / `config` 不依赖任何模块；`session` 依赖 `inbound`、`outbound`、`runtime`；只有 `index.ts` 依赖全部模块。
-扩展入口正在拆分，目标结构见 [development/refactor-plan.md](development/refactor-plan.md) §7。
+依赖方向自上而下：`types` / `config` 不依赖任何模块；`session` 依赖 `inbound`、`outbound`、`runtime`；
+`features/` 只通过 `BridgeRuntime` 与能力上下文访问桥，能力之间互不 import；只有 `index.ts` 依赖全部模块。
+
+### 可选能力插件
+
+每项默认关闭的能力是一个 `BridgeFeature`（`features/feature.ts`）：`enabled(config)` 为 false 时不创建任何对象、不登记任何东西。
+打开时 `setup()` 返回挂接点，由 `FeatureHost` 在每次启动时登记、停止时注销：
+
+| 挂接点 | 用途 | 使用者 |
+|---|---|---|
+| `commands` / `commandInterceptor` | 斜杠命令、`!<命令>` 这类先于命令解析的输入 | cron、directBash |
+| `cardOps` | 卡片按钮 | cardTool、accessRequest |
+| `start` / `stop` / `onHeartbeat` | 启动后、停止时、每次状态心跳 | cron、retention、alerts |
+| `onLifecycleEvent` / `onAdmissionDrop` | 平台事件、未放行的群里 @ 机器人 | docComments、meetingInvite、accessRequest |
+| `transcribe` / `replyAsFile` / `sendCard` / `readDoc` | 交给核心组件或子会话工具的实现 | stt、longReply、cardTool、docTools |
+| `statusLines` | `/feishu status` 追加的行 | cron |
+
+当前打开了哪些能力：启动日志 `feishu.bridge.features`、`status.json` 的 `features`、`/feishu doctor` 的 `features` 项。
 
 ## 3. 一条消息的路径
 

@@ -81,6 +81,8 @@ export class BridgeRuntime {
 	compensationTruncated = 0;
 	compensationPromise: Promise<void> | undefined;
 	status: BridgeStatus = initialStatus();
+	/** 用户对回复的 👍/👎 计数（本次启动以来）。 */
+	feedback = { up: 0, down: 0 };
 
 	// ── 可选能力 ──
 	/** DeepSeek 余额客户端（首次用到才建，避免启动时做外部请求）。 */
