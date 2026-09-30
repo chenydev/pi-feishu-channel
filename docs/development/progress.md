@@ -43,10 +43,10 @@
 | D5.9 | 超长回答转文件 | ✅ | `2dcc88e` | `features` 含 `longReply` | `tests/features/long-reply.test.ts` | 逻辑从 `session/run-executor.ts` 移到 `features/long-reply.ts`，会话层只保留 `replyAsFile` 依赖；日志 `feishu.conv.long_reply_*` 不变；开 2 例、关 1 例通过 |
 | D5.10 | 会话归档 | ✅ | `cc2aa87` | `features` 含 `retention` | `tests/features/retention.test.ts` | 归档迁到 `features/retention.ts`；收紧会话文件权限仍是核心行为（每次启动都做）；`feishu.retention` 分成两条（收紧 / 归档各一条，字段不变）；开、关各 1 例通过 |
 | D5.11 | 群开通申请 | ✅ | `258e8d5` | `features` 含 `accessRequest` | `tests/features/access-request.test.ts` | 迁到 `features/access-request.ts`（申请、「暂不放行」按钮）；审批人称呼、私聊管理员、群里发卡片抽到 `runtime/onboarding.ts` 供入口与插件共用；`enabledFeatures()` 改为从 `FEATURES` 派生；开、关各 1 例通过。**D5 整体验收**：默认配置下 `/feishu doctor` 输出与 `d9be39f` 逐字相同（只有临时目录名不同） |
-| D6 | 生命周期 | ✅ | `1716439` | `index_lines` < 300；`bridge started`；status mtime | `tests/lifecycle.test.ts` | 拆出 `runtime/lifecycle.ts`（启停、心跳、断线补收、重连监管）、`runtime/assemble.ts`（组件装配）、`runtime/status-reporter.ts`、`runtime/app-admins.ts`、`interaction/platform-events.ts`、`commands/tui.ts`；index 236 行；新增 3 例（启动失败回滚、启停串行、重复启停）；SIGTERM 退出预算会调用 process.exit，未做自动化测试，真实环境验收时观察 `feishu.shutdown.done` |
-| D7 | 网关扩展按路径识别 | ✅ | `22a6a62` | `resource_loader_ready.strippedGateways` = 1 | `tests/pi-bridge-hooks.test.ts` | 按包根目录（`import.meta.url` 上两级，按真实路径比较）识别桥自身，名字特征只作兜底；`resource_loader_ready` 升为 info 并带 `strippedGateways`；新增 4 例（任意目录名、前缀相同不误伤、软链接、日志字段）；真实环境核对待部署切换 |
+| D6 | 生命周期 | ✅ | `1716439` | `index_lines` < 300；`bridge started`；status mtime | `tests/lifecycle.test.ts` | 拆出 `runtime/lifecycle.ts`（启停、心跳、断线补收、重连监管）、`runtime/assemble.ts`（组件装配）、`runtime/status-reporter.ts`、`runtime/app-admins.ts`、`interaction/platform-events.ts`、`commands/tui.ts`；index 236 行；新增 3 例（启动失败回滚、启停串行、重复启停）；SIGTERM 退出预算会调用 process.exit，未做自动化测试；真实环境已观察到 `feishu.shutdown.done` |
+| D7 | 网关扩展按路径识别 | ✅ | `22a6a62` | `resource_loader_ready.strippedGateways` = 1 | `tests/pi-bridge-hooks.test.ts` | 按包根目录（`import.meta.url` 上两级，按真实路径比较）识别桥自身，名字特征只作兜底；`resource_loader_ready` 升为 info 并带 `strippedGateways`；新增 4 例（任意目录名、前缀相同不误伤、软链接、日志字段）；真实环境已核对（见下方验收记录） |
 | E1 | 配置 schema（zod） | ✅ | `0f364ec` | doctor `config_fields` 不变 | 配置快照测试 | schema 在 `src/config/schema.ts`（zod v4）；默认值与合并仍在 `DEFAULT_CONFIG` / `loadConfig`；示例配置与全字段样例的加载结果与改动前快照逐字相同，生产配置离线核对相同，未知字段报告（doctor `config_fields`）相同；新增 5 例（字段集合一致、快照、错误路径、注释键）；更严格：开关写成字符串等写法现在报错 |
-| F1 | 运行时标识更名 | ✅ | `c047630` | `feishu.config.migrated`；`feishu.config.deprecated_env` | `tests/runtime-identity.test.ts` | 标识集中在 `src/runtime/identity.ts`；只有旧目录时改名并在原位置留相对软链接，新旧都在时只用新目录，改名失败不启动；旧环境变量仍识别并告警；日志前缀、PS 父会话默认 id、诊断包文件名同步改名；新增 6 例（默认路径、迁移、无事可做、新旧并存、改名失败、旧环境变量）；真实环境迁移待部署切换 |
+| F1 | 运行时标识更名 | ✅ | `c047630` | `feishu.config.migrated`；`feishu.config.deprecated_env` | `tests/runtime-identity.test.ts` | 标识集中在 `src/runtime/identity.ts`；只有旧目录时改名并在原位置留相对软链接，新旧都在时只用新目录，改名失败不启动；旧环境变量仍识别并告警；日志前缀、PS 父会话默认 id、诊断包文件名同步改名；新增 6 例（默认路径、迁移、无事可做、新旧并存、改名失败、旧环境变量）；真实环境已迁移（见下方验收记录） |
 | G1 | 文档骨架 | ✅ | `5f9ad2d` | — | `npm run docs:check` | 链接检查通过 |
 | G2 | 配置参考 | ✅ | `6e9ad7b` | — | 与 schema 对比 | 字段说明写进 schema（`FieldMeta`：说明、代码里兜底的默认值、环境变量）；`npm run docs:config` 生成 `docs/configuration.md`，默认值取空配置经 `loadConfig` 的实际结果；新增 4 例：文档与 schema 一致、每个字段都有说明、文档默认值与实际不矛盾、列出的环境变量确实被读取；README 的配置表改为指向它 |
 | G3 | 审批链路文档 | ✅ | `5a45abf` | — | 文中命令可执行 | 新增 `docs/approval.md`：三种方式（内置策略 / 交给 pi-permission-system / 父会话转发）、审批卡、始终批准的两种含义、转发日志序列、验证方法；README 的转发一节改为指向它；文中命令已逐条核对（`/feishu always`、e2e 脚本三种用法均实际执行） |
@@ -58,3 +58,7 @@ D3、D6、D7 以及每批 D5 完成后，在真实部署里验收一次（步骤
 
 | 日期 | 条目 | 结果 | 备注 |
 |---|---|---|---|
+| 2026-09-30 | F1 | ✅ | 首次启动日志 `feishu.config.migrated`（`compatLink: true`），旧目录位置变为指向新目录的软链接；重启后不再迁移；无 `deprecated_env` 告警（部署已改用新变量名） |
+| 2026-09-30 | D6 | ✅ | `bridge started`；status.json mtime 在 30 秒内；SIGTERM 重启日志 `feishu.shutdown.done`（86ms）；部署环境 `npm test` 750/750 |
+| 2026-09-30 | D7 | ✅ | 真实会话 `feishu.session.resource_loader_ready` 的 `strippedGateways` = 1 |
+| 2026-09-30 | D3 | 🔄 | webhook 触发 → `ps_forwarding.request_seen` → 命中已有「始终批准」规则直接放行 → 命令执行；弹卡与管理员点击待真人验证 |
