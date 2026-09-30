@@ -40,7 +40,7 @@ import { AccessRequestTracker, planAccessRequest } from "./runtime/access-reques
 import { accessApproverHint, accessApproverPolicy, accessApprovers, canApproveAccess, describeByRole, roleOf } from "./runtime/admin-roles.js";
 import { UsageLedger } from "./runtime/usage-ledger.js";
 import type { LifecycleEvent } from "./inbound/transport.js";
-import { archiveOldSessions, tightenSessionPermissions } from "./runtime/retention.js";
+import { tightenSessionPermissions } from "./runtime/retention.js";
 import { enabledFeatures } from "./features/switches.js";
 import { FeatureHost } from "./features/feature.js";
 import { FEATURES } from "./features/index.js";
@@ -463,13 +463,11 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	}
 
 
-	/** 启动时收紧会话文件权限；配置了保留期时归档超期历史会话。 */
-	function runRetention(): void {
-		const dir = resolvePaths(rt.homeDir).sessionDir;
+	/** 启动时收紧会话文件权限（历史会话的归档由可选能力 retention 负责）。 */
+	function tightenSessions(): void {
 		try {
-			const tightened = tightenSessionPermissions(dir);
-			const archived = archiveOldSessions({ dir, keep: rt.convManager?.referencedSessionFiles() ?? new Set(), days: rt.config.retention?.sessionDays ?? 0 });
-			if (tightened > 0 || archived.length > 0) log.info("feishu.retention", { tightened, archived: archived.length });
+			const tightened = tightenSessionPermissions(resolvePaths(rt.homeDir).sessionDir);
+			if (tightened > 0) log.info("feishu.retention", { tightened, archived: 0 });
 		} catch (error) {
 			log.warn("feishu.retention_failed", { error: error instanceof Error ? error.message : String(error) });
 		}
@@ -891,7 +889,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			// 空闲会话回收巡检（无 active run/排队/审批且超 TTL 才回收句柄）
 			rt.convManager?.startLifecycle();
 			// 会话文件权限与归档；status 心跳（含告警巡检）
-			runRetention();
+			tightenSessions();
 			startHeartbeat();
 			// 可选能力（定时任务等）在连接与发送队列就绪后启动
 			await featureHost.start();
