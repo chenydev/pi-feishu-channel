@@ -2,7 +2,7 @@
  * pi-feishu-channel 扩展入口：装配 transport/pipeline/session/sender/outbox，
  * 提供 /feishu 命令与连接 supervisor（指数退避重连）。
  */
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "./pi-types.js";
@@ -24,17 +24,8 @@ import { compensateKnownChats } from "./runtime/history-compensation.js";
 import { ResourceResolver } from "./inbound/resource-resolver.js";
 import { queueLocalFile } from "./outbound/local-file-tool.js";
 import { stageArtifact, validateLocalArtifact } from "./outbound/artifact.js";
-import { bashCommandOf, createBridgeInlineExtension, type BridgeGateInput } from "./session/pi-bridge-hooks.js";
+import { bashCommandOf, createBridgeInlineExtension } from "./session/pi-bridge-hooks.js";
 import { PermissionBridge, redactParams } from "./approval/permission-bridge.js";
-import { AlwaysApprovedStore } from "./approval/always-approved-store.js";
-import {
-	PS_FORWARDING_PARENT_ENV_KEYS,
-	PS_FORWARDING_UPSTREAM_TIMEOUT_MS,
-	PsForwardingServer,
-	applyPsForwardingParentEnv,
-	psForwardingRootDir,
-	resolvePsForwardingConfig,
-} from "./approval/ps-forwarding.js";
 import { classifyCommand } from "./approval/command-policy.js";
 import { buildApprovalCard } from "./approval/cards.js";
 import { buildModelStatusCard, buildModelsTable } from "./commands/models-card.js";
@@ -67,13 +58,12 @@ import { archiveOldSessions, tightenSessionPermissions } from "./runtime/retenti
 import { createTranscriber } from "./inbound/stt.js";
 import { enabledFeatures } from "./features/switches.js";
 import { BridgeRuntime } from "./runtime/bridge-runtime.js";
+import { createConsoleLogger } from "./runtime/logger.js";
+import { createToolGate } from "./approval/gate.js";
+import { PsForwardingSync } from "./approval/ps-forwarding-sync.js";
+import { piPermissionSystemInstalled, psConfigFile, setReportedAgentDir } from "./approval/pi-permission-system.js";
 
-export interface BridgeLogger {
-	debug(msg: string, meta?: unknown): void;
-	info(msg: string, meta?: unknown): void;
-	warn(msg: string, meta?: unknown): void;
-	error(msg: string, meta?: unknown): void;
-}
+export type { BridgeLogger } from "./runtime/logger.js";
 
 /**
  * 扩展入口的可选注入项。pi 加载扩展时只传 `pi` 一个参数，所以生产环境下这里总是空的；
@@ -87,15 +77,10 @@ export interface BridgeDeps {
 }
 
 export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps = {}) {
-	try { piAgentDir = pi.getAgentDir(); } catch { /* 老版本 pi / 测试桩 */ }
+	try { setReportedAgentDir(pi.getAgentDir()); } catch { /* 老版本 pi / 测试桩 */ }
 	const rt = new BridgeRuntime();
 
-	const log: BridgeLogger = {
-		debug: (m, meta) => console.debug(`[feishu-bridge] ${m}`, meta ?? ""),
-		info: (m, meta) => console.log(`[feishu-bridge] ${m}`, meta ?? ""),
-		warn: (m, meta) => console.warn(`[feishu-bridge] ${m}`, meta ?? ""),
-		error: (m, meta) => console.error(`[feishu-bridge] ${m}`, meta ?? ""),
-	};
+	const log = createConsoleLogger();
 
 	function setStatus(key: "conn" | "bridge", text: string): void {
 		try {
@@ -1463,172 +1448,9 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	// feishu_send_local_file 只在子会话的内联扩展里注册（外层 TUI 会话不是飞书路由，注册了也只会报错）。
 
 
-	/**
-	 * PS 父会话转发的配置视图（父会话 id 缺省时用固定值；引擎不是 PS 时视为关闭）。
-	 */
-	function psForwardingConfigured(): { enabled: boolean; parentSessionId: string; blockedBy?: "policyEngine" } {
-		return resolvePsForwardingConfig(rt.config.approval);
-	}
-
-	/**
-	 * 声明/撤回「本进程是 PS 的父会话」（见 PS_FORWARDING_PARENT_ENV_KEYS）。
-	 *
-	 * 变量是进程级的（桥与子会话同进程，无法只给子会话设），而效果恰好是我们想要的：
-	 * 进程内所有会话的 ask 都转发给桥；真正的发起会话从请求文件的 requesterSessionId 读。
-	 * PS 在每次工具调用时实时读环境变量，因此这里在会话创建前设置即可。
-	 *
-	 * 关闭时必须撤回自己的声明：否则 PS 会把 ask 转发到一个没人收的收件箱，
-	 * 子会话要等满 10 分钟才判拒绝（而正确行为是退回到它自己的判定）。
-	 */
-	function syncPsForwardingEnv(): void {
-		const { enabled, parentSessionId, blockedBy } = psForwardingConfigured();
-		if (blockedBy) {
-			// 开关开了但引擎不是 PS：开启转发只会让同一次调用弹两张卡，这里明确说明。
-			log.warn("feishu.approval.ps_forwarding_inactive", {
-				reason: "approval.forwarding 仅在 approval.policyEngine=pi-permission-system 时生效",
-				policyEngine: rt.config.approval?.policyEngine ?? "bridge",
-			});
-		}
-		const installed = piPermissionSystemInstalled();
-		const active = enabled && installed;
-		if (enabled && !installed) {
-			// 与 policyEngine 同一套默认拒绝语义：没装成就不做父子声明。
-			log.error("feishu.approval.ps_forwarding_unavailable", { expected: "@gotgenes/pi-permission-system" });
-		}
-		const before = rt.psForwardingOwnEnvId;
-		const result = applyPsForwardingParentEnv({ enabled: active, parentSessionId, previousApplied: before });
-		rt.psForwardingOwnEnvId = result.appliedValue;
-		if (result.appliedValue !== before) {
-			log.info("feishu.approval.ps_forwarding_env", {
-				state: result.appliedValue ? "declared" : "withdrawn",
-				keys: PS_FORWARDING_PARENT_ENV_KEYS,
-				parentSessionId,
-			});
-		}
-		if (result.overridden.length > 0) {
-			// 外层 spawner 已经声明过别的父会话：我们接管了它。写一条日志，免得排障时想不到。
-			log.warn("feishu.approval.ps_forwarding_env_overridden", { overridden: result.overridden, parentSessionId });
-		}
-	}
-
-	/**
-	 * 起停转发应答方。幂等：已起且父会话 id 未变则不动；id 变了则重建
-	 * （心跳与收件箱目录都挂在 id 上，不能混用）。
-	 *
-	 * 何时只能起：必须等 transport/outbox 起来（弹卡要能发出去）且 PermissionBridge 已就位。
-	 */
-	async function syncPsForwardingServer(): Promise<void> {
-		const { enabled, parentSessionId } = psForwardingConfigured();
-		if (!enabled || !piPermissionSystemInstalled() || !rt.permissionBridge) {
-			if (rt.psForwarding) {
-				await rt.psForwarding.stop();
-				rt.psForwarding = undefined;
-				rt.psForwardingParentId = undefined;
-			}
-			return;
-		}
-		if (rt.psForwarding && rt.psForwardingParentId === parentSessionId) {
-			rt.psForwarding.start();
-			return;
-		}
-		if (rt.psForwarding) {
-			await rt.psForwarding.stop();
-			rt.psForwarding = undefined;
-		}
-		// 「始终批准」规则表：开启时审批卡多一个 always 按钮，命中规则的请求直接放行。
-		// 每轮同步都重建（配置可能被 /feishu policy 之类改过），成本是一次小文件读。
-		rt.alwaysApproved = rt.config.approval.forwarding?.alwaysApprove === false
-			? undefined
-			: new AlwaysApprovedStore({ file: resolvePaths(rt.homeDir).alwaysApprovedFile });
-		rt.psForwarding = new PsForwardingServer({
-			forwardingDir: psForwardingRootDir(resolveAgentDir()),
-			parentSessionId,
-			alwaysApproved: rt.alwaysApproved,
-			routeForSessionId: (sessionId) => rt.convManager?.routeForSessionId(sessionId),
-			allowedOperatorIds: () => effectiveAdmins(rt.config),
-			requestDecision: async (input) => {
-				const result = await rt.permissionBridge!.requestExternal(input, {
-					// 审批卡等待上限沿用 approval.timeoutMs；但不得越过 PS 自己的转发总超时，
-					// 否则我们会在对方已经放弃后才写响应（子会话拿不到，白留一个孤儿文件）。
-					timeoutMs: Math.min(rt.config.approval.timeoutMs, PS_FORWARDING_UPSTREAM_TIMEOUT_MS - 30_000),
-					auditDecision: "ps_forwarding_ask",
-				});
-				// operatorId 一并带回：转发路径的「始终批准」要记下是谁放行的。
-				return { verdict: result.verdict, choice: result.choice, operatorId: result.operatorId };
-			},
-			onAudit: (event) => log.info("feishu.approval.ps_forwarding.audit", event),
-			log: (level, msg, meta) => log[level](msg, meta),
-		});
-		rt.psForwardingParentId = parentSessionId;
-		rt.psForwarding.start();
-	}
-
-	/**
-	 * 工具调用审批（outer hook 与子会话内联扩展共用）：返回 { block, reason } 阻断执行。
-	 * 同一实现在两个位置调用，避免“组件有实现但运行时没接上”。
-	 */
-	async function gateToolCall(input: BridgeGateInput): Promise<{ block?: boolean; reason?: string } | undefined> {
-		if (!rt.permissionBridge) return undefined;
-		// 管理员/归属人免审批（approval.adminSkipApproval=true 时生效）。
-		// 必须用显式传入的 senderId：conversationKey 只在「群聊+按人隔离」形态下带用户 ID，
-		// 话题（`oc:t:th`）与私聊（裸 `oc`）都取不到，早期从 key 正则提取会漏掉这两种情况。
-		if (rt.config.approval?.adminSkipApproval) {
-			const sender = input.senderId;
-			if (sender && effectiveAdmins(rt.config).includes(sender)) {
-				log.info("feishu.approval.admin_skip", { toolName: input.toolName, conversationKey: input.conversationKey });
-				return undefined;
-			}
-		}
-
-		// 把策略交给 @gotgenes/pi-permission-system：它的 tool_call 拦截在桥之前执行，
-		// deny 时桥的 handler 根本不会被调用（实测：PS 先 → 桥后，首个 block 立即返回）。
-		// 因此桥这一步只需"放行自己不再判断"，策略规则由该扩展的配置文件维护。
-		//
-		// 它的 ask **不经过这里** —— 走 approval.forwarding（PS 的父会话转发）：桥当应答方，
-		// 把请求文件变成审批卡，用户点完写回响应文件（见 approval/ps-forwarding.ts）。
-		// 所以这里继续直接放行，不能改成落到桥的弹卡逻辑：PS 的 ask 是在它自己的拦截逻辑里
-		// 等待父会话应答的，等它放行后本函数会被再调用一次，那时再弹一张卡就是对同一次
-		// 调用弹两次卡（两次判定还可能不一致）。
-		if (rt.config.approval?.policyEngine === "pi-permission-system") {
-			if (piPermissionSystemInstalled()) {
-				return undefined;
-			}
-			// 默认拒绝：扩展没装成 → 桥的审批是唯一防线，绝不能同时关掉
-			log.error("feishu.approval.policy_engine_unavailable", {
-				expected: "@gotgenes/pi-permission-system",
-				fallback: "bridge",
-			});
-		}
-
-		// 命令级策略：只读命令免审、危险命令直接拒绝，其余才弹卡。
-		// 没有这一层时 bash 只能「全审」—— 每个 ls 都要点一次审批，用户会无脑点批准，审批就失去意义。
-		if (input.toolName === "bash" && rt.config.approval?.commandPolicy?.enabled) {
-			// 必须用原始命令：展示用的 paramsText 已打码并截断，危险部分可能恰好落在截断位置之后
-			const command = input.command;
-			if (command) {
-				const verdict = classifyCommand(command, rt.config.approval.commandPolicy);
-				if (verdict.verdict === "allow") {
-					log.info("feishu.approval.command_allow", { reason: verdict.reason, chatId: input.chatId });
-					return undefined;
-				}
-				if (verdict.verdict === "deny") {
-					log.warn("feishu.approval.command_deny", { reason: verdict.reason, chatId: input.chatId });
-					// 直接拒绝，不弹卡：避免"手滑点批准"执行破坏性命令
-					return { block: true, reason: `该命令被安全策略拒绝：${verdict.reason}。如确需执行，请人工在宿主机操作。` };
-				}
-				log.info("feishu.approval.command_ask", { reason: verdict.reason, chatId: input.chatId });
-				// 把判定理由带进卡片：参考 hermes 的 `Reason: {description}`，
-				// 让审批人知道"为什么这条命令需要批"，而不是只看到一个命令。
-				input.reason = verdict.reason;
-			}
-		}
-		const result = await rt.permissionBridge.gate(input);
-		if (result.decision === "allow") return undefined;
-		if (result.decision === "deny") return { block: true, reason: "工具调用被策略拒绝" };
-		const verdict = await result.verdict;
-		if (verdict === "approved") return undefined;
-		return { block: true, reason: verdict === "timeout" ? "飞书审批超时，已拒绝" : "飞书审批已拒绝" };
-	}
+	/** 工具调用审批（外层 tool_call 与子会话内联扩展共用）。 */
+	const gateToolCall = createToolGate({ rt, log });
+	const psForwardingSync = new PsForwardingSync({ rt, log });
 
 	pi.on("tool_call", async (event, ctx) => {
 		const input = event as { toolCallId?: string; toolName?: string; input?: Record<string, unknown> };
@@ -1691,7 +1513,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	async function startBridgeUnlocked(): Promise<string> {
 		if (rt.started) return "already";
 		// 父子声明要在任何桥会话创建之前落地（PS 每次工具调用时实时读进程环境）
-		syncPsForwardingEnv();
+		psForwardingSync.syncEnv();
 		try {
 			rt.appLock = AppLock.acquire(resolveAppLockFile(rt.homeDir, rt.config.appId), rt.config.appId);
 		} catch (error) {
@@ -1715,7 +1537,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			// 转发应答方要等 transport/outbox 就绪（弹卡要发得出去）。失败不阻塞桥启动：
 			// 转发只是审批的升级路径，没起来退化成 PS 自己的判定（无人应答 → 拒绝）。
 			try {
-				await syncPsForwardingServer();
+				await psForwardingSync.syncServer();
 			} catch (error) {
 				log.warn("feishu.approval.ps_forwarding_start_failed", {
 					error: error instanceof Error ? error.message : String(error),
@@ -2010,7 +1832,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		rt.homeDir = process.env.FEISHU_BRIDGE_HOME ?? pi.getAgentDir();
 		rt.config = loadConfig(rt.homeDir);
 		// PS 父会话转发的父子声明越早越好：它要在任何桥会话被创建之前就位。
-		syncPsForwardingEnv();
+		psForwardingSync.syncEnv();
 		if (!rt.config.appId || !rt.config.appSecret) {
 			log.warn("FEISHU_APP_ID/SECRET 未配置，桥未启动。请配置后运行 /feishu:start。");
 			return;
@@ -2044,47 +1866,4 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		clearInterval(watchdog);
 		await stopBridge();
 	});
-}
-
-/**
- * pi 配置目录：PS 的转发目录与配置都在它下面。
- * 优先 PI_CODING_AGENT_DIR，其次 pi 自己报告的目录（`pi.getAgentDir()`，扩展加载时记下），
- * 最后才猜 `cwd/pi-agent` —— 只猜 cwd 在非容器环境里会指错。
- */
-let piAgentDir: string | undefined;
-function resolveAgentDir(): string {
-	return process.env.PI_CODING_AGENT_DIR ?? piAgentDir ?? join(process.cwd(), "pi-agent");
-}
-
-/** pi-permission-system 的配置文件。 */
-function psConfigFile(): string {
-	return join(resolveAgentDir(), "extensions", "pi-permission-system", "config.json");
-}
-
-/**
- * 检查 @gotgenes/pi-permission-system 是否真的装在 agent 目录里。
- * 用途：policyEngine=pi-permission-system 时的默认拒绝判定 —— 若扩展缺席，
- * 桥的审批就是唯一防线，此时必须继续用自己的策略而不是静默放行。
- * 父会话转发（approval.forwarding）也复用该判定：扩展不在就没有 ask 会转发过来。
- *
- * 每次工具调用都会判定一次，结果缓存 60 秒（装/卸扩展本来就要重启才生效）。
- */
-let psInstalledCache: { at: number; dir: string; value: boolean } | undefined;
-function piPermissionSystemInstalled(): boolean {
-	const agentDir = resolveAgentDir();
-	const now = Date.now();
-	if (psInstalledCache && psInstalledCache.dir === agentDir && now - psInstalledCache.at < 60_000) return psInstalledCache.value;
-	const candidates = [
-		join(agentDir, "npm", "node_modules", "@gotgenes", "pi-permission-system"),
-		join(agentDir, "extensions", "pi-permission-system"),
-	];
-	const value = candidates.some((dir) => {
-		try {
-			return existsSync(join(dir, "package.json"));
-		} catch {
-			return false;
-		}
-	});
-	psInstalledCache = { at: now, dir: agentDir, value };
-	return value;
 }
