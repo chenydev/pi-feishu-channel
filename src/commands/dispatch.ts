@@ -97,6 +97,12 @@ export class CommandDispatcher {
 		return this;
 	}
 
+	/** 注销某个组登记的全部命令与拦截器（能力停止时调用）。 */
+	unregister(owner: string): void {
+		for (const [name, handler] of this.handlers) if (handler.owner === owner) this.handlers.delete(name);
+		for (let i = this.interceptors.length - 1; i >= 0; i -= 1) if (this.interceptors[i].owner === owner) this.interceptors.splice(i, 1);
+	}
+
 	/** 已登记的命令及其所属组（诊断与测试用）。 */
 	commands(): Record<string, string> {
 		return Object.fromEntries([...this.handlers].map(([name, handler]) => [name, handler.owner]));

@@ -45,12 +45,13 @@ import { AccessRequestTracker, planAccessRequest } from "./runtime/access-reques
 import { accessApproverHint, accessApproverPolicy, accessApprovers, canApproveAccess, describeByRole, roleOf } from "./runtime/admin-roles.js";
 import { loadPsConfig, psBashVerdict } from "./approval/policy-summary.js";
 import { UsageLedger } from "./runtime/usage-ledger.js";
-import { CronScheduler, parseCronAdd } from "./runtime/cron.js";
 import { AlertMonitor, DEFAULT_ALERT_OPTIONS } from "./runtime/alerts.js";
 import type { LifecycleEvent } from "./inbound/transport.js";
 import { archiveOldSessions, tightenSessionPermissions } from "./runtime/retention.js";
 import { createTranscriber } from "./inbound/stt.js";
 import { enabledFeatures } from "./features/switches.js";
+import { FeatureHost } from "./features/feature.js";
+import { FEATURES } from "./features/index.js";
 import { CommandDispatcher, createCommandReplier } from "./commands/dispatch.js";
 import type { CommandServices } from "./commands/handlers/services.js";
 import { infoCommands } from "./commands/handlers/info.js";
@@ -225,8 +226,10 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		.register("info", infoCommands(commandServices))
 		.register("admin", adminCommands(commandServices))
 		.register("session", sessionCommands(commandServices))
-		.register("model", modelCommands(commandServices))
-		.register("cron", { "/cron": async ({ msg, args, rest, isAdmin, reply }) => reply(await handleCronCommand(msg, args, rest, isAdmin)) });
+		.register("model", modelCommands(commandServices));
+
+	/** 可选能力（默认全部关闭；每次启动按配置装配，停止时注销）。 */
+	const featureHost = new FeatureHost(FEATURES, { dispatcher: commandDispatcher, cardRouter, log });
 
 	function handleFeishuCommand(msg: FeishuInboundMessage): Promise<boolean> {
 		return commandDispatcher.dispatch(msg);
@@ -236,52 +239,6 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 
 
 
-	/** `/cron add|list|rm|pause|resume`。 */
-	async function handleCronCommand(msg: FeishuInboundMessage, args: string[], rest: string, isAdmin: boolean): Promise<string> {
-		if (!rt.config.cron?.enabled || !rt.cronScheduler) return "定时任务未启用（config.cron.enabled）";
-		const sub = args[0]?.toLowerCase() ?? "list";
-		const zone = rt.config.timezone;
-		if (sub === "list") {
-			const jobs = rt.cronScheduler.list(msg.chatId);
-			if (jobs.length === 0) return "本会话没有定时任务。/cron add \"0 9 * * 1-5\" <任务内容> 新建（管理员）。";
-			return [
-				`本会话定时任务（${jobs.length}）：`,
-				...jobs.map((job) => {
-					const next = job.enabled ? rt.cronScheduler?.nextFor(job) : undefined;
-					return `· ${job.id}　${job.expression}　${job.enabled ? "启用" : "暂停"}${next ? `　下次 ${formatTimeInZone(next, zone)}` : ""}\n　${job.text.slice(0, 60)}`;
-				}),
-			].join("\n");
-		}
-		if (!isAdmin) return "仅管理员或应用归属人可管理定时任务";
-		if (sub === "add") {
-			const parsed = parseCronAdd(rest.replace(/^add\s*/i, ""));
-			if (!parsed) return "用法：/cron add \"<分 时 日 月 周>\" <任务内容>（例如 /cron add \"0 9 * * 1-5\" 汇总昨天的告警）";
-			if ((rt.cronScheduler.list().length) >= (rt.config.cron.maxJobs ?? 20)) return `定时任务已达上限（${rt.config.cron.maxJobs ?? 20} 个）`;
-			try {
-				const job = rt.cronScheduler.add({
-					expression: parsed.expression, text: parsed.text, chatId: msg.chatId, chatType: msg.chatType,
-					...(msg.threadId ? { threadId: msg.threadId } : {}), creatorId: msg.senderId,
-				});
-				const next = rt.cronScheduler.nextFor(job);
-				log.info("feishu.cron.added", { jobId: job.id, expression: job.expression, chatId: msg.chatId, operator: msg.senderId });
-				return `已创建定时任务 ${job.id}（${job.expression}，时区 ${zone}）${next ? `\n下次执行：${formatTimeInZone(next, zone)}` : ""}\n任务里的工具调用同样需要审批；无人审批时按超时拒绝。`;
-			} catch (error) {
-				return `表达式无效：${error instanceof Error ? error.message : String(error)}`;
-			}
-		}
-		const id = args[1];
-		if (!id) return `用法：/cron ${sub} <任务 id>（/cron list 查看）`;
-		const owned = rt.cronScheduler.list(msg.chatId).some((job) => job.id === id);
-		if (!owned) return `本会话没有任务 ${id}`;
-		try {
-			if (sub === "rm" || sub === "remove" || sub === "del") return rt.cronScheduler.remove(id) ? `已删除定时任务 ${id}` : `没有任务 ${id}`;
-			if (sub === "pause") return rt.cronScheduler.setEnabled(id, false) ? `已暂停定时任务 ${id}` : `没有任务 ${id}`;
-			if (sub === "resume") return rt.cronScheduler.setEnabled(id, true) ? `已恢复定时任务 ${id}（从现在起算）` : `没有任务 ${id}`;
-		} catch (error) {
-			return `操作失败：${error instanceof Error ? error.message.slice(0, 120) : "未知错误"}`;
-		}
-		return "用法：/cron add|list|rm|pause|resume";
-	}
 
 	/**
 	 * `!<命令>` 直接执行。executeBash 不经过 tool_call 拦截，所以桥自己把关：
@@ -610,20 +567,6 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		return createHmac("sha256", cardToolSecret).update(payload).digest("base64url").slice(0, 32);
 	}
 
-	/** 定时任务触发 → 以创建人身份构造合成消息，走正常会话链路（审批、outbox、进度全部复用）。 */
-	async function fireCronJob(fire: import("./runtime/cron.js").CronFire): Promise<void> {
-		if (!rt.convManager) throw new Error("conversation manager unavailable");
-		const { job, plannedAt, missed } = fire;
-		const note = missed > 0 ? `[定时任务 ${job.id}：停机期间错过 ${missed} 次，本次照常执行]\n` : "";
-		await rt.convManager.route({
-			messageId: `cron:${job.id}:${plannedAt}`,
-			chatId: job.chatId, chatType: job.chatType, ...(job.threadId ? { threadId: job.threadId } : {}),
-			senderId: job.creatorId, isBot: false, msgType: "text",
-			text: `${note}[定时任务 ${job.id}（${job.expression}）] ${job.text}`,
-			mentions: [], resources: [], raw: undefined, ts: plannedAt,
-			synthetic: true, replyTarget: null,
-		}, { behavior: "queue" });
-	}
 
 	/** 心跳 —— 定期刷新 status.json（健康但空闲的桥 mtime 也不会停），顺带评估告警。 */
 	function startHeartbeat(): void {
@@ -1135,6 +1078,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		rt.status.startedAt = Date.now();
 		updateStatus();
 		try {
+			await featureHost.setup({ rt, log, replier: replierFor });
 			await assemble();
 			await rt.transport!.start();
 			rt.outbox!.start();
@@ -1152,17 +1096,8 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			// 会话文件权限与归档；status 心跳（含告警巡检）
 			runRetention();
 			startHeartbeat();
-			// 定时任务（默认关闭）
-			if (rt.config.cron?.enabled) {
-				rt.cronScheduler = new CronScheduler({
-					file: resolvePaths(rt.homeDir).cronJobsFile,
-					timeZone: () => rt.config.timezone,
-					catchUp: () => rt.config.cron?.catchUp ?? "skip",
-					onFire: fireCronJob,
-					log: (level, m, meta) => log[level](m, meta),
-				});
-				rt.cronScheduler.start();
-			}
+			// 可选能力（定时任务等）在连接与发送队列就绪后启动
+			await featureHost.start();
 			// 查询应用归属人（owner/creator）与应用协作者，作为隐式管理员：自己驱动 agent
 			// 时不必手工维护 open_id，且换应用后自动刷新（open_id 是按应用视角生成的）。
 			// 注意：这些人只豁免群策略层；群内 @ 仍按 adminBypassMention（默认 false）判定。
@@ -1222,6 +1157,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			return "started";
 		} catch (err) {
 			rt.started = false;
+			await featureHost.stop().catch(() => undefined);
 			const msg = err instanceof Error ? err.message : String(err);
 			rt.lastError = msg;
 			rt.reportedConnState = "error";
@@ -1242,8 +1178,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		rt.stopping = true;
 		reconnectSupervisor.cancel();
 		stopHeartbeat();
-		rt.cronScheduler?.stop();
-		rt.cronScheduler = undefined;
+		await featureHost.stop();
 		try {
 			rt.permissionBridge?.shutdown();
 			// 先停应答方：未决的转发请求已被 shutdown() 判拒绝，等它们把响应写完再撤心跳，
@@ -1362,7 +1297,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			}
 			if (rt.status.lastError) lines.push(`最近错误: ${rt.status.lastError.slice(0, 200)}`);
 			if (feedbackCounts.up || feedbackCounts.down) lines.push(`反馈（本次启动以来）: 👍 ${feedbackCounts.up} / 👎 ${feedbackCounts.down}`);
-			if (rt.cronScheduler) lines.push(`定时任务: ${rt.cronScheduler.list().filter((job) => job.enabled).length} 个启用`);
+			lines.push(...featureHost.statusLines());
 			for (const failure of rt.outbox?.recentFailures(3) ?? []) {
 				lines.push(`发送失败: ${failure.kind} @ ${formatTimeInZone(failure.updatedAt, rt.config.timezone)} · ${(failure.lastError ?? "").slice(0, 80)}`);
 			}

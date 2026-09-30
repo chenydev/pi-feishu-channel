@@ -13,7 +13,7 @@ test("BridgeRuntime：初始状态为未启动、未连接、没有任何组件"
 	assert.equal(rt.config, DEFAULT_CONFIG);
 	assert.equal(rt.homeDir, "");
 	assert.equal(rt.reportedConnState, "disconnected");
-	for (const key of ["transport", "pipeline", "convManager", "sender", "outbox", "permissionBridge", "psForwarding", "cronScheduler", "alertMonitor", "accessRequests"] as const) {
+	for (const key of ["transport", "pipeline", "convManager", "sender", "outbox", "permissionBridge", "psForwarding", "alertMonitor", "accessRequests"] as const) {
 		assert.equal(rt[key], undefined, `${key} 未启动时应为 undefined`);
 	}
 	assert.deepEqual(rt.status, initialStatus());

@@ -56,6 +56,11 @@ export class CardRouter {
 		return this;
 	}
 
+	/** 注销某个模块登记的全部 op（能力停止时调用）。 */
+	unregister(owner: string): void {
+		for (const [op, route] of this.routes) if (route.owner === owner) this.routes.delete(op);
+	}
+
 	/** 已登记的 op 及其所属模块（诊断与测试用）。 */
 	ops(): Record<string, string> {
 		return Object.fromEntries([...this.routes].map(([op, route]) => [op, route.owner]));

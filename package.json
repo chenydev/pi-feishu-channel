@@ -10,7 +10,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters && biome lint",
-    "test": "tsx --test tests/*.test.ts tests/integration/*.test.ts",
+    "test": "tsx --test tests/*.test.ts tests/features/*.test.ts tests/integration/*.test.ts",
     "check": "npm run lint && npm test",
     "metrics": "node scripts/metrics.mjs",
     "docs:check": "node scripts/check-links.mjs"
