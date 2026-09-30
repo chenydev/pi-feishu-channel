@@ -131,6 +131,8 @@ export interface ForwardedRequestFile {
 			executedUnit?: string | null;
 			commandContext?: unknown;
 		};
+		/** 附带的证据（如 `full command`：规则只匹配命令的一部分时，完整命令在这里）。 */
+		evidence?: { label: string; text: string }[];
 	};
 	surface?: string | null;
 	value?: string | null;
@@ -185,6 +187,12 @@ export function parseForwardedRequest(value: unknown): ForwardedRequestFile | nu
 	const payloadRaw = asRecord(raw.payload);
 	const factsRaw = asRecord(payloadRaw?.request);
 	const intentRaw = asRecord(raw.accessIntent);
+	const evidence = Array.isArray(payloadRaw?.evidence)
+		? payloadRaw.evidence.flatMap((entry) => {
+			const item = asRecord(entry);
+			return typeof item?.label === "string" && typeof item.text === "string" ? [{ label: item.label, text: item.text }] : [];
+		})
+		: undefined;
 	const matchValues = Array.isArray(intentRaw?.matchValues)
 		? intentRaw.matchValues.filter((entry): entry is string => typeof entry === "string")
 		: undefined;
@@ -207,6 +215,7 @@ export function parseForwardedRequest(value: unknown): ForwardedRequestFile | nu
 						commandContext: factsRaw.commandContext,
 					}
 					: undefined,
+				evidence,
 			}
 			: undefined,
 		surface: asNullableString(raw.surface),
@@ -250,6 +259,9 @@ export function describeForwardedRequest(request: ForwardedRequestFile): Forward
 	const surface = facts?.surface ?? request.surface ?? request.accessIntent?.surface ?? "unknown";
 	const toolName = facts?.toolName ?? (surface === "bash" ? "bash" : surface);
 	const value = facts?.value ?? request.value ?? request.accessIntent?.matchValues?.[0] ?? "";
+	// 规则只匹配命令的一部分时（重定向、管道、`&&` 连接的命令），value 只是被匹配的那一段；
+	// 审批人必须看到实际要执行的完整命令，否则 `echo x > ~/.bashrc` 在卡片上只显示成 `echo x`。
+	const fullCommand = request.payload?.evidence?.find((item) => item.label === "full command")?.text;
 
 	// PS 在拿不到 agent 名时会写 "unknown"（getActiveAgentName 的回退值）—— 别把它当人名展示
 	const agent = request.requesterAgentName && request.requesterAgentName !== "unknown"
@@ -257,6 +269,8 @@ export function describeForwardedRequest(request: ForwardedRequestFile): Forward
 		: "";
 	const reasons = [`来自子代理会话${agent}的转发审批`];
 	if (facts?.matchedPattern) reasons.push(`命中规则：${facts.matchedPattern}`);
+	const showFullCommand = toolName === "bash" && !!fullCommand?.trim() && fullCommand !== value;
+	if (showFullCommand) reasons.push(`规则匹配的部分：${redactParams({ command: value }, "bash")}`);
 	if (facts?.executedUnit && facts.executedUnit !== value) reasons.push(`实际执行：${facts.executedUnit}`);
 	if (validCommandContext(facts?.commandContext)) reasons.push(`命令位置：${facts.commandContext}`);
 	const cwd = validCwd(request.accessIntent?.requesterCwd);
@@ -268,7 +282,7 @@ export function describeForwardedRequest(request: ForwardedRequestFile): Forward
 	if (!value) {
 		paramsText = `(${surface} 请求，未附带具体值)`;
 	} else if (toolName === "bash") {
-		paramsText = redactParams({ command: value }, "bash");
+		paramsText = redactParams({ command: showFullCommand ? fullCommand : value }, "bash");
 	} else if (isPathSurface(surface)) {
 		paramsText = redactParams({ path: value });
 	} else {

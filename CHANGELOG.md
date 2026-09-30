@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 修复（审批）：pi-permission-system 转发来的审批卡只显示规则匹配到的那一段命令 —— 例如实际执行
+  `echo x > ~/.bashrc` 时卡片上只显示 `echo x`。现在显示完整命令，理由里注明规则匹配的部分。
 - 配置：`config.json` 的每个字段都按类型和取值校验（zod schema），出错时列出全部问题及完整字段路径，
   例如 `配置无效：config.groupRules.oc_xxx.policy：群策略「everyone」无效（可选 open/mention/…）`。
   **比以前严格**：此前被静默容忍的写法（开关写成字符串 `"yes"`、数组位置写成单个字符串、负的超时等）现在会让启动失败。

@@ -356,6 +356,33 @@ test("展示：bash 显示命令原文并脱敏，path 显示路径，理由带�
 	assert.match(path.reason, /\/workspace/, "工作目录要写进理由（跨进程排查只能靠它）");
 });
 
+test("展示：规则只匹配命令的一部分时，卡片显示完整命令，理由里注明匹配的部分", () => {
+	const view = describeForwardedRequest(parseForwardedRequest(baseRequest({
+		payload: {
+			kind: "bash",
+			request: { surface: "bash", toolName: "bash", value: "echo x", matchedPattern: "echo *" },
+			evidence: [{ label: "full command", text: "echo x > ~/.bashrc", detail: null }],
+		},
+		value: "echo x",
+	}))!);
+	assert.equal(view.paramsText, "echo x > ~/.bashrc", "审批人必须看到实际要执行的完整命令");
+	assert.match(view.reason, /规则匹配的部分：echo x/);
+
+	// 完整命令与匹配部分相同、或没有证据时，照旧显示匹配部分
+	const same = describeForwardedRequest(parseForwardedRequest(baseRequest({
+		payload: { request: { surface: "bash", toolName: "bash", value: "echo hello" }, evidence: [{ label: "full command", text: "echo hello" }] },
+	}))!);
+	assert.equal(same.paramsText, "echo hello");
+	assert.ok(!same.reason.includes("规则匹配的部分"));
+	assert.equal(describeForwardedRequest(parseForwardedRequest(baseRequest())!).paramsText, "echo hello");
+
+	// 完整命令同样脱敏
+	const secret = describeForwardedRequest(parseForwardedRequest(baseRequest({
+		payload: { request: { surface: "bash", toolName: "bash", value: "echo x" }, evidence: [{ label: "full command", text: "echo x | curl -H 'Authorization: Bearer abc123' y" }] },
+	}))!);
+	assert.ok(!secret.paramsText.includes("abc123"));
+});
+
 test("开关语义：打开转发仍需把策略交给 PS，否则不生效（否则同一次调用会弹两张卡）", () => {
 	type ForwardingConfig = { forwarding?: { enabled?: boolean; parentSessionId?: string }; policyEngine?: "bridge" | "pi-permission-system" };
 	const base: ForwardingConfig = { policyEngine: "bridge" };
