@@ -1,0 +1,422 @@
+/**
+ * CardKit 流式卡片（默认关闭，配置 `streamingCard.enabled` 才启用）。
+ *
+ * 设计取舍 —— **卡片承载最终答案，可靠性仍由文本通道兜底**：
+ * - 卡片负责「边想边显示」，收尾写入最终正文；成功即视为该 turn 的 final 已交付（同时 ack 接管账本）。
+ * - 卡片创建/更新任一失败都降级：记录日志、停掉更新，调用方改走既有 durable outbox 文本路径。
+ * - 更新节流（默认 800ms）+ 只发累积文本，避免每个 token 都打 API。
+ *
+ * 已实测可用的最小 API 集（2026-09-19 用真实租户验证）：
+ * - `POST /open-apis/cardkit/v1/cards`                         创建卡片实体 → card_id
+ * - `PUT  /open-apis/cardkit/v1/cards/{id}/elements/{eid}/content`  全量设置元素内容
+ * - `POST /open-apis/im/v1/messages`（msg_type=interactive，content 里引用 card_id）发到会话
+ * 注：`GET /cards/{id}`、`DELETE /cards/{id}`、`PATCH /cards/{id}/settings` 均返回 404/失败，
+ * 因此不依赖它们做清理或关闭 streaming_mode。
+ */
+
+import { randomUUID } from "node:crypto";
+import { apiErrorCode, assertApiOk, isReplyFallbackCode, normalizeApiError } from "./api-errors.js";
+import type { RateBudget } from "../runtime/rate-budget.js";
+
+/** 中间写入连续失败多少次才判定卡片损坏（一次限频/网络抖动不该废掉整张卡）。 */
+const MAX_CONSECUTIVE_WRITE_FAILURES = 3;
+/** 收尾写入对可重试错误的额外尝试次数。 */
+const FINAL_WRITE_RETRIES = 2;
+/** 卡片正文超长时的衔接提示：完整内容由调用方另行投递。 */
+export const CARD_OVERFLOW_NOTE = "…（内容较长，完整内容见下条消息）";
+
+export const STREAM_ELEMENT_ID = "stream";
+/** 页脚（本轮/会话指标）独立元素：与正文分开，飞书侧就是单独一块。 */
+export const METRICS_ELEMENT_ID = "metrics";
+
+export interface StreamingCardDeps {
+	rawRequest: (opts: { url: string; method: string; params?: unknown; data?: unknown }) => Promise<unknown>;
+	log?: (level: "debug" | "info" | "warn" | "error", message: string, meta?: Record<string, unknown>) => void;
+	/** 更新节流（毫秒），默认 800。 */
+	throttleMs?: number;
+	/** 打字机参数（分端字段的 common 值）；默认 50ms / 50 字，见 streaming_config 注释。 */
+	printFrequencyMs?: number;
+	printStep?: number;
+	/** 单次发送的文本上限，超出截断（避免卡片体积过大）。 */
+	maxChars?: number;
+	now?: () => number;
+	/** 共享预算 —— 中间写入要拿 live 令牌，结果回报熔断器；收尾写入不受限。 */
+	budget?: RateBudget;
+	/** 预算作用域（会话 key），多个会话同时流式时按会话分桶。 */
+	budgetScope?: string;
+}
+
+export interface StreamingCardTarget {
+	chatId: string;
+	replyTo?: string;
+	threadId?: string;
+}
+
+export class StreamingCard {
+	private cardId?: string;
+	private messageId?: string;
+	private sequence = 0;
+	private timer?: ReturnType<typeof setTimeout>;
+	private pendingText?: string;
+	private lastFlushAt = 0;
+	private broken = false;
+	/** 收尾阶段：此时 doWrite 不再用 pendingText 覆盖传入的最终文本。 */
+	private finalizing = false;
+	/** 写入串行链：保证同一卡片上的 PUT 不会并发。 */
+	/** 写入链：保证同一卡片的 PUT 严格顺序（并发会导致空白卡片）。 */
+	private writeChain: Promise<void> = Promise.resolve();
+	// 埋点：卡片 API 累计耗时（判断卡片是不是瓶颈）
+	private totalWriteMs = 0;
+	private writeCount = 0;
+	private finished = false;
+	private consecutiveFailures = 0;
+	/** finish 时正文超过 maxChars —— 卡片只放了前段，调用方必须另行投递全文。 */
+	private overflowedFlag = false;
+	/** 是否声明了页脚元素（false 时 finish 的 metrics 走正文拼接）。 */
+	private withMetrics = true;
+	private readonly throttleMs: number;
+	private readonly printFrequencyMs: number;
+	private readonly printStep: number;
+	private readonly maxChars: number;
+	private readonly now: () => number;
+	private readonly startedAt: number;
+
+	constructor(private deps: StreamingCardDeps) {
+		// 默认 200ms：实测飞书 CardKit 在 200ms 间隔下连续 8 次更新全部落地
+		// （真正限制吞吐的是 HTTP 往返，不是平台频率），因此这个值可以按体感调。
+		// 显式传入时按传入值走 —— 调用方（config/测试）知道自己要什么。
+		this.throttleMs = Math.max(0, deps.throttleMs ?? 1000);
+		this.printFrequencyMs = Math.max(1, deps.printFrequencyMs ?? 50);
+		this.printStep = Math.max(1, deps.printStep ?? 50);
+		this.maxChars = Math.max(200, deps.maxChars ?? 8_000);
+		this.now = deps.now ?? Date.now;
+		this.startedAt = this.now();
+	}
+
+	/** 是否处于可用状态（启用且未失败）。 */
+	get available(): boolean { return Boolean(this.cardId) && !this.broken && !this.finished; }
+	get id(): string | undefined { return this.cardId; }
+	get sentMessageId(): string | undefined { return this.messageId; }
+	/** 最终正文超出卡片上限（卡片里只有前段 + 衔接提示）。 */
+	get overflowed(): boolean { return this.overflowedFlag; }
+	get maxCharsLimit(): number { return this.maxChars; }
+
+	/** 创建卡片实体并作为回复发出；任一步失败返回 false（调用方应降级到文本通道）。 */
+	async start(target: StreamingCardTarget, initialText = "正在处理…", options?: { withMetrics?: boolean }): Promise<boolean> {
+		this.withMetrics = options?.withMetrics ?? true;
+		try {
+			const created = assertApiOk(await this.deps.rawRequest({
+				url: "/open-apis/cardkit/v1/cards",
+				method: "POST",
+				data: {
+					type: "card_json",
+					data: JSON.stringify(this.cardJson(initialText.slice(0, this.maxChars))),
+				},
+			}), "cardkit create") as { data?: { card_id?: string } };
+			const cardId = created?.data?.card_id;
+			if (!cardId) throw new Error("cardkit create returned no card_id");
+			this.cardId = cardId;
+
+			const content = JSON.stringify({ type: "card", data: { card_id: cardId } });
+			const create = () => this.deps.rawRequest({
+				url: "/open-apis/im/v1/messages",
+				method: "POST",
+				params: target.threadId ? { receive_id_type: "thread_id" } : { receive_id_type: "chat_id" },
+				data: { receive_id: target.threadId ?? target.chatId, msg_type: "interactive", content },
+			});
+			let sent: unknown;
+			if (target.replyTo) {
+				// 被回复的消息已撤回/不存在时回退为直接发送（与 sender 的 reply→create 一致），
+				// 否则答案会写进一张根本没发出去的卡。
+				try {
+					sent = await this.deps.rawRequest({
+						url: `/open-apis/im/v1/messages/${target.replyTo}/reply`,
+						method: "POST",
+						data: { msg_type: "interactive", content, reply_in_thread: Boolean(target.threadId) },
+					});
+					const code = (sent as { code?: number } | undefined)?.code;
+					if (isReplyFallbackCode(code)) sent = await create();
+				} catch (error) {
+					if (!isReplyFallbackCode(apiErrorCode(error))) throw error;
+					sent = await create();
+				}
+			} else {
+				sent = await create();
+			}
+			assertApiOk(sent, "card message send");
+			this.messageId = (sent as { data?: { message_id?: string } })?.data?.message_id;
+			// 没有 message_id = 卡片没有进会话；之后写得再成功也没人看得见。
+			if (!this.messageId) throw new Error("card message send returned no message_id");
+			this.lastFlushAt = this.now();
+			this.deps.log?.("info", "feishu.stream_card.started", { cardId, messageId: this.messageId });
+			return true;
+		} catch (error) {
+			this.broken = true;
+			this.deps.log?.("warn", "feishu.stream_card.start_failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return false;
+		}
+	}
+
+	/** 节流提交增量文本（累积态，非增量片段）。 */
+	update(text: string): void {
+		if (!this.available) return;
+		this.pendingText = text;
+		const elapsed = this.now() - this.lastFlushAt;
+		if (elapsed >= this.throttleMs) {
+			void this.flush();
+			return;
+		}
+		if (this.timer) return;
+		this.timer = setTimeout(() => {
+			this.timer = undefined;
+			void this.flush();
+		}, this.throttleMs - elapsed);
+		this.timer.unref?.();
+	}
+
+	/**
+	 * 收尾：写入最终正文（+ 可选的页脚块）并停止更新。返回是否成功（失败则由调用方按文本通道兜底）。
+	 *
+	 * 页脚走**独立元素**（`metrics`）而不是拼在正文后面：
+	 * - 它属于元信息而非答案，拼在正文里会被当成回答的最后一段读；
+	 * - 独立元素能单独设 `text_size: notation`（小号淡色），视觉上自然分层。
+	 * 页脚元素写失败时降级成旧行为（拼在正文末尾），不让元信息丢失拖垮交付。
+	 */
+	async finish(finalText: string, options?: { metrics?: string }): Promise<boolean> {
+		if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+		if (!this.available) {
+			// 卡片已损坏也尽力写一句衔接语，别让它停在半截、看起来像答案本身
+			if (this.cardId && this.broken && !this.finished) await this.bestEffortNote("⚠️ 卡片更新失败，完整回答见下条消息。");
+			this.finished = true;
+			return false;
+		}
+		// 超长正文只在卡片放前段，并提示"完整内容见下条消息"；全文由调用方另行投递。
+		if (finalText.length > this.maxChars) {
+			this.overflowedFlag = true;
+			finalText = `${finalText.slice(0, Math.max(0, this.maxChars - CARD_OVERFLOW_NOTE.length - 2))}\n\n${CARD_OVERFLOW_NOTE}`;
+		}
+		// 标记收尾：后续写入以传入文本为准，不再合并 pendingText
+		this.finalizing = true;
+		this.pendingText = undefined;
+		if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+		// writeChain 保证最终内容一定排在所有在途写入之后落地
+		let ok = await this.flushText(finalText);
+		const metrics = options?.metrics?.trim();
+		let metricsFallback = false;
+		if (ok && metrics) {
+			// 声明了页脚元素就走独立块；没声明（footer 关闭）或写失败则拼在正文末尾 ——
+			// 元信息可以换位置，但不能静默丢掉。
+			if (this.withMetrics) ok = await this.writeMetrics(metrics);
+			if (!ok || !this.withMetrics) {
+				metricsFallback = true;
+				ok = await this.flushText(`${finalText}\n\n${metrics}`);
+			}
+		}
+		this.finished = true;
+		// 汇总可用于判断"吐字"流畅度：写入次数 / 内容长度 / 实际节流
+		this.deps.log?.(ok ? "info" : "warn", "feishu.stream_card.finished", {
+			cardId: this.cardId,
+			ok,
+			writes: this.sequence,
+			contentLen: finalText.length,
+			metricsLen: metrics?.length ?? 0,
+			metricsFallback,
+			throttleMs: this.throttleMs,
+			elapsedMs: this.now() - this.startedAt,
+			apiTotalMs: this.totalWriteMs,
+			apiAvgMs: this.writeCount > 0 ? Math.round(this.totalWriteMs / this.writeCount) : 0,
+		});
+		return ok;
+	}
+
+	/** 写页脚元素（独立块）。失败返回 false，由调用方降级。 */
+	private async writeMetrics(text: string): Promise<boolean> {
+		if (!this.cardId || this.withMetrics === false) return false;
+		const writeStart = this.now();
+		try {
+			this.sequence += 1;
+			assertApiOk(await this.deps.rawRequest({
+				url: `/open-apis/cardkit/v1/cards/${this.cardId}/elements/${METRICS_ELEMENT_ID}/content`,
+				method: "PUT",
+				data: { content: text.slice(0, this.maxChars), sequence: this.sequence, uuid: randomUUID() },
+			}), "cardkit metrics");
+			this.lastFlushAt = this.now();
+			this.totalWriteMs += this.lastFlushAt - writeStart;
+			this.writeCount += 1;
+			return true;
+		} catch (error) {
+			this.deps.log?.("warn", "feishu.stream_card.metrics_failed", {
+				cardId: this.cardId,
+				error: error instanceof Error ? error.message : String(error),
+				detail: extractErrorDetail(error),
+				sequence: this.sequence,
+			});
+			return false;
+		}
+	}
+
+	/** 放弃卡片（run 失败/中止）：尽量写一句状态，之后不再更新。 */
+	async abandon(reason: string): Promise<void> {
+		if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+		if (!this.available) {
+			if (this.cardId && this.broken && !this.finished) await this.bestEffortNote(reason);
+			this.finished = true;
+			return;
+		}
+		this.finalizing = true;
+		await this.flushText(reason);
+		this.finished = true;
+	}
+
+	/** 损坏后的最后一次尝试：只写一次、不重试、不影响返回值。 */
+	private async bestEffortNote(text: string): Promise<void> {
+		try {
+			this.sequence += 1;
+			assertApiOk(await this.deps.rawRequest({
+				url: `/open-apis/cardkit/v1/cards/${this.cardId}/elements/${STREAM_ELEMENT_ID}/content`,
+				method: "PUT",
+				data: { content: text, sequence: this.sequence, uuid: randomUUID() },
+			}), "cardkit note");
+		} catch {
+			/* 卡片链路已坏，答案由文本通道交付 */
+		}
+	}
+
+	private async flush(): Promise<void> {
+		// 清掉挂起的定时器：否则「达到节流间隔」与「定时器到期」会各触发一次写入
+		if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+		if (!this.pendingText || !this.available) return;
+		if (this.deps.budget && !this.finalizing) {
+			const lease = this.deps.budget.tryAcquire("live", this.deps.budgetScope);
+			if (!lease.ok) {
+				// 这次不写，等令牌补上再推最新文本（pendingText 保留）
+				this.timer = setTimeout(() => { this.timer = undefined; void this.flush(); }, Math.max(200, lease.retryAfterMs ?? this.throttleMs));
+				this.timer.unref?.();
+				return;
+			}
+		}
+		// 立即记账（不是等 API 回来才记）：写入是串行的，若等回来再记，
+		// 排队期间的每个 delta 都会重新满足节流条件，导致节流形同虚设
+		// （实测 throttleMs=1000 仍然写了 66 次）。
+		this.lastFlushAt = this.now();
+		await this.flushText(this.pendingText);
+	}
+
+	/**
+	 * 串行化写入：同一卡片的 PUT 必须**顺序**执行。
+	 *
+	 * 实测教训（2026-09-19）：并发/高频写入时飞书只应用了第一次内容，
+	 * 后面每次都返回 `ok: true` 但群里始终停在最初的几行 —— 卡片看着"卡住"，
+	 * 而 API 全是成功，无法靠返回值发现。因此这里用 promise 链强制串行，
+	 * 并把等待期间的新内容合并成一次写入。
+	 */
+	private flushText(text: string): Promise<boolean> {
+		// 串行写入：并发会让 sequence 乱序，飞书侧最终**渲染成空白卡片**（2026-09-19 实测）。
+		// 串行本身没问题 —— 真正的问题是"请求次数太多导致延迟累加"，
+		// 所以解法是**提高节流减少次数**（throttleMs >= API 单次延迟），而不是并发。
+		const chained = this.writeChain.then(() => this.doWrite(text), () => this.doWrite(text));
+		this.writeChain = chained.then(() => undefined, () => undefined);
+		return chained;
+	}
+
+	private async doWrite(text: string): Promise<boolean> {
+		if (!this.cardId || this.broken) return false;
+		// 排队期间又产出了新内容：中间态没有发送价值，直接推最新的全量文本。
+		// 但**最终写入必须优先** —— 多工具轮场景下 final 可能比累积的 pendingText 更短，
+		// 按「更长」选会把旧的中间内容当成最终答案发出去。
+		if (!this.finalizing) {
+			const latest = this.pendingText ?? text;
+			if (latest.length > text.length) text = latest;
+		}
+		const attempts = this.finalizing ? 1 + FINAL_WRITE_RETRIES : 1;
+		for (let attempt = 1; attempt <= attempts; attempt++) {
+			const writeStart = this.now();
+			try {
+				this.sequence += 1;
+				assertApiOk(await this.deps.rawRequest({
+					url: `/open-apis/cardkit/v1/cards/${this.cardId}/elements/${STREAM_ELEMENT_ID}/content`,
+					method: "PUT",
+					// uuid 幂等键：飞书 cardkit 要求，且网络重试时不会重复应用同一段
+					data: { content: this.window(text), sequence: this.sequence, uuid: randomUUID() },
+				}), "cardkit update");
+				this.lastFlushAt = this.now();
+				this.totalWriteMs += this.lastFlushAt - writeStart;
+				this.writeCount += 1;
+				this.consecutiveFailures = 0;
+				this.deps.budget?.record({ ok: true });
+				return true;
+			} catch (error) {
+				const normalized = normalizeApiError(error);
+				this.deps.budget?.record({ errorClass: normalized.errorClass, retryAfterMs: normalized.retryAfterMs });
+				this.consecutiveFailures += 1;
+				// 中间写入的可重试错误（限频/网络/5xx）只跳过这一次；连续失败或不可重试才判损坏。
+				// 收尾写入对可重试错误再试几次 —— 这一次写的是最终答案。
+				const retryable = normalized.retryable;
+				const lastAttempt = attempt >= attempts || !retryable;
+				if (!retryable || (!this.finalizing && this.consecutiveFailures >= MAX_CONSECUTIVE_WRITE_FAILURES) || (this.finalizing && lastAttempt)) {
+					this.broken = true;
+				}
+				this.deps.log?.("warn", "feishu.stream_card.update_failed", {
+					cardId: this.cardId,
+					error: error instanceof Error ? error.message : String(error),
+					// 只记 message 定位不了 400：把服务端返回体一起带上
+					detail: extractErrorDetail(error),
+					errorClass: normalized.errorClass,
+					broken: this.broken,
+					consecutiveFailures: this.consecutiveFailures,
+					sequence: this.sequence,
+					contentLen: text.length,
+				});
+				if (lastAttempt) return false;
+				await new Promise((resolve) => setTimeout(resolve, Math.max(200, normalized.retryAfterMs ?? 500 * attempt)).unref?.());
+			}
+		}
+		return false;
+	}
+
+	/** 超出上限时保留开头 + 尾部截断标记（答题场景开头是结论，比取尾部更有用）。 */
+	private window(text: string): string {
+		if (text.length <= this.maxChars) return text;
+		return `${text.slice(0, this.maxChars)}\n\n…（内容过长，卡片已省略 ${text.length - this.maxChars} 字）`;
+	}
+
+	private cardJson(text: string): unknown {
+		return {
+			schema: "2.0",
+			config: {
+				// 必须为 true：否则 /content 接口不可用（元素内容更新会停在初始文案）
+				streaming_mode: true,
+				// 打字机速度必须显式指定 —— 平台默认是「每次 1 字 / 间隔 70ms」，
+				// 500 字要播 35 秒，这正是"服务端早已推完、PC 端还在慢慢吐"的原因。
+				// 分端字段：default 为必填，pc 单独覆盖（移动端与桌面端默认行为不同）。
+				streaming_config: {
+					print_frequency_ms: { default: this.printFrequencyMs, pc: this.printFrequencyMs },
+					print_step: { default: this.printStep, pc: this.printStep },
+					print_strategy: "fast",
+				},
+			},
+			body: {
+				elements: [
+					{ tag: "markdown", element_id: STREAM_ELEMENT_ID, content: text },
+					// 页脚块：分割线 + 独立 markdown 元素。创建时留空（空 markdown 不占视觉空间），
+					// 收尾时再用 /content 写入 —— 飞书卡片元素必须在建卡时就存在。
+					...(this.withMetrics
+						? [
+							{ tag: "hr" },
+							{ tag: "markdown", element_id: METRICS_ELEMENT_ID, text_size: "notation", content: "" },
+						]
+						: []),
+				],
+			},
+		};
+	}
+}
+
+/** 从 axios/SDK 错误里挖出服务端返回体（飞书的 code/msg 在 response.data 里）。 */
+function extractErrorDetail(error: unknown): unknown {
+	const response = (error as { response?: { status?: number; data?: unknown } })?.response;
+	if (!response) return undefined;
+	return { status: response.status, data: response.data };
+}
