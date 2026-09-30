@@ -4,5 +4,6 @@
 import { alertsFeature } from "./alerts.js";
 import { cronFeature } from "./cron.js";
 import type { BridgeFeature } from "./feature.js";
+import { sttFeature } from "./stt.js";
 
-export const FEATURES: readonly BridgeFeature[] = [cronFeature, alertsFeature];
+export const FEATURES: readonly BridgeFeature[] = [cronFeature, alertsFeature, sttFeature];

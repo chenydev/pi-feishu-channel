@@ -3,6 +3,11 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { CommandDispatcher } from "../../src/commands/dispatch.js";
+import { FeatureHost, type BridgeFeature } from "../../src/features/feature.js";
+import { CardRouter } from "../../src/interaction/card-router.js";
+import { BridgeRuntime } from "../../src/runtime/bridge-runtime.js";
+import { DEFAULT_CONFIG, type BridgeConfig } from "../../src/types.js";
 import { startHarness, type Harness } from "../integration/extension-harness.js";
 
 export const ADMIN = "ou_admin";
@@ -34,4 +39,19 @@ export function enabledIn(h: Harness): { status: string[]; log: string[] } {
 /** 某个前缀的日志事件是否出现过。 */
 export function hasLogPrefix(h: Harness, prefix: string): boolean {
 	return h.logs.some((l) => l.event.startsWith(prefix));
+}
+
+/** 不启动整个扩展，只用给定配置装配某几个能力（测挂接点本身）。 */
+export async function featureHostFor(features: BridgeFeature[], config: Partial<BridgeConfig>) {
+	const logs: string[] = [];
+	const push = (m: string) => { logs.push(m); };
+	const log = { debug: push, info: push, warn: push, error: push };
+	const rt = new BridgeRuntime();
+	rt.config = { ...DEFAULT_CONFIG, ...config };
+	const replier = () => ({ reply() {}, trySendCard: async () => false });
+	const dispatcher = new CommandDispatcher({ log, isAdmin: () => false, replier, piCommands: () => [] });
+	const cardRouter = new CardRouter({ log, admins: () => [] });
+	const host = new FeatureHost(features, { dispatcher, cardRouter, log });
+	await host.setup({ rt, log, replier, reconnectsLast5m: () => 0 });
+	return { host, rt, logs, dispatcher, cardRouter };
 }

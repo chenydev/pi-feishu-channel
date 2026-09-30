@@ -47,7 +47,6 @@ import { loadPsConfig, psBashVerdict } from "./approval/policy-summary.js";
 import { UsageLedger } from "./runtime/usage-ledger.js";
 import type { LifecycleEvent } from "./inbound/transport.js";
 import { archiveOldSessions, tightenSessionPermissions } from "./runtime/retention.js";
-import { createTranscriber } from "./inbound/stt.js";
 import { enabledFeatures } from "./features/switches.js";
 import { FeatureHost } from "./features/feature.js";
 import { FEATURES } from "./features/index.js";
@@ -881,8 +880,8 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			resourceResolver: new ResourceResolver({
 				baseDir: join(paths.sessionDir, "..", "resources"),
 				download: (ref, maxBytes) => rt.transport!.downloadResource(ref, maxBytes),
-				// 语音转写（默认关闭）
-				transcribe: createTranscriber(rt.config.stt, { log: (level, m, meta) => log[level](m, meta) }),
+				// 语音转写（可选能力，默认关闭）
+				transcribe: featureHost.first("transcribe"),
 			}),
 			editMessage: (messageId, text) => rt.transport?.editMessage(messageId, text) ?? Promise.resolve(false),
 			recallMessage: (messageId) => rt.transport?.recallMessage(messageId) ?? Promise.resolve(false),
