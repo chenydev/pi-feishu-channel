@@ -16,7 +16,7 @@ function setup(features: BridgeFeature[]) {
 	const cardRouter = new CardRouter({ log, admins: () => [] });
 	const host = new FeatureHost(features, { dispatcher, cardRouter, log });
 	const rt = new BridgeRuntime();
-	return { host, dispatcher, cardRouter, rt, logs, ctx: { rt, log, replier: () => ({ reply() {}, trySendCard: async () => false }) } };
+	return { host, dispatcher, cardRouter, rt, logs, ctx: { rt, log, replier: () => ({ reply() {}, trySendCard: async () => false }), reconnectsLast5m: () => 0 } };
 }
 
 test("FeatureHost：关闭的能力不调用 setup，只登记 disabledCommands", async () => {

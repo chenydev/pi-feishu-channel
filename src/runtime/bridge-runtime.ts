@@ -19,7 +19,6 @@ import type { ConversationManager } from "../session/conversation-manager.js";
 import type { BridgeConfig, BridgeStatus } from "../types.js";
 import { DEFAULT_CONFIG } from "../types.js";
 import type { AccessRequestTracker } from "./access-request.js";
-import type { AlertMonitor } from "./alerts.js";
 import type { AppLock } from "./app-lock.js";
 import type { KnownChatStore } from "./known-chat-store.js";
 import type { UsageLedger } from "./usage-ledger.js";
@@ -88,8 +87,6 @@ export class BridgeRuntime {
 	usageProvider: UsageProvider | undefined;
 	/** 按天用量记录。 */
 	usageLedger: UsageLedger | undefined;
-	/** 告警（`alerts.enabled` 时才建）。 */
-	alertMonitor: AlertMonitor | undefined;
 	/** 开通申请限流状态（按群）。 */
 	accessRequests: AccessRequestTracker | undefined;
 }

@@ -21,6 +21,8 @@ export interface FeatureContext {
 	log: BridgeLogger;
 	/** 给某条消息回执（文本走持久化发送队列）。 */
 	replier(msg: FeishuInboundMessage): CommandReplier;
+	/** 近 5 分钟的重连次数。 */
+	reconnectsLast5m(): number;
 }
 
 export interface FeatureHooks {
@@ -36,6 +38,8 @@ export interface FeatureHooks {
 	stop?(): void | Promise<void>;
 	/** 平台生命周期事件（撤回、入群、评论、会议邀请等），每个能力都会收到。 */
 	onLifecycleEvent?(event: LifecycleEvent): void | Promise<void>;
+	/** 状态心跳（默认每 30 秒，刷新 status.json 之后）。 */
+	onHeartbeat?(): void | Promise<void>;
 	/** `/feishu status` 里追加的行。 */
 	statusLines?(): string[];
 }
@@ -100,6 +104,16 @@ export class FeatureHost {
 
 	async onLifecycleEvent(event: LifecycleEvent): Promise<void> {
 		for (const { hooks } of this.active) await hooks.onLifecycleEvent?.(event);
+	}
+
+	async heartbeat(): Promise<void> {
+		for (const { name, hooks } of this.active) {
+			try {
+				await hooks.onHeartbeat?.();
+			} catch (error) {
+				this.opts.log.warn("feishu.feature.heartbeat_failed", { feature: name, error: error instanceof Error ? error.message : String(error) });
+			}
+		}
 	}
 
 	statusLines(): string[] {

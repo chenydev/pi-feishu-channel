@@ -45,7 +45,6 @@ import { AccessRequestTracker, planAccessRequest } from "./runtime/access-reques
 import { accessApproverHint, accessApproverPolicy, accessApprovers, canApproveAccess, describeByRole, roleOf } from "./runtime/admin-roles.js";
 import { loadPsConfig, psBashVerdict } from "./approval/policy-summary.js";
 import { UsageLedger } from "./runtime/usage-ledger.js";
-import { AlertMonitor, DEFAULT_ALERT_OPTIONS } from "./runtime/alerts.js";
 import type { LifecycleEvent } from "./inbound/transport.js";
 import { archiveOldSessions, tightenSessionPermissions } from "./runtime/retention.js";
 import { createTranscriber } from "./inbound/stt.js";
@@ -574,7 +573,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		if (rt.heartbeatTimer || interval <= 0) return;
 		rt.heartbeatTimer = setInterval(() => {
 			updateStatus();
-			void evaluateAlerts();
+			void featureHost.heartbeat();
 		}, interval);
 		rt.heartbeatTimer.unref?.();
 	}
@@ -584,35 +583,6 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		rt.heartbeatTimer = undefined;
 	}
 
-	async function evaluateAlerts(): Promise<void> {
-		if (!rt.config.alerts?.enabled) return;
-		rt.alertMonitor ??= new AlertMonitor({
-			disconnectMs: rt.config.alerts.disconnectMs ?? DEFAULT_ALERT_OPTIONS.disconnectMs,
-			reconnectsIn5m: rt.config.alerts.reconnectsIn5m ?? DEFAULT_ALERT_OPTIONS.reconnectsIn5m,
-			pendingApprovals: rt.config.alerts.pendingApprovals ?? DEFAULT_ALERT_OPTIONS.pendingApprovals,
-			approvalAgeMs: DEFAULT_ALERT_OPTIONS.approvalAgeMs,
-			cooldownMs: rt.config.alerts.cooldownMs ?? DEFAULT_ALERT_OPTIONS.cooldownMs,
-		});
-		const messages = rt.alertMonitor.evaluate({
-			now: Date.now(),
-			downSince: rt.downSince,
-			reconnectsLast5m: reconnectSupervisor.reconnectsInWindow(),
-			failedFinals: rt.outbox?.stats().failed ?? 0,
-			pendingApprovals: rt.permissionBridge?.pendingCount() ?? 0,
-			oldestApprovalAgeMs: rt.permissionBridge?.oldestPendingAgeMs(),
-			compensationErrors: rt.compensationErrors,
-		});
-		if (messages.length === 0 || !rt.transport?.isConnected()) return;
-		const recipients = rt.config.alerts.recipients?.length ? rt.config.alerts.recipients : effectiveAdmins(rt.config);
-		for (const message of messages) {
-			log.warn("feishu.alert", { kind: message.kind, recovered: message.recovered });
-			for (const openId of recipients.slice(0, 10)) {
-				try { await rt.transport.sendToUser(openId, "text", { text: `[飞书桥] ${message.text}` }); } catch (error) {
-					log.warn("feishu.alert.send_failed", { kind: message.kind, error: error instanceof Error ? error.message : String(error) });
-				}
-			}
-		}
-	}
 
 	/** 启动时收紧会话文件权限；配置了保留期时归档超期历史会话。 */
 	function runRetention(): void {
@@ -1078,7 +1048,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		rt.status.startedAt = Date.now();
 		updateStatus();
 		try {
-			await featureHost.setup({ rt, log, replier: replierFor });
+			await featureHost.setup({ rt, log, replier: replierFor, reconnectsLast5m: () => reconnectSupervisor.reconnectsInWindow() });
 			await assemble();
 			await rt.transport!.start();
 			rt.outbox!.start();

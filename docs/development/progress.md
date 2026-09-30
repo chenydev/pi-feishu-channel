@@ -8,13 +8,13 @@
 
 | 指标 | 基线 | 当前 | 目标 |
 |---|---|---|---|
-| `index_lines` | 2267 | 1408 | < 300 |
+| `index_lines` | 2267 | 1378 | < 300 |
 | `index_closure_state` | 33 | 0 | ≤ 3 |
-| `index_inner_functions` | 50 | 36 | ≤ 5 |
+| `index_inner_functions` | 50 | 35 | ≤ 5 |
 | `manager_forwarders` | 16 | 0 | 0 |
 | `manager_lines` | 1590 | 1510 | 只减不增 |
 | `internal_id_refs` | 0 | 0 | 0 |
-| `tests` | 650 | 704 | 只增不减 |
+| `tests` | 650 | 706 | 只增不减 |
 
 ## 条目
 
@@ -33,7 +33,7 @@
 | D3 | 工具审批检查 | 🔄 |  | `feishu.approval.*` 不变 | `tests/approval-gate.test.ts` + G4 | 审批检查拆到 `approval/gate.ts`，PS 转发起停拆到 `approval/ps-forwarding-sync.ts`，PS 位置与安装检测拆到 `approval/pi-permission-system.ts`，日志器拆到 `runtime/logger.ts`；新增 9 例 + D0 审批用例通过；G4 隔离 e2e 与真实环境点击待 G4 / 部署切换时补 |
 | D4 | 命令分发 | ✅ |  | `feishu.command` 不变 | `tests/command-dispatch.test.ts` | 分发器在 `commands/dispatch.ts`（注册表外的命令名与重复登记启动即报错，日志 `feishu.command.handler_conflict`）；处理函数按组拆到 `commands/handlers/{info,admin,session,model}.ts`；`/cron` 与 `!<命令>` 暂在入口登记，随 D5.1 / D5.8 移走；新增 11 例 + D0 命令用例通过 |
 | D5.1 | 定时任务 | ✅ |  | `features` 含 `cron` | `tests/features/cron.test.ts` | 新增插件框架 `features/feature.ts`（`BridgeFeature` / `FeatureHost`，命令与按钮随启动登记、停止注销）；定时任务迁到 `features/cron.ts`，`BridgeRuntime.cronScheduler` 删除；关闭时 `/cron` 仍回复「未启用」；开、关各 1 例 + 框架 3 例通过 |
-| D5.2 | 桥自身告警 | ⬜ | | `features` 含 `alerts` | `tests/features/alerts.test.ts` | |
+| D5.2 | 桥自身告警 | ✅ |  | `features` 含 `alerts` | `tests/features/alerts.test.ts` | 迁到 `features/alerts.ts`，框架新增 `onHeartbeat` 挂接点；`BridgeRuntime.alertMonitor` 删除（告警冷却状态改为随桥重启重置）；开、关各 1 例通过 |
 | D5.3 | 语音转写 | ⬜ | | `features` 含 `stt` | `tests/features/stt.test.ts` | |
 | D5.4 | 云文档评论 | ⬜ | | `features` 含 `docComments` | `tests/features/doc-comments.test.ts` | |
 | D5.5 | 会议邀请 | ⬜ | | `features` 含 `meetingInvite` | `tests/features/meeting-invite.test.ts` | |
