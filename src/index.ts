@@ -10,7 +10,7 @@ import { loadConfig, resolveAppLockFile, resolvePaths, saveConfigFields, formatT
 import type { LarkSdkLike } from "./inbound/transport.js";
 import { InboundPipeline } from "./inbound/pipeline.js";
 import { LastSentCache, effectiveAdmins } from "./inbound/admit.js";
-import { deliverDocCommentReply, readDocText } from "./inbound/doc-comments.js";
+import { deliverDocCommentReply } from "./inbound/doc-comments.js";
 import { Sender } from "./outbound/sender.js";
 import { Outbox } from "./outbound/outbox.js";
 import { ConversationManager } from "./session/conversation-manager.js";
@@ -690,13 +690,9 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 					},
 					// agent 自定义卡片（可选能力，默认关闭：关闭时子会话里根本不注册这个工具）
 					cardTool: () => featureHost.first("sendCard") !== undefined,
-					docTool: () => rt.config.docTools?.enabled === true,
-					readDoc: async (ref) => {
-						if (!rt.transport) return { content: [{ type: "text", text: "飞书连接不可用" }], isError: true };
-						const result = await readDocText((opts) => rt.transport!.rawRequest(opts), ref, rt.config.docTools?.maxChars ?? 30_000);
-						if (!result.ok) return { content: [{ type: "text", text: result.error }], isError: true };
-						return { content: [{ type: "text", text: result.truncated ? `${result.text}\n\n…（文档较长，已截断）` : result.text || "（文档为空）" }] };
-					},
+					// 云文档读取工具（可选能力，默认关闭）
+					docTool: () => featureHost.first("readDoc") !== undefined,
+					readDoc: (ref) => featureHost.first("readDoc")?.(ref) ?? Promise.resolve({ content: [{ type: "text", text: "云文档读取未启用（config.docTools.enabled）" }], isError: true }),
 					sendCard: (input) => featureHost.first("sendCard")?.(input) ?? Promise.resolve({ content: [{ type: "text", text: "agent 自定义卡片未启用（config.cardTool.enabled）" }], isError: true }),
 					sendLocalFile: (input) => queueLocalFile({
 						toolCallId: input.toolCallId,

@@ -5,8 +5,9 @@ import { alertsFeature } from "./alerts.js";
 import { cardToolFeature } from "./card-tool.js";
 import { cronFeature } from "./cron.js";
 import { docCommentsFeature } from "./doc-comments.js";
+import { docToolsFeature } from "./doc-tools.js";
 import { meetingInviteFeature } from "./meeting-invite.js";
 import type { BridgeFeature } from "./feature.js";
 import { sttFeature } from "./stt.js";
 
-export const FEATURES: readonly BridgeFeature[] = [cronFeature, alertsFeature, sttFeature, docCommentsFeature, meetingInviteFeature, cardToolFeature];
+export const FEATURES: readonly BridgeFeature[] = [cronFeature, alertsFeature, sttFeature, docCommentsFeature, meetingInviteFeature, cardToolFeature, docToolsFeature];

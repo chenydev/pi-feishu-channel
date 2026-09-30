@@ -44,6 +44,8 @@ export interface FeatureHooks {
 	onHeartbeat?(): void | Promise<void>;
 	/** 子会话的 `feishu_card` 工具（提供了它，子会话里才注册这个工具）。 */
 	sendCard?: NonNullable<BridgeHookContext["sendCard"]>;
+	/** 子会话的云文档读取工具（提供了它，子会话里才注册这个工具）。 */
+	readDoc?: NonNullable<BridgeHookContext["readDoc"]>;
 	/** 语音转写：资源下载器拿到语音后调用。 */
 	transcribe?: Transcriber;
 	/** `/feishu status` 里追加的行。 */
