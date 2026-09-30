@@ -45,7 +45,7 @@
 | D7 | 网关扩展按路径识别 | ⬜ | | `resource_loader_ready.strippedGateways` = 1 | `tests/pi-bridge-hooks.test.ts` | |
 | E1 | 配置 schema（zod） | ⬜ | | doctor `config_fields` 不变 | 配置快照测试 | |
 | F1 | 运行时标识更名 | ⏸ | | `feishu.config.migrated` | `tests/runtime-identity.test.ts` | 待 D6 决策 |
-| G1 | 文档骨架 | ⬜ | | — | `npm run docs:check` | |
+| G1 | 文档骨架 | ✅ | | — | `npm run docs:check` | 链接检查通过 |
 | G2 | 配置参考 | ⬜ | | — | 与 schema 对比 | |
 | G3 | 审批链路文档 | ⬜ | | — | 文中命令可执行 | |
 | G4 | PS 转发隔离 e2e | ⬜ | | 脚本输出 | 脚本本身 | |
