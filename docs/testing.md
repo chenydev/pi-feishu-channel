@@ -24,6 +24,7 @@ CI（`.github/workflows/ci.yml`）在 Node 20 和 22 上执行 `npm run lint` �
 |---|---|---|---|
 | 单元 | `tests/*.test.ts` | 单个模块的行为：准入判定、分片边界、错误分类、审批状态机…… | 无 |
 | 平台约束 | `tests/integration/platform-constraints.test.ts` | 飞书平台限制下的行为：编辑次数上限、撤回、限流、机器人不在群、流式卡片序号 | 飞书假服务 |
+| 扩展入口 | `tests/integration/extension-entry.test.ts` | 从扩展入口驱动全部真实组件：卡片点击鉴权、工具审批检查、命令的管理员判定、群开通审批 | 飞书假服务 + 假 pi + 假会话后端（`extension-harness.ts`） |
 | 可靠性矩阵 | `tests/integration/reliability-matrix.test.ts` | 用真实组件串起来的端到端链路：限流、只投递一次、崩溃恢复、权限错误 | 飞书假服务 + 假会话后端 |
 | 真实环境 | [operations.md](operations.md) §5 | 准入、路由、卡片渲染、真人点击 | 真实飞书应用 |
 

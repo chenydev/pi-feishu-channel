@@ -6,10 +6,10 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "./pi-types.js";
-import type { BridgeConfig, BridgeStatus, FeishuInboundMessage, GroupPolicy } from "./types.js";
+import type { BridgeConfig, BridgeStatus, FeishuInboundMessage, GroupPolicy, SessionBackend } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { loadConfig, resolveAppLockFile, resolvePaths, resolveFooterEnabled, saveConfigFields, formatTimeInZone } from "./config.js";
-import type { FeishuTransport } from "./inbound/transport.js";
+import type { FeishuTransport, LarkSdkLike } from "./inbound/transport.js";
 import { InboundPipeline } from "./inbound/pipeline.js";
 import { LastSentCache, effectiveAdmins } from "./inbound/admit.js";
 import { buildDocCommentPrompt, deliverDocCommentReply, docCommentChatId, docCommentSkipReason, fetchDocCommentContext, readDocText } from "./inbound/doc-comments.js";
@@ -75,14 +75,18 @@ export interface BridgeLogger {
 	error(msg: string, meta?: unknown): void;
 }
 
+/**
+ * 扩展入口的可选注入项。pi 加载扩展时只传 `pi` 一个参数，所以生产环境下这里总是空的；
+ * 测试用它换掉飞书 SDK，从入口把真实的 transport / 流水线 / 命令 / 卡片处理整条跑起来。
+ */
 export interface BridgeDeps {
-	homeDir: string;
-	env?: NodeJS.ProcessEnv;
-	log?: BridgeLogger;
-	now?: () => number;
+	/** 替代 `@larksuiteoapi/node-sdk`（默认按需动态导入真实 SDK）。 */
+	larkSdk?: LarkSdkLike;
+	/** 替代 pi 会话后端（默认为每个会话创建真实的 pi 子会话）。 */
+	sessionBackend?: SessionBackend;
 }
 
-export default function feishuBridgeExtension(pi: ExtensionAPI) {
+export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps = {}) {
 	try { piAgentDir = pi.getAgentDir(); } catch { /* 老版本 pi / 测试桩 */ }
 	let started = false;
 	let stopping = false;
@@ -1292,7 +1296,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 			onCardAction: handleCardAction,
 			onLifecycleEvent: handleLifecycleEvent,
 			log: (level, m, meta) => log[level](m, meta),
-		});
+		}, deps.larkSdk);
 		usageLedger = new UsageLedger({ file: paths.usageDailyFile, timeZone: config.timezone });
 		clarificationStore = new ClarificationStore({
 			allowedResponderIds: () => effectiveAdmins(config),
@@ -1399,7 +1403,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 			},
 			runIdleTimeoutMs: config.runIdleTimeoutMs,
 			runMaxDurationMs: config.runMaxDurationMs,
-			sessionBackend: new PiSessionBackend({
+			sessionBackend: deps.sessionBackend ?? new PiSessionBackend({
 				sessionDir: paths.sessionDir,
 				log: (l, m, x) => log[l](m, x),
 				// 给每个子会话注入桥侧 hook（审批 gate + 文件工具），共享 outer 桥状态；

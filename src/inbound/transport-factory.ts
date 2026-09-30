@@ -8,7 +8,8 @@ import { FeishuTransport, type TransportDeps } from "./transport.js";
 export async function createFeishuTransport(
 	config: BridgeConfig,
 	deps: Omit<TransportDeps, "sdk" | "config">,
+	sdk?: LarkSdkLike,
 ): Promise<FeishuTransport> {
-	const lark = (await import("@larksuiteoapi/node-sdk")) as unknown as LarkSdkLike;
+	const lark = sdk ?? ((await import("@larksuiteoapi/node-sdk")) as unknown as LarkSdkLike);
 	return new FeishuTransport({ sdk: lark, config, ...deps });
 }
