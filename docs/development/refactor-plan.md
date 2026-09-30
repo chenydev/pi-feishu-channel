@@ -81,7 +81,7 @@
 ### C1 删除 16 个转发方法
 
 - **改动**：`ConversationManager.commands` 改为公开只读字段；调用方改成 `manager.commands.xxx()`；删除转发方法。
-- **可观测**：`manager_forwarders` 16 → 0；`manager_lines` 下降约 40。
+- **可观测**：`manager_forwarders` 16 → 0；`manager_lines` 随之下降。
 - **单独测试**：`npx tsx --test tests/session-browse-resume.test.ts tests/workspace-switch.test.ts tests/model-thinking-commands.test.ts`（覆盖全部被转发的方法）。
 - **验收**：纯机械替换，无行为变化。
 

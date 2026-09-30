@@ -219,13 +219,13 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 		// 然后原地刷新卡片 —— 按钮的勾与禁用态要跟着变，否则用户会以为没生效。
 		if (value.op === "thinking.set") {
 			if (typeof value.level !== "string" || typeof value.conversationKey !== "string") return undefined;
-			const result = await convManager?.setThinkingByKey(value.conversationKey, value.level);
+			const result = await convManager?.commands.setThinkingByKey(value.conversationKey, value.level);
 			if (!result?.ok) {
 				log.warn("feishu.card.thinking_set_failed", { level: value.level, reason: result?.reason ?? "unknown" });
 				return { toast: { type: "warning", content: result?.reason ?? "切换失败" } };
 			}
 			log.info("feishu.card.thinking_set", { level: value.level, conversationKey: value.conversationKey });
-			const data = await convManager?.modelStatusCardDataByKey(value.conversationKey);
+			const data = await convManager?.commands.modelStatusCardDataByKey(value.conversationKey);
 			if (!data) return { toast: { type: "success", content: `已切换到 ${value.level}` } };
 			// 把这次执行的命令写进卡片：用户点的是按钮，但等价于发了一条斜杠命令，
 			// 露出来才能复制去加 -g（全局默认）或转发给别人。
@@ -241,7 +241,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 		if (value.op === "models.toggle") {
 			if (typeof value.conversationKey !== "string") return undefined;
 			const expanded = value.expanded === true;
-			const data = await convManager?.modelStatusCardDataByKey(value.conversationKey);
+			const data = await convManager?.commands.modelStatusCardDataByKey(value.conversationKey);
 			if (!data) {
 				log.warn("feishu.card.models_toggle_failed", { conversationKey: value.conversationKey });
 				return { toast: { type: "warning", content: "会话已失效，请重新发送 /model" } };
@@ -259,10 +259,10 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 		// 状态卡上的模型切换按钮（最近使用 / 快速切换）
 		if (value.op === "model.set") {
 			if (typeof value.model !== "string" || typeof value.conversationKey !== "string") return undefined;
-			const result = await convManager?.setModelByKey(value.conversationKey, value.model);
+			const result = await convManager?.commands.setModelByKey(value.conversationKey, value.model);
 			if (!result?.ok) return { toast: { type: "warning", content: result?.reason ?? "切换失败" } };
 			log.info("feishu.card.model_set", { model: value.model, conversationKey: value.conversationKey, operator: action.operatorOpenId });
-			const data = await convManager?.modelStatusCardDataByKey(value.conversationKey);
+			const data = await convManager?.commands.modelStatusCardDataByKey(value.conversationKey);
 			if (!data) return { toast: { type: "success", content: `已切换到 ${value.model}` } };
 			return {
 				toast: { type: "success", content: `已切换到 ${value.model}` },
@@ -668,11 +668,11 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 				// 无参 = 状态卡（当前模型 + 最近使用 + 档位按钮 + 「查看全部模型」按钮）。
 				// 带参仍是命令式切换，保持文本回执 —— 那是一次性动作，不需要卡片。
 				if (!args[0]) {
-					const data = await convManager?.modelStatusCardData(msg);
+					const data = await convManager?.commands.modelStatusCardData(msg);
 					if (data && await trySendCard(buildModelStatusCard({ ...data, ownerOpenId: msg.senderId }), "model")) return true;
 				}
 				const { wantsGlobal, value: target } = splitGlobalFlag(rest);
-				const result = await convManager?.modelConversation(msg, target || undefined) ?? "会话不可用";
+				const result = await convManager?.commands.modelConversation(msg, target || undefined) ?? "会话不可用";
 				if (!wantsGlobal || !target) { reply(result); return true; }
 				if (!isAdmin) { reply(`${result}\n（--global/-g 需要管理员或应用归属人）`); return true; }
 				// 模糊匹配后以实际切换到的模型为准（回执里 "已切换模型：provider/id"）
@@ -687,34 +687,34 @@ export default function feishuBridgeExtension(pi: ExtensionAPI) {
 			case "/models": {
 				// 表格卡片：飞书客户端自带分页（page_size）；页码只在文本降级时有意义，对用户一律从 1 开始数。
 				const pageIndex = Math.max(1, Number.parseInt(args[0] ?? "1", 10) || 1) - 1;
-				const data = pageIndex === 0 ? await convManager?.modelsCardData(msg) : undefined;
+				const data = pageIndex === 0 ? await convManager?.commands.modelsCardData(msg) : undefined;
 				if (data && await trySendCard(buildModelsTable(data), "models")) return true;
-				reply(await convManager?.listModels(msg, pageIndex) ?? "会话不可用");
+				reply(await convManager?.commands.listModels(msg, pageIndex) ?? "会话不可用");
 				return true;
 			}
 			case "/sessions": {
 				const pageIndex = Math.max(1, Number.parseInt(args[0] ?? "1", 10) || 1) - 1;
-				const page = await convManager?.sessionsPage(msg, pageIndex);
+				const page = await convManager?.commands.sessionsPage(msg, pageIndex);
 				if (page === undefined) { reply("会话不可用"); return true; }
 				if (typeof page === "string") { reply(page); return true; }
 				// 卡片，每行一个"恢复"按钮
 				if (await trySendCard(buildSessionsCard(page.entries, buttonCtx, page.footer), "sessions")) return true;
-				reply(await convManager?.listSessionsFor(msg, pageIndex) ?? "会话不可用");
+				reply(await convManager?.commands.listSessionsFor(msg, pageIndex) ?? "会话不可用");
 				return true;
 			}
 			case "/name":
-				reply(await convManager?.renameConversation(msg, rest) ?? "会话不可用");
+				reply(await convManager?.commands.renameConversation(msg, rest) ?? "会话不可用");
 				return true;
 			case "/resume":
-				reply(await convManager?.resumeConversation(msg, args[0]) ?? "会话不可用");
+				reply(await convManager?.commands.resumeConversation(msg, args[0]) ?? "会话不可用");
 				return true;
 			case "/workspace":
 				// 查看（任何人）/ 切换（仅管理员）
-				reply(await convManager?.switchWorkspace(msg, args[0], { isAdmin }) ?? "会话不可用");
+				reply(await convManager?.commands.switchWorkspace(msg, args[0], { isAdmin }) ?? "会话不可用");
 				return true;
 			case "/thinking": {
 				const { wantsGlobal, value: level } = splitGlobalFlag(rest);
-				const result = await convManager?.thinkingConversation(msg, level || undefined) ?? "会话不可用";
+				const result = await convManager?.commands.thinkingConversation(msg, level || undefined) ?? "会话不可用";
 				if (!wantsGlobal || !level) { reply(result); return true; }
 				// 改全局默认 = 影响所有人 → 限管理员/归属人（与会话级改动不同）
 				if (!isAdmin) { reply(`${result}\n（--global/-g 需要管理员或应用归属人）`); return true; }

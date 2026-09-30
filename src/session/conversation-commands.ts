@@ -272,6 +272,10 @@ export class ConversationCommands {
 		}
 	}
 
+	/**
+	 * 列出已认证模型（provider 用于区分同名模型）。
+	 * 首次调用会懒初始化会话，避免"当前会话尚未建立"。
+	 */
 	async listModels(msg: FeishuInboundMessage, page = 0): Promise<string> {
 		const key = buildConversationKey(msg, this.deps.config);
 		const session = this.host.getOrCreateSession(msg, key);

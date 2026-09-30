@@ -88,7 +88,7 @@ test("会话指针：/new 后重启仍指向新会话文件，不回退到旧上
 
 		const msg = message("m1");
 		const first = mk();
-		await first.modelConversation(msg);
+		await first.commands.modelConversation(msg);
 		assert.equal(files.length, 1);
 		const originalFile = files[0];
 
@@ -98,7 +98,7 @@ test("会话指针：/new 后重启仍指向新会话文件，不回退到旧上
 
 		// 进程重启：新 manager 读同一份指针
 		const restarted = mk();
-		await restarted.modelConversation(msg);
+		await restarted.commands.modelConversation(msg);
 		assert.equal(files.length, 2);
 		assert.notEqual(files[1], originalFile, "重启后必须打开 /new 之后的会话文件");
 		assert.ok(files[1].startsWith(originalFile.replace(/\.jsonl$/, "")) === false || true);
@@ -118,7 +118,7 @@ test("会话指针：首次使用写入 generation=1 的确定性指针", async 
 			sender: sender(sent) as never,
 			conversationFile: storeFile,
 		});
-		await manager.modelConversation(message("m-init"));
+		await manager.commands.modelConversation(message("m-init"));
 
 		const pointers = new ConversationStore(storeFile).list();
 		assert.equal(pointers.length, 1);
@@ -195,13 +195,13 @@ test("会话指针：指针写入失败时不切换会话并报错", async () =>
 			conversationFile: join(dir, "blocker", "conversations.jsonl"),
 		});
 		const msg = message("m-fail");
-		await manager.modelConversation(msg);
+		await manager.commands.modelConversation(msg);
 		const outcome = await manager.resetConversation(msg);
 		assert.equal(outcome.status, "error");
 		if (outcome.status === "error") assert.match(outcome.reason, /写入失败/);
 
 		// 未切换：仍使用原会话文件
-		await manager.modelConversation(msg);
+		await manager.commands.modelConversation(msg);
 		assert.equal(files.length, 1, "写指针失败不得切换会话");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

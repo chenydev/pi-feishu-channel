@@ -99,7 +99,7 @@ async function withManager(options: {
 
 /** 初始化会话句柄并准备进度消息 id（进度状态只在 run 中创建，测试里直接注入）。 */
 async function prime(manager: ConversationManager): Promise<ProgressStateShape> {
-	await manager.modelConversation(message("m1"));
+	await manager.commands.modelConversation(message("m1"));
 	const state = stateOf(manager);
 	state.messageId = "om_progress";
 	state.startedAt = Date.now();
@@ -503,7 +503,7 @@ test("编辑配额用尽后自动轮换成新进度消息（不再无限编辑�
 			editMessage: async (id, text) => { edits.push([id, text]); return true; },
 		});
 		(manager as unknown as { progress: { minIntervalMs: number } }).progress.minIntervalMs = 0;
-		await manager.modelConversation(message("m1"));
+		await manager.commands.modelConversation(message("m1"));
 		const state = stateOf(manager);
 		state.messageId = "om_progress";
 		state.replyTo = "om_user";

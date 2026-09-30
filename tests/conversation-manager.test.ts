@@ -278,8 +278,8 @@ test("会话控制：model/compact 透传公开 API，/new 使用新 session 文
 	const msg = message("control-1");
 	await manager.route(msg);
 	await waitUntil(() => sent.some((entry) => entry.text === "ok"));
-	assert.match(await manager.modelConversation(msg), /^当前模型：old/);
-	assert.equal(await manager.modelConversation(msg, "new"), "已切换模型：new");
+	assert.match(await manager.commands.modelConversation(msg), /^当前模型：old/);
+	assert.equal(await manager.commands.modelConversation(msg, "new"), "已切换模型：new");
 	assert.equal(await manager.compactConversation(msg, "keep facts"), "compact:keep facts");
 	await manager.resetConversation(msg);
 	await manager.route({ ...msg, messageId: "control-2" });
@@ -303,7 +303,7 @@ test("首次使用 /model 会初始化会话并返回实际默认模型", async 
 	const manager = new ConversationManager({ config: config(), sessionDir: "/tmp/feishu-model-lazy", sessionBackend: backend, sender: sender(sent) as never });
 	const msg = message("model-lazy");
 
-	assert.match(await manager.modelConversation(msg), /^当前模型：deepseek-v4-flash/);
+	assert.match(await manager.commands.modelConversation(msg), /^当前模型：deepseek-v4-flash/);
 	assert.equal(created, 1);
 	await manager.route({ ...msg, messageId: "model-lazy-prompt" });
 	await waitUntil(() => sent.some((entry) => entry.text === "ok"));
@@ -331,8 +331,8 @@ test("首次使用 /model <模型> 会初始化、校验并供后续消息复用
 	const manager = new ConversationManager({ config: config(), sessionDir: "/tmp/feishu-model-switch", sessionBackend: backend, sender: sender(sent) as never });
 	const msg = message("model-switch");
 
-	assert.equal(await manager.modelConversation(msg, "missing"), "找不到已认证模型：missing（/models 查看全部）");
-	assert.equal(await manager.modelConversation(msg, "new"), "已切换模型：new");
+	assert.equal(await manager.commands.modelConversation(msg, "missing"), "找不到已认证模型：missing（/models 查看全部）");
+	assert.equal(await manager.commands.modelConversation(msg, "new"), "已切换模型：new");
 	await manager.route({ ...msg, messageId: "model-switch-prompt" });
 	await waitUntil(() => sent.some((entry) => entry.text === "using:new"));
 	assert.equal(created, 1);
@@ -839,7 +839,7 @@ test("/model 不带参数：展示当前模型 + 可用候选 + 切换语法（�
 	};
 	const sent: Array<{ chatId: string; text: string }> = [];
 	const manager = new ConversationManager({ config: config(), sessionDir: "/tmp/feishu-model-list", sessionBackend: backend, sender: sender(sent) as never });
-	const out = await manager.modelConversation(message("model-list"));
+	const out = await manager.commands.modelConversation(message("model-list"));
 
 	// 当前模型 + 思考等级
 	assert.match(out, /^当前模型：deepseek-flash/);
@@ -868,7 +868,7 @@ test("/model 无 listModels 能力（老 pi）时仍返回当前模型，不报�
 		config: config(), sessionDir: "/tmp/feishu-model-nolist",
 		sessionBackend: backend, sender: sender([]) as never,
 	});
-	const out = await manager.modelConversation(message("model-nolist"));
+	const out = await manager.commands.modelConversation(message("model-nolist"));
 	assert.match(out, /^当前模型：legacy-model/);
 	assert.match(out, /切换：\/model <模型>/);
 });
@@ -889,7 +889,7 @@ test("/model 候选超过上限时截断并提示其余数量", async () => {
 		config: config(), sessionDir: "/tmp/feishu-model-many",
 		sessionBackend: backend, sender: sender([]) as never,
 	});
-	const out = await manager.modelConversation(message("model-many"));
+	const out = await manager.commands.modelConversation(message("model-many"));
 	assert.match(out, /可切换（14）/);
 	assert.match(out, /其余 4 个/);
 });

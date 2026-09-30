@@ -97,7 +97,7 @@ test("会话列表：/sessions 只列本会话索引内的历史并标注当前"
 			}),
 			sender: sender() as never, conversationFile: storeFile,
 		});
-		const text = await manager.listSessionsFor(message("m1"));
+		const text = await manager.commands.listSessionsFor(message("m1"));
 		assert.ok(text.includes("#1 · 修复登录"), text);
 		assert.ok(text.includes("· 当前"), "当前会话必须有标记");
 		assert.ok(text.includes("#2 · 旧会话"));
@@ -119,13 +119,13 @@ test("会话列表：/sessions 分页与页码", async () => {
 			}),
 			sender: sender() as never, conversationFile: storeFile,
 		});
-		const first = await manager.listSessionsFor(message("m1"));
+		const first = await manager.commands.listSessionsFor(message("m1"));
 		assert.ok(first.includes("共 12 段"), first);
 		assert.ok(first.includes("第 1/2 页"));
 		assert.ok(first.includes("/sessions 2"), "首页应提示下一页（页码从 1 开始）");
-		const second = await manager.listSessionsFor(message("m1"), 1);
+		const second = await manager.commands.listSessionsFor(message("m1"), 1);
 		assert.ok(second.includes("第 2/2 页"));
-		const overflow = await manager.listSessionsFor(message("m1"), 99);
+		const overflow = await manager.commands.listSessionsFor(message("m1"), 99);
 		assert.ok(overflow.includes("第 2/2 页"), "越界页回落到最后一页");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -138,12 +138,12 @@ test("会话列表：/name 校验空值、超长与控制字符", async () => {
 			config: config(), sessionDir: dir,
 			sessionBackend: backend({ names }), sender: sender() as never,
 		});
-		assert.match(await manager.renameConversation(message("m1")), /用法：\/name/);
-		assert.match(await manager.renameConversation(message("m1"), "x".repeat(61)), /名称过长/);
-		assert.match(await manager.renameConversation(message("m1"), "\u0000\u0007"), /不合法/);
+		assert.match(await manager.commands.renameConversation(message("m1")), /用法：\/name/);
+		assert.match(await manager.commands.renameConversation(message("m1"), "x".repeat(61)), /名称过长/);
+		assert.match(await manager.commands.renameConversation(message("m1"), "\u0000\u0007"), /不合法/);
 		assert.equal(names.length, 0, "非法名称不得写入 transcript");
 
-		const ok = await manager.renameConversation(message("m1"), "  修复登录  ");
+		const ok = await manager.commands.renameConversation(message("m1"), "  修复登录  ");
 		assert.match(ok, /已将会话命名为：修复登录/, "名称应 trim 后写入");
 		assert.deepEqual(names, ["修复登录"]);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
@@ -164,9 +164,9 @@ test("会话恢复：/resume #N 切换指针并让旧审批失效", async () => 
 			conversationFile: storeFile,
 			onApprovalInvalidate: (event) => { invalidations.push(event); },
 		});
-		await manager.modelConversation(message("m1")); // 建立句柄（当前屏）
+		await manager.commands.modelConversation(message("m1")); // 建立句柄（当前屏）
 
-		const result = await manager.resumeConversation(message("m1"), "#2");
+		const result = await manager.commands.resumeConversation(message("m1"), "#2");
 		assert.match(result, /已恢复会话 #2/, result);
 		const pointer = new ConversationStore(storeFile).get(CONVERSATION_KEY);
 		assert.equal(pointer?.sessionFile, old, "指针必须切到目标会话");
@@ -188,11 +188,11 @@ test("会话恢复：/resume 拒绝任意路径、无效 id、已是当前与缺
 			sessionBackend: backend({ sessions: [] }), sender: sender() as never, conversationFile: storeFile,
 		});
 
-		assert.match(await manager.resumeConversation(message("m1"), "../../etc/passwd"), /用法：\/resume/);
-		assert.match(await manager.resumeConversation(message("m1"), current), /用法：\/resume/);
-		assert.match(await manager.resumeConversation(message("m1"), "#99"), /选择 id 无效/);
-		assert.match(await manager.resumeConversation(message("m1"), "#1"), /已经是当前会话/);
-		assert.match(await manager.resumeConversation(message("m1"), "#2"), /文件不存在/);
+		assert.match(await manager.commands.resumeConversation(message("m1"), "../../etc/passwd"), /用法：\/resume/);
+		assert.match(await manager.commands.resumeConversation(message("m1"), current), /用法：\/resume/);
+		assert.match(await manager.commands.resumeConversation(message("m1"), "#99"), /选择 id 无效/);
+		assert.match(await manager.commands.resumeConversation(message("m1"), "#1"), /已经是当前会话/);
+		assert.match(await manager.commands.resumeConversation(message("m1"), "#2"), /文件不存在/);
 		const pointer = new ConversationStore(storeFile).get(CONVERSATION_KEY);
 		assert.equal(pointer?.sessionFile, current, "被拒绝的恢复不得改动指针");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
@@ -205,7 +205,7 @@ test("会话恢复：没有会话索引时不 pretend（明确拒绝）", async 
 			config: config(), sessionDir: dir,
 			sessionBackend: backend({ sessions: [] }), sender: sender() as never,
 		});
-		assert.match(await manager.resumeConversation(message("m1"), "#1"), /未启用会话索引/);
-		assert.match(await manager.listSessionsFor(message("m1")), /尚无历史记录/);
+		assert.match(await manager.commands.resumeConversation(message("m1"), "#1"), /未启用会话索引/);
+		assert.match(await manager.commands.listSessionsFor(message("m1")), /尚无历史记录/);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

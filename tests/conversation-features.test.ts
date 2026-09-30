@@ -112,12 +112,12 @@ test("模型匹配：/model 片段唯一命中直接切换并记入最近使用�
 		async setModel(id: string) { switched.push(id); return true; },
 	} });
 	try {
-		assert.equal(await h.manager.modelConversation(message("m1"), "flash"), "已切换模型：google/gemini-2.5-flash（按「flash」匹配）");
+		assert.equal(await h.manager.commands.modelConversation(message("m1"), "flash"), "已切换模型：google/gemini-2.5-flash（按「flash」匹配）");
 		assert.deepEqual(switched, ["google/gemini-2.5-flash"]);
-		const ambiguous = await h.manager.modelConversation(message("m2"), "deepseek");
+		const ambiguous = await h.manager.commands.modelConversation(message("m2"), "deepseek");
 		assert.match(ambiguous, /匹配到 2 个模型/);
 		assert.deepEqual(switched, ["google/gemini-2.5-flash"], "多个命中不切换");
-		assert.deepEqual(h.manager.recentModelLabels(), ["google/gemini-2.5-flash"]);
+		assert.deepEqual(h.manager.commands.recentModelLabels(), ["google/gemini-2.5-flash"]);
 	} finally { rmSync(h.dir, { recursive: true, force: true }); }
 });
 

@@ -33,7 +33,6 @@ import { sessionUsageStats } from "./model-utils.js";
 
 export type AgentHandle = Awaited<ReturnType<SessionBackend["createSession"]>>;
 
-
 /** 只读档位允许的工具（与实际注册工具取交集）。 */
 const READONLY_TOOLS = ["read", "grep", "find", "ls", "web_search", "web_fetch", "feishu_notify", "feishu_ask"];
 
@@ -244,8 +243,8 @@ export class ConversationManager {
 	private readonly scheduler: SessionScheduler<BridgeSession, QueuedMessage>;
 	/** 单轮执行独立成类，见 run-executor.ts。 */
 	private readonly executor: RunExecutor;
-	/** 模型/思考/历史会话/工作区命令独立成类，见 conversation-commands.ts。 */
-	private readonly commands: ConversationCommands;
+	/** 模型/思考/历史会话/工作区命令（见 conversation-commands.ts）；调用方直接用 `manager.commands.xxx()`。 */
+	readonly commands: ConversationCommands;
 	private get activeItems(): Map<string, QueuedMessage> { return this.scheduler.activeItems; }
 	private readonly liveChannel?: LiveChannel;
 	private readonly nextSessionSuffix = new Map<string, string>();
@@ -413,7 +412,6 @@ export class ConversationManager {
 	private async settleWithinShutdown(task: Promise<unknown>): Promise<void> {
 		await boundedWait(task, this.shutdownTimeoutMs);
 	}
-
 
 	/** 启动时恢复上次中断的未完成消息（hermes resume_pending）。 */
 	async recoverPending(): Promise<number> {
@@ -735,26 +733,6 @@ export class ConversationManager {
 	}
 
 	/**
-	 * 解析工作区别名 → realpath。
-	 * 只接受配置中登记的别名；拒绝绝对路径、`..`、白名单外目录与不存在的路径。
-	 */
-	resolveWorkspace(...args: Parameters<ConversationCommands["resolveWorkspace"]>): ReturnType<ConversationCommands["resolveWorkspace"]> { return this.commands.resolveWorkspace(...args); }
-
-	/** 查看当前会话工作区（只显示别名与是否启用，不泄露绝对路径）。 */
-	workspaceInfo(...args: Parameters<ConversationCommands["workspaceInfo"]>): ReturnType<ConversationCommands["workspaceInfo"]> { return this.commands.workspaceInfo(...args); }
-
-	/**
-	 * 切换工作区（仅管理员；忙碌拒绝）。
-	 * 先校验别名 → 新建该工作区会话 → 落盘指针 → 处置旧句柄 → 旧审批/澄清失效。
-	 * 失败时保留当前工作区；**绝不修改进程 cwd**。
-	 */
-	switchWorkspace(...args: Parameters<ConversationCommands["switchWorkspace"]>): ReturnType<ConversationCommands["switchWorkspace"]> { return this.commands.switchWorkspace(...args); }
-
-	/**
-	/**
-	 * 无 durable outbox 时的直发通知（工具反馈里会标明「已投递」而非「已排队」）。
-	 */
-	/**
 	 * Pi 的 agent_settled 信号：本轮彻底结束（不会再有 retry / compaction / follow-up）。
 	 * 比 turn_end / agent_end 更准确 —— 官方文档明确 agent_end 之后 Pi 仍可能继续。
 	 * 记录到活动项上，供收尾逻辑与诊断使用。
@@ -766,43 +744,12 @@ export class ConversationManager {
 		if (item) item.settled = true;
 	}
 
+	/** 无 durable outbox 时的直发通知（工具反馈里会标明「已投递」而非「已排队」）。 */
 	async notifyNow(chatId: string, text: string, opts: { replyTo?: string; threadId?: string }, dedupeKey: string): Promise<{ success: boolean; error?: string }> {
 		const res = await this.deps.sender.send(chatId, text, opts);
 		this.deps.log?.("info", "feishu.conv.notify_sent", { chatId, dedupeKey, success: res.success });
 		return { success: res.success, error: res.error };
 	}
-
-	/** 本会话可访问的历史会话（选择 id 形如 #N，最近在前）。 */
-	listSessionsFor(...args: Parameters<ConversationCommands["listSessionsFor"]>): ReturnType<ConversationCommands["listSessionsFor"]> { return this.commands.listSessionsFor(...args); }
-
-	/** 会话列表数据（文本与卡片共用）；字符串 = 不可用的原因。 */
-	sessionsPage(...args: Parameters<ConversationCommands["sessionsPage"]>): ReturnType<ConversationCommands["sessionsPage"]> { return this.commands.sessionsPage(...args); }
-
-	/** 重命名当前会话（写入 Pi transcript 的 session_info）。 */
-	renameConversation(...args: Parameters<ConversationCommands["renameConversation"]>): ReturnType<ConversationCommands["renameConversation"]> { return this.commands.renameConversation(...args); }
-
-	/**
-	 * 恢复历史会话。只接受本会话列表内的选择 id（不接受任意路径），
-	 * 忙碌/有排队时拒绝；先落盘指针再切运行态，失败保留当前会话。
-	 */
-	resumeConversation(...args: Parameters<ConversationCommands["resumeConversation"]>): ReturnType<ConversationCommands["resumeConversation"]> { return this.commands.resumeConversation(...args); }
-
-	/**
-	 * 列出已认证模型（provider 用于区分同名模型）。
-	 * 首次调用会懒初始化会话，避免"当前会话尚未建立"。
-	 */
-	/**
-	 * 供 /models 卡片使用的数据快照：模型清单 + 当前模型 + 会话 key。
-	 * 返回 null 表示无法获取（调用方回退到文本版 listModels）。
-	 */
-	modelsCardData(...args: Parameters<ConversationCommands["modelsCardData"]>): ReturnType<ConversationCommands["modelsCardData"]> { return this.commands.modelsCardData(...args); }
-
-
-
-	listModels(...args: Parameters<ConversationCommands["listModels"]>): ReturnType<ConversationCommands["listModels"]> { return this.commands.listModels(...args); }
-
-	/** 查看或设置思考等级（仅接受当前模型可用等级；忙碌时拒绝变更）。 */
-	thinkingConversation(...args: Parameters<ConversationCommands["thinkingConversation"]>): ReturnType<ConversationCommands["thinkingConversation"]> { return this.commands.thinkingConversation(...args); }
 
 	/** 启动空闲回收巡检（幂等）。 */
 	startLifecycle(): void {
@@ -1065,27 +1012,6 @@ export class ConversationManager {
 		return session.agent.compact(instructions);
 	}
 
-	modelConversation(...args: Parameters<ConversationCommands["modelConversation"]>): ReturnType<ConversationCommands["modelConversation"]> { return this.commands.modelConversation(...args); }
-
-	/**
-	 * 状态卡的数据源（/model 无参）。
-	 *
-	 * 当前模型要尽量带上 provider 前缀：`agent.modelId` 是**裸 id**，而 /models
-	 * 表格里是 `provider/id` —— 两边不一致会让人以为不是一个模型，而且带前缀
-	 * 才能直接复制进 `/model` 命令。
-	 *
-	 * 反查有歧义时**返回裸 id 而不猜**：猜错会让人复制一个错误的模型名去切换，
-	 * 比不显示前缀更糟。
-	 */
-	modelStatusCardData(...args: Parameters<ConversationCommands["modelStatusCardData"]>): ReturnType<ConversationCommands["modelStatusCardData"]> { return this.commands.modelStatusCardData(...args); }
-
-	/** 按钮回调用：按 key 取状态卡数据（回调里没有 inbound 消息，拿不到 chatId）。 */
-	modelStatusCardDataByKey(...args: Parameters<ConversationCommands["modelStatusCardDataByKey"]>): ReturnType<ConversationCommands["modelStatusCardDataByKey"]> { return this.commands.modelStatusCardDataByKey(...args); }
-
-
-	/** 按钮回调：按会话 key 切换思考等级（等价于 /thinking <level>）。 */
-	setThinkingByKey(...args: Parameters<ConversationCommands["setThinkingByKey"]>): ReturnType<ConversationCommands["setThinkingByKey"]> { return this.commands.setThinkingByKey(...args); }
-
 	/** 审批卡上的上下文（发起人 · 会话名 · 工作区）；拿不到的部分省略。 */
 	async approvalContextLine(conversationKey: string): Promise<string | undefined> {
 		const session = this.sessions.get(conversationKey);
@@ -1164,12 +1090,6 @@ export class ConversationManager {
 	}
 
 	// ------------------------------------------------------------ 模型 ----
-
-	/** 最近用过的模型（全进程，最近在前，最多 3 个）。 */
-	recentModelLabels(...args: Parameters<ConversationCommands["recentModelLabels"]>): ReturnType<ConversationCommands["recentModelLabels"]> { return this.commands.recentModelLabels(...args); }
-
-	/** 卡片按钮切换模型（按会话 key）。 */
-	setModelByKey(...args: Parameters<ConversationCommands["setModelByKey"]>): ReturnType<ConversationCommands["setModelByKey"]> { return this.commands.setModelByKey(...args); }
 
 	// ------------------------------------------------------------ 重试/回退/分叉 ----
 
@@ -1438,7 +1358,7 @@ export class ConversationManager {
 		// 恢复该会话的工作区（别名 → realpath；配置被移除时回落到默认）
 		const storedWorkspace = this.conversationStore?.get(key)?.workspace;
 		const effectiveWorkspace = this.workspaceAliasByKey.get(key) ?? storedWorkspace;
-		const workspaceResolved = effectiveWorkspace ? this.resolveWorkspace(effectiveWorkspace) : undefined;
+		const workspaceResolved = effectiveWorkspace ? this.commands.resolveWorkspace(effectiveWorkspace) : undefined;
 		const session: BridgeSession = {
 			...(workspaceResolved?.ok ? { workspaceAlias: effectiveWorkspace, workspacePath: workspaceResolved.path } : {}),
 			conversationKey: key,

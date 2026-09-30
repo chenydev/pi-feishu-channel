@@ -79,14 +79,14 @@ test("模型与思考命令：/models 分页列出并标记当前模型（含 pr
 			config: config(), sessionDir: dir,
 			sessionBackend: backendWith({ models, currentModel: "m-3" }), sender: sender() as never,
 		});
-		const first = await manager.listModels(message("m1"));
+		const first = await manager.commands.listModels(message("m1"));
 		assert.ok(first.includes("可用模型（23）"));
 		assert.ok(first.includes("prov/m-3（当前）"), "当前模型必须有标记且带 provider");
 		assert.ok(first.includes("/models 2"), "首页必须提示下一页（页码从 1 开始）");
 
-		const second = await manager.listModels(message("m1"), 1);
+		const second = await manager.commands.listModels(message("m1"), 1);
 		assert.ok(second.includes("第 2/2 页"), second);
-		const overflow = await manager.listModels(message("m1"), 99);
+		const overflow = await manager.commands.listModels(message("m1"), 99);
 		assert.ok(overflow.includes("第 2/2 页"), "越界页应回落到最后一页");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -98,7 +98,7 @@ test("模型与思考命令：/thinking 查看当前等级与可用等级", asyn
 			config: config(), sessionDir: dir,
 			sessionBackend: backendWith({ levels: ["low", "medium", "high"], initialLevel: "medium" }), sender: sender() as never,
 		});
-		const text = await manager.thinkingConversation(message("m1"));
+		const text = await manager.commands.thinkingConversation(message("m1"));
 		assert.ok(text.includes("当前思考等级：medium"), text);
 		assert.ok(text.includes("low / medium / high"), text);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
@@ -112,12 +112,12 @@ test("模型与思考命令：非法等级被拒并列出可用值，合法等�
 			config: config(), sessionDir: dir,
 			sessionBackend: backendWith({ levels: ["low", "max"] }, state), sender: sender() as never,
 		});
-		const invalid = await manager.thinkingConversation(message("m1"), "ultra");
+		const invalid = await manager.commands.thinkingConversation(message("m1"), "ultra");
 		assert.ok(invalid.includes("不支持的等级：ultra"), invalid);
 		assert.ok(invalid.includes("low / max"));
 		assert.equal(state.level, "low", "非法等级不得改变会话状态");
 
-		const ok = await manager.thinkingConversation(message("m1"), "max");
+		const ok = await manager.commands.thinkingConversation(message("m1"), "max");
 		assert.ok(ok.includes("已设置思考等级：max"), ok);
 		assert.equal(state.level, "max");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
@@ -130,8 +130,8 @@ test("模型与思考命令：不支持思考的模型给出明确提示", async
 			config: config(), sessionDir: dir,
 			sessionBackend: backendWith({ levels: [] }), sender: sender() as never,
 		});
-		assert.equal(await manager.thinkingConversation(message("m1")), "当前模型不支持思考等级");
-		assert.equal(await manager.thinkingConversation(message("m1"), "high"), "当前模型不支持思考等级");
+		assert.equal(await manager.commands.thinkingConversation(message("m1")), "当前模型不支持思考等级");
+		assert.equal(await manager.commands.thinkingConversation(message("m1"), "high"), "当前模型不支持思考等级");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -142,7 +142,7 @@ test("模型与思考命令：没有已认证模型时给出可读提示", async
 			config: config(), sessionDir: dir,
 			sessionBackend: backendWith({ models: [] }), sender: sender() as never,
 		});
-		assert.equal(await manager.listModels(message("m1")), "没有已认证的模型");
+		assert.equal(await manager.commands.listModels(message("m1")), "没有已认证的模型");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -90,7 +90,7 @@ test("会话回收：空闲超 TTL 回收句柄，下次消息懒恢复且历史
 		(manager as unknown as { idleTtlMs: number }).idleTtlMs = 1_000;
 
 		const msg = message("idle-1");
-		await manager.modelConversation(msg); // 建立会话句柄
+		await manager.commands.modelConversation(msg); // 建立会话句柄
 		assert.equal(state.created, 1);
 		assert.equal(manager.residentCount(), 1);
 
@@ -103,7 +103,7 @@ test("会话回收：空闲超 TTL 回收句柄，下次消息懒恢复且历史
 		assert.equal(manager.residentCount(), 0);
 
 		// 懒恢复：下一条消息重新建会话（不报错、历史文件由指针决定）
-		await manager.modelConversation(message("idle-2"));
+		await manager.commands.modelConversation(message("idle-2"));
 		assert.equal(state.created, 2, "回收后下一条消息应懒恢复会话");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -124,7 +124,7 @@ test("会话回收：有未决审批时不回收", async () => {
 		(manager as unknown as { now: () => number }).now = () => now;
 		(manager as unknown as { idleTtlMs: number }).idleTtlMs = 1;
 
-		await manager.modelConversation(message("approval-1"));
+		await manager.commands.modelConversation(message("approval-1"));
 		now += 10_000;
 		assert.equal(await manager.reclaimIdle(), 0, "有未决审批时不得回收");
 		assert.equal(manager.residentCount(), 1);
@@ -170,7 +170,7 @@ test("会话回收：驻留上限按 LRU 回收，超限时先回收最久未活
 			sender: sender(sent) as never,
 		});
 		for (const id of ["a", "b", "c"]) {
-			await manager.modelConversation(message(`m-${id}`, `oc_${id}`));
+			await manager.commands.modelConversation(message(`m-${id}`, `oc_${id}`));
 		}
 		assert.equal(manager.residentCount(), 3);
 		const reclaimed = await manager.reclaimIdle();
@@ -191,7 +191,7 @@ test("会话回收：startLifecycle/stopLifecycle 幂等且不阻塞", async () 
 			sessionBackend: trackingBackend(state),
 			sender: sender(sent) as never,
 		});
-		await manager.modelConversation(message("tick-1"));
+		await manager.commands.modelConversation(message("tick-1"));
 		manager.startLifecycle();
 		manager.startLifecycle();
 		await waitUntil(() => state.disposed === 1, 3_000);
