@@ -8,13 +8,13 @@
 
 | 指标 | 基线 | 当前 | 目标 |
 |---|---|---|---|
-| `index_lines` | 2267 | 1203 | < 300 |
+| `index_lines` | 2267 | 1089 | < 300 |
 | `index_closure_state` | 33 | 0 | ≤ 3 |
-| `index_inner_functions` | 50 | 29 | ≤ 5 |
+| `index_inner_functions` | 50 | 22 | ≤ 5 |
 | `manager_forwarders` | 16 | 0 | 0 |
 | `manager_lines` | 1590 | 1522 | 只减不增 |
 | `internal_id_refs` | 0 | 0 | 0 |
-| `tests` | 650 | 725 | 只增不减 |
+| `tests` | 650 | 727 | 只增不减 |
 
 ## 条目
 
@@ -42,7 +42,7 @@
 | D5.8 | 直接执行命令 | ✅ |  | `features` 含 `directBash` | `tests/features/direct-bash.test.ts` | 迁到 `features/direct-bash.ts`，用 `commandInterceptor` 挂接点；开、关各 1 例通过 |
 | D5.9 | 超长回答转文件 | ✅ |  | `features` 含 `longReply` | `tests/features/long-reply.test.ts` | 逻辑从 `session/run-executor.ts` 移到 `features/long-reply.ts`，会话层只保留 `replyAsFile` 依赖；日志 `feishu.conv.long_reply_*` 不变；开 2 例、关 1 例通过 |
 | D5.10 | 会话归档 | ✅ |  | `features` 含 `retention` | `tests/features/retention.test.ts` | 归档迁到 `features/retention.ts`；收紧会话文件权限仍是核心行为（每次启动都做）；`feishu.retention` 分成两条（收紧 / 归档各一条，字段不变）；开、关各 1 例通过 |
-| D5.11 | 群开通申请 | ⬜ | | `features` 含 `accessRequest` | `tests/features/access-request.test.ts` | |
+| D5.11 | 群开通申请 | ✅ |  | `features` 含 `accessRequest` | `tests/features/access-request.test.ts` | 迁到 `features/access-request.ts`（申请、「暂不放行」按钮）；审批人称呼、私聊管理员、群里发卡片抽到 `runtime/onboarding.ts` 供入口与插件共用；`enabledFeatures()` 改为从 `FEATURES` 派生；开、关各 1 例通过 |
 | D6 | 生命周期 | ⬜ | | `index_lines` < 300；`bridge started`；status mtime | `tests/lifecycle.test.ts` | |
 | D7 | 网关扩展按路径识别 | ⬜ | | `resource_loader_ready.strippedGateways` = 1 | `tests/pi-bridge-hooks.test.ts` | |
 | E1 | 配置 schema（zod） | ⬜ | | doctor `config_fields` 不变 | 配置快照测试 | |

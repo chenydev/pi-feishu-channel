@@ -8,6 +8,7 @@ import { CommandDispatcher } from "../../src/commands/dispatch.js";
 import { FeatureHost, type BridgeFeature, type FeatureContext } from "../../src/features/feature.js";
 import { CardRouter } from "../../src/interaction/card-router.js";
 import { BridgeRuntime } from "../../src/runtime/bridge-runtime.js";
+import { Onboarding } from "../../src/runtime/onboarding.js";
 import { DEFAULT_CONFIG, type BridgeConfig } from "../../src/types.js";
 import { startHarness, type Harness } from "../integration/extension-harness.js";
 
@@ -55,6 +56,6 @@ export async function featureHostFor(features: BridgeFeature[], config: Partial<
 	const dispatcher = new CommandDispatcher({ log, isAdmin: () => false, replier, piCommands: () => [] });
 	const cardRouter = new CardRouter({ log, admins: () => [] });
 	const host = new FeatureHost(features, { dispatcher, cardRouter, log });
-	await host.setup({ rt, log, replier, reconnectsLast5m: () => 0, sendLocalFile: ctx.sendLocalFile ?? (() => ({ ok: true })) });
+	await host.setup({ rt, log, replier, reconnectsLast5m: () => 0, onboarding: new Onboarding(rt, log), sendLocalFile: ctx.sendLocalFile ?? (() => ({ ok: true })) });
 	return { host, rt, logs, dispatcher, cardRouter };
 }

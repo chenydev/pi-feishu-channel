@@ -13,6 +13,7 @@ import type { Transcriber } from "../inbound/stt.js";
 import type { LifecycleEvent } from "../inbound/transport.js";
 import type { CardOps, CardRouter } from "../interaction/card-router.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
+import type { Onboarding } from "../runtime/onboarding.js";
 import type { ConversationManagerDeps } from "../session/conversation-manager.js";
 import type { BridgeHookContext } from "../session/pi-bridge-hooks.js";
 import type { BridgeLogger } from "../runtime/logger.js";
@@ -26,6 +27,8 @@ export interface FeatureContext {
 	replier(msg: FeishuInboundMessage): CommandReplier;
 	/** 把本地文件经持久发送队列发到会话。 */
 	sendLocalFile: NonNullable<ConversationManagerDeps["sendLocalFile"]>;
+	/** 群开通相关的公共操作（审批人、私聊管理员、群里发卡片）。 */
+	onboarding: Onboarding;
 	/** 近 5 分钟的重连次数。 */
 	reconnectsLast5m(): number;
 }
@@ -43,6 +46,8 @@ export interface FeatureHooks {
 	stop?(): void | Promise<void>;
 	/** 平台生命周期事件（撤回、入群、评论、会议邀请等），每个能力都会收到。 */
 	onLifecycleEvent?(event: LifecycleEvent): void | Promise<void>;
+	/** 未放行的群里有人 @ 机器人时调用（入口已判定是这种情况）；返回 true 表示已处理。 */
+	onAdmissionDrop?(msg: FeishuInboundMessage): boolean | Promise<boolean>;
 	/** 状态心跳（默认每 30 秒，刷新 status.json 之后）。 */
 	onHeartbeat?(): void | Promise<void>;
 	/** 子会话的 `feishu_card` 工具（提供了它，子会话里才注册这个工具）。 */
@@ -117,6 +122,11 @@ export class FeatureHost {
 
 	async onLifecycleEvent(event: LifecycleEvent): Promise<void> {
 		for (const { hooks } of this.active) await hooks.onLifecycleEvent?.(event);
+	}
+
+	async onAdmissionDrop(msg: FeishuInboundMessage): Promise<boolean> {
+		for (const { hooks } of this.active) if (await hooks.onAdmissionDrop?.(msg)) return true;
+		return false;
 	}
 
 	async heartbeat(): Promise<void> {

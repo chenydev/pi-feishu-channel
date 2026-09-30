@@ -35,13 +35,13 @@ import { KnownChatStore } from "./runtime/known-chat-store.js";
 import { ReconnectSupervisor } from "./runtime/reconnect-supervisor.js";
 import { CardRouter } from "./interaction/card-router.js";
 import { approvalCardOps, clarifyCardOps, commandCardOps, modelCardOps } from "./interaction/card-ops.js";
-import { atList, buildAccessNoticeCard, buildAccessRequestCard, buildAllowChatCard, buildResultCard, buildWelcomeCard } from "./commands/cards.js";
-import { AccessRequestTracker, planAccessRequest } from "./runtime/access-request.js";
-import { accessApproverHint, accessApproverPolicy, accessApprovers, canApproveAccess, describeByRole, roleOf } from "./runtime/admin-roles.js";
+import { atList, buildAccessNoticeCard, buildAllowChatCard, buildResultCard, buildWelcomeCard } from "./commands/cards.js";
+import { accessApproverHint, accessApprovers, canApproveAccess } from "./runtime/admin-roles.js";
 import { UsageLedger } from "./runtime/usage-ledger.js";
 import type { LifecycleEvent } from "./inbound/transport.js";
 import { tightenSessionPermissions } from "./runtime/retention.js";
 import { enabledFeatures } from "./features/switches.js";
+import { Onboarding } from "./runtime/onboarding.js";
 import { FeatureHost } from "./features/feature.js";
 import { FEATURES } from "./features/index.js";
 import { CommandDispatcher, createCommandReplier } from "./commands/dispatch.js";
@@ -74,6 +74,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	const rt = new BridgeRuntime();
 
 	const log = createConsoleLogger();
+	const onboarding = new Onboarding(rt, log);
 
 	function setStatus(key: "conn" | "bridge", text: string): void {
 		try {
@@ -134,7 +135,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			// 私聊或群里的「放行此群」
 			"chat.allow": async (action, value) => {
 				if (typeof value.chatId !== "string" || !value.chatId.startsWith("oc_")) return undefined;
-				if (!canApproveAccess(rt.config, action.operatorOpenId, approverPolicy())) return { toast: { type: "warning", content: `${accessApproverHint(approverPolicy())}可以放行群` } };
+				if (!canApproveAccess(rt.config, action.operatorOpenId, onboarding.approverPolicy())) return { toast: { type: "warning", content: `${accessApproverHint(onboarding.approverPolicy())}可以放行群` } };
 				if (rt.config.allowChats.includes(value.chatId)) return { card: { type: "raw", data: buildResultCard(`群 \`${value.chatId}\` 已在放行列表中。`, "grey") } };
 				const previous = [...rt.config.allowChats];
 				rt.config.allowChats = [...rt.config.allowChats, value.chatId];
@@ -146,27 +147,10 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 				rt.accessRequests?.clear(value.chatId);
 				// 群里回告：申请人（有的话）+ 放行人
 				const requester = typeof value.requester === "string" && value.requester.startsWith("ou_") ? value.requester : undefined;
-				void sendChatCard(value.chatId, buildAccessNoticeCard(`${requester ? `${atList([requester])} ` : ""}本群已开通（由 ${operatorByRole(action.operatorOpenId)} 放行），现在 @ 我就可以使用了。`, "green"), {}, "allowed_notice");
+				void onboarding.sendChatCard(value.chatId, buildAccessNoticeCard(`${requester ? `${atList([requester])} ` : ""}本群已开通（由 ${onboarding.operatorByRole(action.operatorOpenId)} 放行），现在 @ 我就可以使用了。`, "green"), {}, "allowed_notice");
 				return {
 					toast: { type: "success", content: "已放行" },
 					card: { type: "raw", data: buildResultCard(`已放行群 \`${value.chatId}\`（写入 allowChats）。群里 @ 机器人即可使用。`) },
-				};
-			},
-			// 开通申请：暂不放行（忽略期内该群不再发申请）
-			"chat.deny": async (action, value) => {
-				if (typeof value.chatId !== "string" || !value.chatId.startsWith("oc_")) return undefined;
-				if (!canApproveAccess(rt.config, action.operatorOpenId, approverPolicy())) return { toast: { type: "warning", content: `${accessApproverHint(approverPolicy())}可以操作` } };
-				rt.accessRequests ??= new AccessRequestTracker({ cooldownMs: rt.config.onboarding?.accessRequestCooldownMs });
-				rt.accessRequests.markIgnored(value.chatId);
-				log.info("feishu.access_request.denied", { chatId: value.chatId, operator: action.operatorOpenId });
-				const requester = typeof value.requester === "string" && value.requester.startsWith("ou_") ? value.requester : undefined;
-				// 私聊审批时申请人看不到这张卡 → 在群里告诉他；群里审批时卡片本身就会变成结果
-				if (requester && action.chatId !== value.chatId) {
-					void sendChatCard(value.chatId, buildAccessNoticeCard(`${atList([requester])} ${operatorByRole(action.operatorOpenId)} 暂未开通本群。`, "grey"), {}, "denied_notice");
-				}
-				return {
-					toast: { type: "info", content: "已暂不放行" },
-					card: { type: "raw", data: buildResultCard(`已暂不放行群 \`${value.chatId}\`（24 小时内该群的开通申请不再提醒）。`, "grey") },
 				};
 			},
 		});
@@ -228,127 +212,29 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	/** 同一群的放行提示 1 小时内只发一次。 */
 	const allowPromptSentAt = new Map<string, number>();
 
-	/** 私聊一张卡给若干管理员（失败只记日志）。 */
-	async function dmAdmins(recipients: string[], card: unknown, what: string): Promise<number> {
-		let sent = 0;
-		for (const openId of recipients.slice(0, 5)) {
-			try {
-				await rt.transport?.sendToUser(openId, "interactive", card);
-				sent += 1;
-			} catch (error) {
-				log.warn("feishu.admin_dm_failed", { what, error: error instanceof Error ? error.message : String(error) });
-			}
-		}
-		return sent;
-	}
 
 	/** 群未放行时，管理员 @ 了机器人 → 私聊他一张"放行此群"卡。普通成员 @ 不回复，只记日志。 */
 	async function onAdmissionDrop(msg: FeishuInboundMessage, reason: string, mentioned: boolean): Promise<void> {
 		if (reason !== "not_allowlisted" || msg.chatType === "p2p" || !mentioned || rt.config.allowChats.includes(msg.chatId)) return;
-		if (rt.config.onboarding?.accessRequest) {
-			await requestChatAccess(msg);
-			return;
-		}
+		// 开了群开通申请：由该能力处理（给审批人发申请卡）
+		if (await featureHost.onAdmissionDrop(msg)) return;
 		if (rt.config.onboarding?.notifyAdmins === false) return;
 		// 旧行为（未开开通申请）：有审批权的人 @ 了机器人 → 私聊他放行卡（没审批权就不发一张点不动的卡）
-		if (!canApproveAccess(rt.config, msg.senderId, approverPolicy())) return;
+		if (!canApproveAccess(rt.config, msg.senderId, onboarding.approverPolicy())) return;
 		const last = allowPromptSentAt.get(msg.chatId);
 		if (last && Date.now() - last < 3_600_000) return;
 		allowPromptSentAt.set(msg.chatId, Date.now());
 		const chatName = await rt.transport?.getChatName(msg.chatId);
 		const operatorName = await rt.transport?.resolveUserName(msg.senderId).catch(() => undefined);
-		await dmAdmins([msg.senderId], buildAllowChatCard({ chatId: msg.chatId, chatName, reason: "管理员在群里 @ 了机器人", operatorName }), "allow_chat");
+		await onboarding.dmAdmins([msg.senderId], buildAllowChatCard({ chatId: msg.chatId, chatName, reason: "管理员在群里 @ 了机器人", operatorName }), "allow_chat");
 		log.info("feishu.onboarding.allow_prompt", { chatId: msg.chatId, operator: msg.senderId });
 	}
 
-	/** 群里发卡片（失败只记日志，返回是否发出）。 */
-	async function sendChatCard(chatId: string, card: unknown, opts: { replyTo?: string; threadId?: string }, what: string): Promise<boolean> {
-		try {
-			await rt.transport?.sendCard(chatId, card, opts);
-			return true;
-		} catch (error) {
-			log.warn("feishu.access_request.card_failed", { chatId, what, error: error instanceof Error ? error.message : String(error) });
-			return false;
-		}
-	}
 
-	/**
-	 * 开通申请：未放行的群里有人 @ 机器人。
-	 * 管理员（归属人/协作者/admins）有人在群里 → 群里弹审批卡并 @ 他们（回复申请人那条消息）；
-	 * 否则私聊应用归属人，群里回告申请人"已发给谁"。同一个群冷却期内只申请一次。
-	 */
-	async function requestChatAccess(msg: FeishuInboundMessage): Promise<void> {
-		if (!rt.transport) return;
-		rt.accessRequests ??= new AccessRequestTracker({ cooldownMs: rt.config.onboarding?.accessRequestCooldownMs });
-		const replyOpts = { replyTo: msg.messageId, ...(msg.threadId ? { threadId: msg.threadId } : {}) };
-		const decision = rt.accessRequests.decide(msg.chatId, msg.senderId);
-		if (decision.action === "silent") {
-			log.info("feishu.access_request.silent", { chatId: msg.chatId, requester: msg.senderId, reason: decision.reason });
-			return;
-		}
-		if (decision.action === "remind") {
-			const whom = decision.mode === "group" ? atByRole(decision.approvers) : await approverNames(decision.approvers);
-			await sendChatCard(msg.chatId, buildAccessNoticeCard(`${atList([msg.senderId])} 本群的开通申请已发给 ${whom}${decision.mode === "dm" ? "（私聊）" : ""}，正在等待审批，通过后我会在群里通知。`), replyOpts, "remind");
-			return;
-		}
-		const members = await rt.transport.listChatMemberIds(msg.chatId);
-		const policy = approverPolicy();
-		const eligible = accessApprovers(rt.config, effectiveAdmins(rt.config), policy);
-		const plan = planAccessRequest({
-			admins: eligible,
-			ownerId: rt.config.appOwnerId && eligible.includes(rt.config.appOwnerId) ? rt.config.appOwnerId : undefined,
-			collaboratorIds: rt.config.appCollaboratorIds?.filter((id) => eligible.includes(id)),
-			groupMembers: members, requesterId: msg.senderId,
-		});
-		if (plan.mode === "none") {
-			log.warn("feishu.access_request.no_approver", {
-				chatId: msg.chatId, policy,
-				hint: policy === "owner"
-					? "accessApprovers=owner 但没有查到应用归属人（需要 application:application:readonly 权限）；或把 onboarding.accessApprovers 放宽"
-					: "按 onboarding.accessApprovers 没有任何可审批的人（查询归属人/协作者失败且 config.admins 为空）",
-			});
-			await sendChatCard(msg.chatId, buildAccessNoticeCard(`${atList([msg.senderId])} 本群还没有开通机器人，暂时找不到可以审批的人，请联系应用归属人开通。`, "grey"), replyOpts, "no_approver");
-			return;
-		}
-		rt.accessRequests.markRequested(msg.chatId, msg.senderId, plan);
-		if (plan.mode === "group") {
-			const ok = await sendChatCard(msg.chatId, buildAccessRequestCard({ mode: "group", chatId: msg.chatId, requesterId: msg.senderId, approvers: plan.approvers, approverLabel: atByRole(plan.approvers), approverHint: accessApproverHint(policy) }), replyOpts, "request_in_group");
-			if (!ok) rt.accessRequests.clear(msg.chatId);
-			log.info("feishu.access_request.sent", { chatId: msg.chatId, mode: "group", approvers: plan.approvers.length, ok, membersKnown: Boolean(members) });
-			return;
-		}
-		const chatName = await rt.transport.getChatName(msg.chatId);
-		const sent = await dmAdmins(plan.approvers, buildAccessRequestCard({ mode: "dm", chatId: msg.chatId, chatName, requesterId: msg.senderId, approvers: plan.approvers, approverLabel: atByRole(plan.approvers), approverHint: accessApproverHint(policy) }), "access_request");
-		if (sent === 0) {
-			rt.accessRequests.clear(msg.chatId);
-			await sendChatCard(msg.chatId, buildAccessNoticeCard(`${atList([msg.senderId])} 本群还没有开通机器人，暂时联系不上管理员，请直接联系管理员开通。`, "grey"), replyOpts, "request_failed");
-			return;
-		}
-		await sendChatCard(msg.chatId, buildAccessNoticeCard(`${atList([msg.senderId])} 本群还没有开通机器人，已把开通申请私聊发给 ${await approverNames(plan.approvers)}，审批通过后我会在群里通知你。`), replyOpts, "request_notice");
-		log.info("feishu.access_request.sent", { chatId: msg.chatId, mode: "dm", approvers: plan.approvers.length, delivered: sent, membersKnown: Boolean(members) });
-	}
 
-	/** 群开通审批策略（配置热改后立即生效）。 */
-	function approverPolicy() {
-		return accessApproverPolicy(rt.config.onboarding?.accessApprovers);
-	}
 
-	/** 带角色的 @ 列表（卡片 markdown）："应用归属人 @张三、应用协作者 @李四"。 */
-	function atByRole(ids: string[]): string {
-		return describeByRole(rt.config, ids, (id) => atList([id]));
-	}
 
-	/** 带角色的名字（私聊场景：审批人不在群里，@ 不会提醒，写名字更直观）："应用归属人 张三"。 */
-	async function approverNames(ids: string[]): Promise<string> {
-		const names = new Map(await Promise.all(ids.map(async (id) => [id, (await rt.transport?.resolveUserName(id).catch(() => undefined)) ?? "（未知）"] as const)));
-		return describeByRole(rt.config, ids, (id) => names.get(id) ?? "（未知）");
-	}
 
-	/** 操作人的角色 + @（放行/暂不放行回告用）。 */
-	function operatorByRole(openId: string): string {
-		const role = roleOf(rt.config, openId);
-		return role ? atByRole([openId]) : atList([openId]);
-	}
 
 	/** 平台生命周期事件：先走核心处理，再交给各可选能力（云文档评论、会议邀请等）。 */
 	async function handleLifecycleEvent(event: LifecycleEvent): Promise<void> {
@@ -387,12 +273,12 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 				}
 				if (rt.config.onboarding?.notifyAdmins === false) return;
 				// 群未放行：拉机器人进群的人有审批权就只私聊他，否则通知按 accessApprovers 能审批的人
-				const approvers = accessApprovers(rt.config, effectiveAdmins(rt.config), approverPolicy());
+				const approvers = accessApprovers(rt.config, effectiveAdmins(rt.config), onboarding.approverPolicy());
 				const recipients = event.operatorOpenId && approvers.includes(event.operatorOpenId) ? [event.operatorOpenId] : approvers;
-				if (recipients.length === 0) log.warn("feishu.onboarding.no_approver", { chatId: event.chatId, policy: approverPolicy() });
+				if (recipients.length === 0) log.warn("feishu.onboarding.no_approver", { chatId: event.chatId, policy: onboarding.approverPolicy() });
 				const operatorName = event.operatorOpenId ? await rt.transport?.resolveUserName(event.operatorOpenId).catch(() => undefined) : undefined;
 				allowPromptSentAt.set(event.chatId, Date.now());
-				await dmAdmins(recipients, buildAllowChatCard({ chatId: event.chatId, chatName: event.chatName, reason: "机器人被拉进了群", operatorName }), "bot_added");
+				await onboarding.dmAdmins(recipients, buildAllowChatCard({ chatId: event.chatId, chatName: event.chatName, reason: "机器人被拉进了群", operatorName }), "bot_added");
 				return;
 			}
 			case "bot_removed":
@@ -873,7 +759,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		rt.status.startedAt = Date.now();
 		updateStatus();
 		try {
-			await featureHost.setup({ rt, log, replier: replierFor, sendLocalFile: sendLocalFileToChat, reconnectsLast5m: () => reconnectSupervisor.reconnectsInWindow() });
+			await featureHost.setup({ rt, log, onboarding, replier: replierFor, sendLocalFile: sendLocalFileToChat, reconnectsLast5m: () => reconnectSupervisor.reconnectsInWindow() });
 			await assemble();
 			await rt.transport!.start();
 			rt.outbox!.start();
