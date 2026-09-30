@@ -8,13 +8,13 @@
 
 | 指标 | 基线 | 当前 | 目标 |
 |---|---|---|---|
-| `index_lines` | 2267 | 1312 | < 300 |
+| `index_lines` | 2267 | 1251 | < 300 |
 | `index_closure_state` | 33 | 0 | ≤ 3 |
-| `index_inner_functions` | 50 | 33 | ≤ 5 |
+| `index_inner_functions` | 50 | 30 | ≤ 5 |
 | `manager_forwarders` | 16 | 0 | 0 |
 | `manager_lines` | 1590 | 1510 | 只减不增 |
 | `internal_id_refs` | 0 | 0 | 0 |
-| `tests` | 650 | 713 | 只增不减 |
+| `tests` | 650 | 716 | 只增不减 |
 
 ## 条目
 
@@ -37,7 +37,7 @@
 | D5.3 | 语音转写 | ✅ |  | `features` 含 `stt` | `tests/features/stt.test.ts` | 迁到 `features/stt.ts`，框架新增 `transcribe` 挂接点，资源下载器从 `featureHost.first("transcribe")` 取转写器；开、关与 features 列表共 3 例通过 |
 | D5.4 | 云文档评论 | ✅ |  | `features` 含 `docComments` | `tests/features/doc-comments.test.ts` | 迁到 `features/doc-comments.ts`（事件去重改用 `features/first-seen.ts`）；生命周期事件先走核心处理再分发给各能力；测试装置新增 `h.event()` 投递平台事件；开、关各 1 例通过 |
 | D5.5 | 会议邀请 | ✅ |  | `features` 含 `meetingInvite` | `tests/features/meeting-invite.test.ts` | 迁到 `features/meeting-invite.ts`；开、关各 1 例通过 |
-| D5.6 | agent 自定义卡片 | ⬜ | | `features` 含 `cardTool` | `tests/features/card-tool.test.ts` | |
+| D5.6 | agent 自定义卡片 | ✅ |  | `features` 含 `cardTool` | `tests/features/card-tool.test.ts` | 迁到 `features/card-tool.ts`，框架新增 `sendCard` 挂接点，子会话按是否提供该挂接点决定注册工具；签名密钥改为每次启动生成；开 2 例、关 1 例通过 |
 | D5.7 | 云文档读取工具 | ⬜ | | `features` 含 `docTools` | `tests/features/doc-tools.test.ts` | |
 | D5.8 | 直接执行命令 | ⬜ | | `features` 含 `directBash` | `tests/features/direct-bash.test.ts` | |
 | D5.9 | 超长回答转文件 | ⬜ | | `features` 含 `longReply` | `tests/features/long-reply.test.ts` | |

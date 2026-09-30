@@ -13,6 +13,7 @@ import type { Transcriber } from "../inbound/stt.js";
 import type { LifecycleEvent } from "../inbound/transport.js";
 import type { CardOps, CardRouter } from "../interaction/card-router.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
+import type { BridgeHookContext } from "../session/pi-bridge-hooks.js";
 import type { BridgeLogger } from "../runtime/logger.js";
 import type { BridgeConfig, FeishuInboundMessage } from "../types.js";
 
@@ -41,6 +42,8 @@ export interface FeatureHooks {
 	onLifecycleEvent?(event: LifecycleEvent): void | Promise<void>;
 	/** 状态心跳（默认每 30 秒，刷新 status.json 之后）。 */
 	onHeartbeat?(): void | Promise<void>;
+	/** 子会话的 `feishu_card` 工具（提供了它，子会话里才注册这个工具）。 */
+	sendCard?: NonNullable<BridgeHookContext["sendCard"]>;
 	/** 语音转写：资源下载器拿到语音后调用。 */
 	transcribe?: Transcriber;
 	/** `/feishu status` 里追加的行。 */

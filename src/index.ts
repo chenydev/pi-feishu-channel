@@ -3,7 +3,6 @@
  * 提供 /feishu 命令与连接 supervisor（指数退避重连）。
  */
 import { appendFileSync, mkdirSync } from "node:fs";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "./pi-types.js";
 import type { BridgeConfig, FeishuInboundMessage, GroupPolicy, SessionBackend } from "./types.js";
@@ -33,7 +32,6 @@ import {
 	buildClarificationCard,
 	clarificationTextFallback,
 } from "./interaction/clarification-store.js";
-import type { CardAction } from "./inbound/transport.js";
 import { KnownChatStore } from "./runtime/known-chat-store.js";
 import { ReconnectSupervisor } from "./runtime/reconnect-supervisor.js";
 import { CardRouter } from "./interaction/card-router.js";
@@ -174,9 +172,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 					card: { type: "raw", data: buildResultCard(`已暂不放行群 \`${value.chatId}\`（24 小时内该群的开通申请不再提醒）。`, "grey") },
 				};
 			},
-		})
-		// agent 通过 feishu_card 工具发的卡片 —— 点击作为一条新消息进入会话
-		.register("cardTool", { "agent.card": (action, value) => handleAgentCardClick(action, value) });
+		});
 
 	/**
 	 * 账户用量提供方（懒建；余额失败降级为 unavailable，不抛异常）。
@@ -494,11 +490,6 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		log.info("feishu.feedback", { kind: entry.kind, action: entry.action, messageId: entry.messageId });
 	}
 
-	/** feishu_card 工具的按钮签名（进程级随机密钥：重启后旧卡按钮失效，这是预期的）。 */
-	const cardToolSecret = randomBytes(32);
-	function signCardValue(payload: string): string {
-		return createHmac("sha256", cardToolSecret).update(payload).digest("base64url").slice(0, 32);
-	}
 
 
 	/** 心跳 —— 定期刷新 status.json（健康但空闲的桥 mtime 也不会停），顺带评估告警。 */
@@ -697,8 +688,8 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 						log.info("feishu.bridge.agent_settled", { chatId: route.chatId });
 						rt.convManager?.markSettled(sessionId);
 					},
-					// agent 自定义卡片（默认关闭：关闭时子会话里根本不注册这个工具）
-					cardTool: () => rt.config.cardTool?.enabled === true,
+					// agent 自定义卡片（可选能力，默认关闭：关闭时子会话里根本不注册这个工具）
+					cardTool: () => featureHost.first("sendCard") !== undefined,
 					docTool: () => rt.config.docTools?.enabled === true,
 					readDoc: async (ref) => {
 						if (!rt.transport) return { content: [{ type: "text", text: "飞书连接不可用" }], isError: true };
@@ -706,7 +697,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 						if (!result.ok) return { content: [{ type: "text", text: result.error }], isError: true };
 						return { content: [{ type: "text", text: result.truncated ? `${result.text}\n\n…（文档较长，已截断）` : result.text || "（文档为空）" }] };
 					},
-					sendCard: (input) => sendAgentCard(input.params, input.route),
+					sendCard: (input) => featureHost.first("sendCard")?.(input) ?? Promise.resolve({ content: [{ type: "text", text: "agent 自定义卡片未启用（config.cardTool.enabled）" }], isError: true }),
 					sendLocalFile: (input) => queueLocalFile({
 						toolCallId: input.toolCallId,
 						path: input.path,
@@ -842,59 +833,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		});
 	}
 
-	/** agent 卡片的按钮点击 → 校验签名与操作者 → 以 `[卡片点击] 按钮名` 进入会话。 */
-	async function handleAgentCardClick(action: CardAction, value: Record<string, unknown>): Promise<unknown> {
-		const field = (key: string) => (typeof value[key] === "string" ? value[key] as string : "");
-		const payload = JSON.stringify([field("k"), field("c"), field("th"), field("o"), field("l"), field("t")]);
-		const expected = Buffer.from(signCardValue(payload));
-		const actual = Buffer.from(field("s"));
-		if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-			return { toast: { type: "warning", content: "这张卡片已失效（机器人重启过），请让它重新发一张" } };
-		}
-		if (action.chatId !== field("c")) return { toast: { type: "warning", content: "卡片与当前会话不匹配" } };
-		const owner = field("o");
-		if (owner && owner !== action.operatorOpenId && !effectiveAdmins(rt.config).includes(action.operatorOpenId)) {
-			return { toast: { type: "warning", content: "只有发起人或管理员可以点这张卡片" } };
-		}
-		const chatType = field("t") === "p2p" || field("t") === "topic" ? field("t") as "p2p" | "topic" : "group";
-		const result = await rt.convManager?.route({
-			messageId: `${action.messageId}#${action.token ?? randomBytes(6).toString("hex")}`,
-			replyTarget: action.messageId, synthetic: true,
-			chatId: field("c"), chatType, ...(field("th") ? { threadId: field("th") } : {}),
-			senderId: action.operatorOpenId, isBot: false, msgType: "text",
-			text: `[卡片点击] ${field("l")}`, mentions: [], resources: [], raw: undefined, ts: Date.now(),
-		}, { conversationKey: field("k") });
-		log.info("feishu.agent_card.click", { label: field("l"), operator: action.operatorOpenId, result: result ?? "unavailable" });
-		return { toast: { type: result === "rejected" ? "warning" : "success", content: result === "rejected" ? "当前队列已满，请稍后再试" : `已选择：${field("l")}` } };
-	}
 
-	/** feishu_card 工具的实现（子会话内联扩展调用；只发到当前活动会话）。 */
-	async function sendAgentCard(params: Record<string, unknown>, route: ReturnType<ConversationManager["routeForSessionId"]>): Promise<import("./pi-types.js").ExtensionToolResult> {
-		if (!route || !rt.transport) return { content: [{ type: "text", text: "无法发送：当前不是由飞书消息触发的活动会话" }], isError: true };
-		const labels = (Array.isArray(params.buttons) ? params.buttons : []).filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim().slice(0, 20)).slice(0, 6);
-		if (labels.length === 0) return { content: [{ type: "text", text: "buttons 至少要有一个" }], isError: true };
-		const chatType = route.chatType ?? (route.conversationKey.includes(":t:") ? "topic" : "group");
-		const buttons = labels.map((label) => {
-			const base = { k: route.conversationKey, c: route.chatId, th: route.threadId ?? "", o: route.senderId ?? "", l: label, t: chatType };
-			return {
-				tag: "button", size: "small", type: "primary", width: "fill",
-				text: { tag: "plain_text", content: label },
-				value: { op: "agent.card", ...base, s: signCardValue(JSON.stringify([base.k, base.c, base.th, base.o, base.l, base.t])) },
-			};
-		});
-		const card = {
-			schema: "2.0",
-			config: { wide_screen_mode: true },
-			...(typeof params.title === "string" && params.title.trim() ? { header: { title: { tag: "plain_text", content: params.title.trim().slice(0, 60) }, template: "blue" } } : {}),
-			body: { elements: [{ tag: "markdown", content: String(params.content ?? "").slice(0, 3_000) }, ...buttons] },
-		};
-		try {
-			await rt.transport.sendCard(route.chatId, card, { replyTo: route.sourceMessageId, threadId: route.threadId });
-			return { content: [{ type: "text", text: `卡片已发送（按钮：${labels.join("、")}）。用户点击后会以「[卡片点击] 按钮名」的新消息告诉你，本轮可以先结束。` }] };
-		} catch (error) {
-			return { content: [{ type: "text", text: `卡片发送失败：${error instanceof Error ? error.message : String(error)}` }], isError: true };
-		}
-	}
 
 	// feishu_send_local_file 只在子会话的内联扩展里注册（外层 TUI 会话不是飞书路由，注册了也只会报错）。
 
