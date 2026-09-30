@@ -96,6 +96,8 @@ export interface Harness {
 	sent(chatId?: string): string[];
 	/** 等到某个会话出现匹配的消息，返回该消息。 */
 	waitForMessage(chatId: string | undefined, pattern: RegExp, timeoutMs?: number): Promise<{ id: string; chatId: string; content: string }>;
+	/** 投递一个平台事件（事件名同 SDK 订阅名，如 `drive.notice.comment_add_v1`）。 */
+	event(name: string, data: unknown): Promise<void>;
 	/** 在所有已发出的卡片里找按钮值（深度搜索 `value` 对象）。 */
 	buttonValues(filter: (value: Record<string, unknown>) => boolean): Array<{ messageId: string; chatId: string; value: Record<string, unknown> }>;
 	config(): Record<string, unknown>;
@@ -197,6 +199,12 @@ export async function startHarness(config: Record<string, unknown>): Promise<Har
 				action: { value },
 				...(token ? { token } : {}),
 			});
+		},
+		async event(name, data) {
+			if (!handlers[name]) throw new Error(`没有订阅事件 ${name}`);
+			await handlers[name](data);
+			// 生命周期事件在后台串行处理：让出几轮事件循环，等它处理完
+			for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
 		},
 		sent(chatId) {
 			return [...fake.messages.values()].filter((m) => !m.id.startsWith("om_in_") && (!chatId || m.chatId === chatId)).map((m) => m.content);

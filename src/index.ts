@@ -11,7 +11,7 @@ import { loadConfig, resolveAppLockFile, resolvePaths, saveConfigFields, formatT
 import type { LarkSdkLike } from "./inbound/transport.js";
 import { InboundPipeline } from "./inbound/pipeline.js";
 import { LastSentCache, effectiveAdmins } from "./inbound/admit.js";
-import { buildDocCommentPrompt, deliverDocCommentReply, docCommentChatId, docCommentSkipReason, fetchDocCommentContext, readDocText } from "./inbound/doc-comments.js";
+import { deliverDocCommentReply, readDocText } from "./inbound/doc-comments.js";
 import { buildMeetingInvitePrompt, meetingInviteKey } from "./inbound/meeting-invite.js";
 import { Sender } from "./outbound/sender.js";
 import { Outbox } from "./outbound/outbox.js";
@@ -401,8 +401,14 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		return role ? atByRole([openId]) : atList([openId]);
 	}
 
-	/** 撤回、入群/退群、私聊进入、表情。 */
+	/** 平台生命周期事件：先走核心处理，再交给各可选能力（云文档评论、会议邀请等）。 */
 	async function handleLifecycleEvent(event: LifecycleEvent): Promise<void> {
+		await handleCoreLifecycleEvent(event);
+		await featureHost.onLifecycleEvent(event);
+	}
+
+	/** 撤回、入群/退群、私聊进入、表情。 */
+	async function handleCoreLifecycleEvent(event: LifecycleEvent): Promise<void> {
 		switch (event.type) {
 			case "recalled": {
 				// 还在合批窗口 → 直接移除；排队 → 出队；执行中 → 只停本轮（同 /stop）
@@ -460,6 +466,9 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 				log.info("feishu.onboarding.p2p_entered", { chatId: event.chatId, allowed });
 				return;
 			}
+			case "meeting_invite":
+				await handleMeetingInvite(event.invite);
+				return;
 			case "reaction": {
 				// 只记用户对本 bot 回复的 👍/👎（机器人自己加的"处理中"表情不算），默认不触发新一轮
 				if (rt.config.feedback?.enabled === false) return;
@@ -469,14 +478,11 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 				recordFeedback({ at: Date.now(), messageId: event.messageId, kind, action: event.action, operator: event.operatorOpenId });
 				return;
 			}
-			case "doc_comment":
-				await handleDocComment(event.event);
-				return;
-			case "meeting_invite":
-				await handleMeetingInvite(event.invite);
-				return;
 		}
 	}
+
+
+
 
 	/** 外部事件去重（平台重投同一事件时不重复开任务）；只在内存里，容量有限。 */
 	const seenExternalEvents = new Set<string>();
@@ -485,40 +491,6 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		seenExternalEvents.add(key);
 		if (seenExternalEvents.size > 512) seenExternalEvents.delete(seenExternalEvents.values().next().value as string);
 		return true;
-	}
-
-	/** 云文档评论 @ 机器人 → 虚拟会话里跑一轮，回答回复到评论区。 */
-	async function handleDocComment(event: import("./inbound/doc-comments.js").DocCommentEvent): Promise<void> {
-		if (!rt.config.docComments?.enabled || !rt.transport || !rt.convManager) return;
-		const botOpenId = rt.transport.getBotIdentity().openId;
-		const skip = docCommentSkipReason(event, botOpenId);
-		if (skip) {
-			log.debug("feishu.doc_comment.skipped", { reason: skip, commentId: event.commentId });
-			return;
-		}
-		const sender = event.fromOpenId;
-		const allowUsers = rt.config.docComments.allowUsers ?? rt.config.allowUsers;
-		if (!sender || !(effectiveAdmins(rt.config).includes(sender) || allowUsers.includes(sender))) {
-			log.info("feishu.doc_comment.denied", { commentId: event.commentId, sender: sender ?? null, hint: "评论人不是管理员，也不在 docComments.allowUsers（缺省用 allowUsers）里" });
-			return;
-		}
-		if (!firstSeen(`doc_comment:${event.eventId ?? `${event.commentId}:${event.replyId ?? ""}`}`)) return;
-		const request = (opts: { url: string; method: string; params?: unknown; data?: unknown }) => rt.transport!.rawRequest(opts);
-		const ctx = await fetchDocCommentContext(request, event, { botOpenId });
-		if (!ctx) {
-			log.warn("feishu.doc_comment.context_unavailable", { commentId: event.commentId, fileType: event.fileType, hint: "拉不到评论详情：检查应用的云文档评论读取权限，以及机器人是否有该文档的访问权限" });
-			return;
-		}
-		log.info("feishu.doc_comment.accepted", { commentId: event.commentId, fileType: event.fileType, isWhole: ctx.isWhole, thread: ctx.thread.length });
-		await rt.convManager.route({
-			messageId: `doccomment:${event.commentId}:${event.replyId ?? event.eventId ?? Date.now()}`,
-			chatId: docCommentChatId(event.fileToken), chatType: "group",
-			senderId: sender, isBot: false, msgType: "text",
-			text: buildDocCommentPrompt(event, ctx),
-			mentions: [], resources: [], raw: undefined, ts: Date.now(),
-			synthetic: true, replyTarget: null,
-			deliverTo: { kind: "doc_comment", fileToken: event.fileToken, fileType: event.fileType, commentId: event.commentId, isWhole: ctx.isWhole },
-		}, { behavior: "queue" });
 	}
 
 	/** 会议邀请 → 邀请人私聊里开一轮任务（邀请人需通过私聊准入）。 */
