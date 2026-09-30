@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters && biome lint",
     "test": "tsx --test tests/*.test.ts tests/integration/*.test.ts",
-    "check": "npm run lint && npm test"
+    "check": "npm run lint && npm test",
+    "metrics": "node scripts/metrics.mjs"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

@@ -22,7 +22,7 @@
 |---|---|---|---|---|---|---|
 | A1 | 内部编号清理 | ✅ | — | `internal_id_refs` = 0 | `grep -rnE '\b[A-HP][0-9]?-[0-9]{2}\b' src tests` | 无输出 |
 | A2 | 提交与注释约定 | ✅ | — | — | — | — |
-| B1 | 结构指标 | ⬜ | | `npm run metrics` | `npm run metrics -- --json` | |
+| B1 | 结构指标 | ✅ | | `npm run metrics` | `npm run metrics -- --json` | 合法 JSON；`tests` = 650，与 `npm test` 一致 |
 | B2 | 已启用能力清单 | ⬜ | | 日志 `feishu.bridge.features`；`status.json.features`；doctor `features` | `tests/features.test.ts` | |
 | C1 | 删除转发方法 | ⬜ | | `manager_forwarders` 16 → 0 | 会话浏览 / 工作区 / 模型命令三组测试 | |
 | D0 | 行为锁定测试 | ⬜ | | 新增用例数 | `tests/integration/extension-entry.test.ts` | |
