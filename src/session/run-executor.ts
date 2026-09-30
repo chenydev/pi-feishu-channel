@@ -5,8 +5,7 @@
  * 会话表、队列、调度和命令都不在这里；执行器只通过 `RunHost` 访问管理器的少量能力，
  * 便于单独阅读和测试 "一轮是怎么跑完的"。
  */
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync } from "node:fs";
 import type { ResolvedTurnResources } from "../inbound/resource-resolver.js";
 import { adaptAgentEvent } from "../outbound/agent-event-adapter.js";
 import type { LiveChannel } from "../outbound/live-channel.js";
@@ -476,39 +475,13 @@ export class RunExecutor {
 		}
 	}
 
-	/**
-	 * 超长回答转文件。返回要在正文/卡片里展示的文本（未触发时原样返回）。
-	 * 附件写失败就退回原文（宁可分片刷屏，也不能丢内容）。
-	 */
+	/** 超长回答转文件（可选能力提供；没有时原样返回）。返回要在正文/卡片里展示的文本。 */
 	private maybeReplyAsFile(text: string | undefined, item: QueuedMessage, sess: BridgeSession): string | undefined {
-		const options = this.deps.config.longReply;
-		if (!text || !options?.asFile || !this.deps.exportsDir || !this.deps.sendLocalFile) return text;
-		const threshold = options.thresholdChars ?? 6_000;
-		const fences = (text.match(/^```/gm) ?? []).length / 2;
-		// 代码块很多的回答优先走文件（群里的代码块分片后几乎没法复制）
-		if (text.length <= threshold && !(fences >= 4 && text.length > threshold / 2)) return text;
-		try {
-			mkdirSync(this.deps.exportsDir, { recursive: true, mode: 0o700 });
-			const name = `reply-${new Date(this.host.now()).toISOString().replace(/[:.]/g, "-")}.md`;
-			const path = join(this.deps.exportsDir, name);
-			writeFileSync(path, text, { mode: 0o600 });
-			const sent = this.deps.sendLocalFile(sess.chatId, path, { replyTo: item.replyTo, threadId: sess.threadId ?? item.threadId }, {
-				dedupeKey: `${item.messageId}:final-file`, laneKey: sess.conversationKey,
-			});
-			if (!sent.ok) {
-				this.deps.log?.("warn", "feishu.conv.long_reply_file_failed", { messageId: item.messageId, error: sent.error });
-				return text;
-			}
-			const previewChars = options.previewChars ?? 1_500;
-			let preview = text.slice(0, previewChars);
-			// 别把代码块切在中间（未闭合的 ``` 会让后面的正文全变成代码）
-			if (((preview.match(/^```/gm) ?? []).length) % 2 === 1) preview += "\n```";
-			this.deps.log?.("info", "feishu.conv.long_reply_as_file", { messageId: item.messageId, chars: text.length, file: name });
-			return `${preview}\n\n…（全文 ${text.length} 字，完整内容见附件 ${name}）`;
-		} catch (error) {
-			this.deps.log?.("warn", "feishu.conv.long_reply_file_failed", { messageId: item.messageId, error: error instanceof Error ? error.message : String(error) });
-			return text;
-		}
+		if (!text || !this.deps.replyAsFile) return text;
+		return this.deps.replyAsFile({
+			text, messageId: item.messageId, chatId: sess.chatId, conversationKey: sess.conversationKey,
+			replyTo: item.replyTo, threadId: sess.threadId ?? item.threadId,
+		});
 	}
 
 	/**

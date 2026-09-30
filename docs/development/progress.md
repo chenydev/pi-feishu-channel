@@ -8,13 +8,13 @@
 
 | 指标 | 基线 | 当前 | 目标 |
 |---|---|---|---|
-| `index_lines` | 2267 | 1201 | < 300 |
+| `index_lines` | 2267 | 1205 | < 300 |
 | `index_closure_state` | 33 | 0 | ≤ 3 |
 | `index_inner_functions` | 50 | 29 | ≤ 5 |
 | `manager_forwarders` | 16 | 0 | 0 |
-| `manager_lines` | 1590 | 1510 | 只减不增 |
+| `manager_lines` | 1590 | 1522 | 只减不增 |
 | `internal_id_refs` | 0 | 0 | 0 |
-| `tests` | 650 | 720 | 只增不减 |
+| `tests` | 650 | 723 | 只增不减 |
 
 ## 条目
 
@@ -40,7 +40,7 @@
 | D5.6 | agent 自定义卡片 | ✅ |  | `features` 含 `cardTool` | `tests/features/card-tool.test.ts` | 迁到 `features/card-tool.ts`，框架新增 `sendCard` 挂接点，子会话按是否提供该挂接点决定注册工具；签名密钥改为每次启动生成；开 2 例、关 1 例通过 |
 | D5.7 | 云文档读取工具 | ✅ |  | `features` 含 `docTools` | `tests/features/doc-tools.test.ts` | 迁到 `features/doc-tools.ts`，框架新增 `readDoc` 挂接点；开、关各 1 例通过 |
 | D5.8 | 直接执行命令 | ✅ |  | `features` 含 `directBash` | `tests/features/direct-bash.test.ts` | 迁到 `features/direct-bash.ts`，用 `commandInterceptor` 挂接点；开、关各 1 例通过 |
-| D5.9 | 超长回答转文件 | ⬜ | | `features` 含 `longReply` | `tests/features/long-reply.test.ts` | |
+| D5.9 | 超长回答转文件 | ✅ |  | `features` 含 `longReply` | `tests/features/long-reply.test.ts` | 逻辑从 `session/run-executor.ts` 移到 `features/long-reply.ts`，会话层只保留 `replyAsFile` 依赖；日志 `feishu.conv.long_reply_*` 不变；开 2 例、关 1 例通过 |
 | D5.10 | 会话归档 | ⬜ | | `features` 含 `retention` | `tests/features/retention.test.ts` | |
 | D5.11 | 群开通申请 | ⬜ | | `features` 含 `accessRequest` | `tests/features/access-request.test.ts` | |
 | D6 | 生命周期 | ⬜ | | `index_lines` < 300；`bridge started`；status mtime | `tests/lifecycle.test.ts` | |

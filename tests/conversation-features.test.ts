@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ConversationManager, matchModels, stripContextPrefix, transcriptMarkdown } from "../src/session/conversation-manager.js";
+import { ConversationManager, matchModels, stripContextPrefix, transcriptMarkdown, type ConversationManagerDeps } from "../src/session/conversation-manager.js";
+import { createReplyAsFile } from "../src/features/long-reply.js";
 import { UsageLedger } from "../src/runtime/usage-ledger.js";
 import { DEFAULT_CONFIG, type BridgeConfig, type FeishuInboundMessage, type SessionBackend } from "../src/types.js";
 
@@ -75,6 +76,7 @@ function harness(opts: { config?: Partial<BridgeConfig>; handle?: Partial<Handle
 		...opts.handle,
 	};
 	const backend: SessionBackend = { async createSession() { return handle; } };
+	const sendLocalFile: NonNullable<ConversationManagerDeps["sendLocalFile"]> = (_chatId, path, _o, meta) => { files.push({ path, dedupeKey: meta.dedupeKey, content: readFileSync(path, "utf8") }); return { ok: true }; };
 	const manager = new ConversationManager({
 		config: config(opts.config), sessionDir: dir, sessionBackend: backend,
 		sender: { async send(_chatId: string, text: string, sendOpts?: { replyTo?: string }) { sent.push({ text, opts: sendOpts }); return { success: true, messageId: `om_${sent.length}` }; } } as never,
@@ -85,7 +87,8 @@ function harness(opts: { config?: Partial<BridgeConfig>; handle?: Partial<Handle
 		},
 		conversationFile: join(dir, "conversations.jsonl"),
 		exportsDir: join(dir, "exports"),
-		sendLocalFile: (_chatId, path, _o, meta) => { files.push({ path, dedupeKey: meta.dedupeKey, content: readFileSync(path, "utf8") }); return { ok: true }; },
+		sendLocalFile,
+		...(opts.config?.longReply?.asFile ? { replyAsFile: createReplyAsFile({ options: opts.config.longReply, exportsDir: join(dir, "exports"), sendLocalFile, log: () => {} }) } : {}),
 		usageLedger: opts.ledger,
 	});
 	return { manager, sent, durable, files, reactions, prompts, release: () => release(), handle, dir };

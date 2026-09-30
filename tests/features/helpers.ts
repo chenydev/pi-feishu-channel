@@ -1,10 +1,11 @@
 /**
  * 可选能力测试的公共装置：从扩展入口启动一个完整实例，按「开 / 关」两种配置各测一次。
  */
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CommandDispatcher } from "../../src/commands/dispatch.js";
-import { FeatureHost, type BridgeFeature } from "../../src/features/feature.js";
+import { FeatureHost, type BridgeFeature, type FeatureContext } from "../../src/features/feature.js";
 import { CardRouter } from "../../src/interaction/card-router.js";
 import { BridgeRuntime } from "../../src/runtime/bridge-runtime.js";
 import { DEFAULT_CONFIG, type BridgeConfig } from "../../src/types.js";
@@ -42,16 +43,18 @@ export function hasLogPrefix(h: Harness, prefix: string): boolean {
 }
 
 /** 不启动整个扩展，只用给定配置装配某几个能力（测挂接点本身）。 */
-export async function featureHostFor(features: BridgeFeature[], config: Partial<BridgeConfig>) {
+export async function featureHostFor(features: BridgeFeature[], config: Partial<BridgeConfig>, ctx: Partial<Pick<FeatureContext, "sendLocalFile">> = {}) {
 	const logs: string[] = [];
 	const push = (m: string) => { logs.push(m); };
 	const log = { debug: push, info: push, warn: push, error: push };
 	const rt = new BridgeRuntime();
 	rt.config = { ...DEFAULT_CONFIG, ...config };
+	// 运行时目录放在临时目录里：能力可能在这里写文件（附件、定时任务等）
+	rt.homeDir = mkdtempSync(join(tmpdir(), "feature-"));
 	const replier = () => ({ reply() {}, trySendCard: async () => false });
 	const dispatcher = new CommandDispatcher({ log, isAdmin: () => false, replier, piCommands: () => [] });
 	const cardRouter = new CardRouter({ log, admins: () => [] });
 	const host = new FeatureHost(features, { dispatcher, cardRouter, log });
-	await host.setup({ rt, log, replier, reconnectsLast5m: () => 0 });
+	await host.setup({ rt, log, replier, reconnectsLast5m: () => 0, sendLocalFile: ctx.sendLocalFile ?? (() => ({ ok: true })) });
 	return { host, rt, logs, dispatcher, cardRouter };
 }

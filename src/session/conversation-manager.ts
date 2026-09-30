@@ -45,6 +45,16 @@ export function resolveToolPolicy(policy: string[] | "readonly" | "standard" | "
 }
 
 /** 会话管理器的依赖（发送、持久化、审批联动、可选能力）。 */
+/** 一轮最终回答（交给超长回答转文件）。 */
+export interface LongReplyInput {
+	text: string;
+	messageId: string;
+	chatId: string;
+	conversationKey: string;
+	replyTo?: string;
+	threadId?: string;
+}
+
 export interface ConversationManagerDeps {
 	config: BridgeConfig;
 	/** 会话文件目录（绝对路径；避免相对路径落在 /workspace 无权限）。 */
@@ -93,6 +103,8 @@ export interface ConversationManagerDeps {
 	cnyPerUsd?: (modelId: string | undefined) => number | undefined;
 	/** 导出与长回答附件的落盘目录（不设则相关功能不可用）。 */
 	exportsDir?: string;
+	/** 超长回答转文件（可选能力 longReply 提供）：返回要在正文/卡片里展示的文本。 */
+	replyAsFile?: (input: LongReplyInput) => string;
 	/** 把本地文件经持久 outbox 发到会话（由桥层实现：校验 + 暂存 + enqueueMedia）。 */
 	sendLocalFile?: (chatId: string, path: string, opts: { replyTo?: string; threadId?: string }, meta: { dedupeKey: string; laneKey: string }) => { ok: boolean; error?: string };
 	/**

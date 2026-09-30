@@ -13,7 +13,7 @@ import { LastSentCache, effectiveAdmins } from "./inbound/admit.js";
 import { deliverDocCommentReply } from "./inbound/doc-comments.js";
 import { Sender } from "./outbound/sender.js";
 import { Outbox } from "./outbound/outbox.js";
-import { ConversationManager } from "./session/conversation-manager.js";
+import { ConversationManager, type ConversationManagerDeps } from "./session/conversation-manager.js";
 import { PiSessionBackend } from "./session/pi-session-backend.js";
 import { DedupeStore } from "./inbound/dedupe-store.js";
 import { AppLock } from "./runtime/app-lock.js";
@@ -475,6 +475,18 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		}
 	}
 
+	/** 把本地文件经持久发送队列发到会话（导出、超长回答附件共用）。 */
+	const sendLocalFileToChat: NonNullable<ConversationManagerDeps["sendLocalFile"]> = (chatId, path, opts, meta) => {
+		if (!rt.outbox) return { ok: false, error: "outbox 不可用" };
+		try {
+			const staged = stageArtifact(validateLocalArtifact(path, dirname(path)), join(rt.homeDir, "feishu-bridge", "media-outbox"));
+			rt.outbox.enqueueMedia(chatId, staged, opts, { ...meta, kind: "media" });
+			return { ok: true };
+		} catch (error) {
+			return { ok: false, error: error instanceof Error ? error.message.slice(0, 120) : String(error) };
+		}
+	};
+
 	async function assemble(): Promise<void> {
 		const paths = resolvePaths(rt.homeDir);
 		rt.knownChats = new KnownChatStore(paths.knownChatsFile);
@@ -719,16 +731,8 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 				: Promise.resolve(false),
 			cnyPerUsd: (model) => usageProviderFor(rt.config).cnyPerUsd(model),
 			exportsDir: paths.exportsDir,
-			sendLocalFile: (chatId, path, opts, meta) => {
-				if (!rt.outbox) return { ok: false, error: "outbox 不可用" };
-				try {
-					const staged = stageArtifact(validateLocalArtifact(path, dirname(path)), join(rt.homeDir, "feishu-bridge", "media-outbox"));
-					rt.outbox.enqueueMedia(chatId, staged, opts, { ...meta, kind: "media" });
-					return { ok: true };
-				} catch (error) {
-					return { ok: false, error: error instanceof Error ? error.message.slice(0, 120) : String(error) };
-				}
-			},
+			sendLocalFile: sendLocalFileToChat,
+			replyAsFile: (input) => featureHost.first("replyAsFile")?.(input) ?? input.text,
 			pendingFile: join(paths.sessionDir, "..", "pending.jsonl"),
 			// 会话指针持久化 —— /new 后重启仍处于新会话，不回退到旧上下文。
 			conversationFile: join(paths.sessionDir, "..", "conversations.jsonl"),
@@ -871,7 +875,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		rt.status.startedAt = Date.now();
 		updateStatus();
 		try {
-			await featureHost.setup({ rt, log, replier: replierFor, reconnectsLast5m: () => reconnectSupervisor.reconnectsInWindow() });
+			await featureHost.setup({ rt, log, replier: replierFor, sendLocalFile: sendLocalFileToChat, reconnectsLast5m: () => reconnectSupervisor.reconnectsInWindow() });
 			await assemble();
 			await rt.transport!.start();
 			rt.outbox!.start();

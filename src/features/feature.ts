@@ -13,6 +13,7 @@ import type { Transcriber } from "../inbound/stt.js";
 import type { LifecycleEvent } from "../inbound/transport.js";
 import type { CardOps, CardRouter } from "../interaction/card-router.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
+import type { ConversationManagerDeps } from "../session/conversation-manager.js";
 import type { BridgeHookContext } from "../session/pi-bridge-hooks.js";
 import type { BridgeLogger } from "../runtime/logger.js";
 import type { BridgeConfig, FeishuInboundMessage } from "../types.js";
@@ -23,6 +24,8 @@ export interface FeatureContext {
 	log: BridgeLogger;
 	/** 给某条消息回执（文本走持久化发送队列）。 */
 	replier(msg: FeishuInboundMessage): CommandReplier;
+	/** 把本地文件经持久发送队列发到会话。 */
+	sendLocalFile: NonNullable<ConversationManagerDeps["sendLocalFile"]>;
 	/** 近 5 分钟的重连次数。 */
 	reconnectsLast5m(): number;
 }
@@ -46,6 +49,8 @@ export interface FeatureHooks {
 	sendCard?: NonNullable<BridgeHookContext["sendCard"]>;
 	/** 子会话的云文档读取工具（提供了它，子会话里才注册这个工具）。 */
 	readDoc?: NonNullable<BridgeHookContext["readDoc"]>;
+	/** 超长回答转文件：返回要在正文/卡片里展示的文本。 */
+	replyAsFile?: NonNullable<ConversationManagerDeps["replyAsFile"]>;
 	/** 语音转写：资源下载器拿到语音后调用。 */
 	transcribe?: Transcriber;
 	/** `/feishu status` 里追加的行。 */
