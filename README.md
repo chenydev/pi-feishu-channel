@@ -2,8 +2,6 @@
 
 **飞书 / Lark ↔ Pi Agent 桥。** 把 [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 编码助手接进飞书群聊与私聊，带消息可靠性保证、交互式审批、会话管理与可观测性。
 
-> 原名 `pi-feishu-bridge`（0.2.0 及以前，[旧仓库](https://github.com/chenydev/pi-feishu-bridge) 已停止维护）。
->
 > 定位：**面向生产使用的桥**，把「消息不丢、执行不串、出站必达」放在第一位，体验能力（流式、卡片、命令）作为其上增量。
 
 ---
@@ -235,6 +233,7 @@ npm run check     # lint + test（CI 同款）
 | 项目 | 参考点 |
 |---|---|
 | [**pi-feishu-link**](https://www.npmjs.com/package/pi-feishu-link) | **最初的桥接基础**（本桥的前身）。沿用了 `@larksuiteoapi/node-sdk` 的 WS 长连方式、`message_update` 事件通道累积回复文本的做法，以及「处理中表情 → 撤回」的交互惯例 |
+| [**hermes-agent**](https://github.com/NousResearch/hermes-agent) | 飞书网关的行为模型：群策略与每群规则（`group_rules` / `default_group_policy`）、`allow_bots`（含 `mentions`）、@ 触发的两层准入、群内按用户隔离会话、频道提示词（`channel_prompts`）、工具进度展示档位（`display.tool_progress`）、审批卡的文案与配色、重启后续发未完成消息（`resume_pending`） |
 | [**pi-feishu**](https://www.npmjs.com/package/pi-feishu) | 飞书侧消息召回/去重的处理思路 |
 | [**ax-feishu-bridge**](https://www.npmjs.com/package/ax-feishu-bridge) | 会话管理与会话浏览类命令的产品形态 |
 | [**@tunglam/pi-lark-cli**](https://www.npmjs.com/package/@tunglam/pi-lark-cli) | 飞书技能的集成方式（技能包与 CLI 版本配对） |
