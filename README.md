@@ -1,8 +1,8 @@
 # pi-feishu-channel
 
-**飞书 / Lark ↔ Pi Agent 桥。** 把 [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 编码助手接进飞书群聊与私聊，带消息可靠性保证、交互式审批、会话管理与可观测性。
+**Pi 的飞书 / Lark 通道扩展。** 把 [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) 编码助手接进飞书群聊与私聊，带消息可靠性保证、交互式审批、会话管理与可观测性。
 
-> 定位：**面向生产使用的桥**，把「消息不丢、执行不串、出站必达」放在第一位，体验能力（流式、卡片、命令）作为其上增量。
+> 定位：**面向生产使用的通道**，把「消息不丢、执行不串、出站必达」放在第一位，体验能力（流式、卡片、命令）作为其上增量。
 
 ---
 
@@ -91,10 +91,10 @@ pi install -l git:github.com/chenydev/pi-feishu-channel
   `.pi/git/...`），并自动在 clone 里执行 `npm install`。
   - `@larksuiteoapi/node-sdk`（飞书 SDK）是运行依赖；
   - `@earendil-works/pi-coding-agent` 声明为 peer，但 **npm 7+ 会自动把 peer 一起装进 clone**
-    （实测 `pi install` 后 clone 的 `node_modules` 里有它）—— 桥在建子会话时会动态
+    （实测 `pi install` 后 clone 的 `node_modules` 里有它）—— 本扩展在建子会话时会动态
     `import` 它（`src/session/pi-session-backend.ts`），所以这份拷贝不是多余的。
 - 仓库里的 `package.json` 声明了 `pi.extensions: ["./src/index.ts"]`，安装后 pi 启动时
-  自动加载桥的扩展（WS 长连接 daemon、`/feishu` 命令、审批卡、工具进度都在这条扩展里）。
+  自动加载本扩展（WS 长连接 daemon、`/feishu` 命令、审批卡、工具进度都在这条扩展里）。
 - 只想跑一次、不写设置：`pi -e git:github.com/chenydev/pi-feishu-channel`。
 - 看装了什么：`pi list`；卸载：`pi remove git:github.com/chenydev/pi-feishu-channel`。
 
@@ -132,7 +132,7 @@ pi --mode rpc --provider <provider> --model <model>
 扩展随 pi 进程启动。审批的几种工作方式见 [docs/approval.md](docs/approval.md)。
 
 依赖：`@larksuiteoapi/node-sdk`
-peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一并装进 clone；桥用它创建子会话）
+peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一并装进 clone；本扩展用它创建子会话）
 
 ### 飞书应用所需权限
 
@@ -232,7 +232,7 @@ npm run check     # lint + test（CI 同款）
 
 | 项目 | 参考点 |
 |---|---|
-| [**pi-feishu-link**](https://www.npmjs.com/package/pi-feishu-link) | **最初的桥接基础**（本桥的前身）。沿用了 `@larksuiteoapi/node-sdk` 的 WS 长连方式、`message_update` 事件通道累积回复文本的做法，以及「处理中表情 → 撤回」的交互惯例 |
+| [**pi-feishu-link**](https://www.npmjs.com/package/pi-feishu-link) | **最初的接入基础**（本项目的前身）。沿用了 `@larksuiteoapi/node-sdk` 的 WS 长连方式、`message_update` 事件通道累积回复文本的做法，以及「处理中表情 → 撤回」的交互惯例 |
 | [**hermes-agent**](https://github.com/NousResearch/hermes-agent) | 飞书网关的行为模型：群策略与每群规则（`group_rules` / `default_group_policy`）、`allow_bots`（含 `mentions`）、@ 触发的两层准入、群内按用户隔离会话、频道提示词（`channel_prompts`）、工具进度展示档位（`display.tool_progress`）、审批卡的文案与配色、重启后续发未完成消息（`resume_pending`） |
 | [**pi-feishu**](https://www.npmjs.com/package/pi-feishu) | 飞书侧消息召回/去重的处理思路 |
 | [**ax-feishu-bridge**](https://www.npmjs.com/package/ax-feishu-bridge) | 会话管理与会话浏览类命令的产品形态 |
@@ -240,17 +240,19 @@ npm run check     # lint + test（CI 同款）
 
 另有若干**内部产品**在交互模型上给了重要启发（@ 触发的两层模型、回复引用的注入格式、工具审批的卡片形态），因其非公开，此处不列名。
 
-**本项目的差异化**：上述实现多把重心放在「连接与体验」，本桥把重心放在**消息可靠性**（入站待处理记录、出站必达、写入有序、审批生命周期）与**可验收性**（每条不变式都有对应测试与真实环境验收记录）。
+**本项目的差异化**：上述实现多把重心放在「连接与体验」，本项目把重心放在**消息可靠性**（入站待处理记录、出站必达、写入有序、审批生命周期）与**可验收性**（每条不变式都有对应测试与真实环境验收记录）。
 
 依赖与许可：飞书 SDK 为 MIT；本项目沿用其上游许可约束。
 
 ---
 
-## 已知问题
+## 飞书 CardKit 平台约束（本项目已处理）
 
-- **打字机速度必须显式配置**：平台默认是「每次 1 字、间隔 70ms」，500 字要播 35 秒 —— 现象是「服务端早已推完、桌面端还在慢慢吐」。必须传 `streaming_config.print_step` / `print_frequency_ms`（本桥默认 3字/20ms）。
-- **卡片写入不能并发**：并发会让 `sequence` 乱序，飞书侧最终渲染为空白卡片。写入保持严格串行。
-- **`streaming_mode` 不可置 `false`**：置 `false` 后 `/content` 接口不可用（卡片会停在初始文案）。注意它只影响该接口 —— 整组件替换（`PUT /cards/{id}/elements/{eid}`）仍然可用。
+以下是流式卡片接口的平台行为，本项目已在实现中规避，列出供二次开发参考：
+
+- **打字机速度需要显式指定**：平台默认是「每次 1 字、间隔 70ms」，500 字要播 35 秒 —— 现象是「服务端早已推完、桌面端还在慢慢吐」。本项目建卡时总会传 `streaming_config.print_step` / `print_frequency_ms`（默认 50 字 / 50ms），可用 `streamingCard.printStep` / `streamingCard.printFrequencyMs` 调整。
+- **卡片写入不能并发**：并发会让 `sequence` 乱序，飞书侧最终渲染为空白卡片。本项目对同一卡片的写入严格串行，排队期间的新内容合并为一次写入。
+- **`streaming_mode` 不可置 `false`**：置 `false` 后 `/content` 接口不可用（卡片会停在初始文案）。本项目建卡固定为 `true`，收尾也不关闭。注意它只影响该接口 —— 整组件替换（`PUT /cards/{id}/elements/{eid}`）仍然可用。
 - **`partial_strategy` 字段不存在**：`/content` 的请求契约只有 `uuid` / `content` / `sequence`。
 
 ---

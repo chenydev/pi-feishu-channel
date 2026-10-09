@@ -1,7 +1,7 @@
 {
   "name": "pi-feishu-channel",
   "version": "0.2.0",
-  "description": "Feishu/Lark bridge for Pi agent — hermes-grade messaging: per-chat group policy, robust @mention (ID+name+@_all), real reply chain with quoted-text fetch, dedup/batching, WS long-connection daemon.",
+  "description": "Feishu/Lark channel extension for Pi agent — hermes-grade messaging: per-chat group policy, robust @mention (ID+name+@_all), real reply chain with quoted-text fetch, dedup/batching, WS long-connection daemon.",
   "type": "module",
   "main": "src/index.ts",
   "engines": {
@@ -36,7 +36,7 @@
     "pi-extension",
     "feishu",
     "lark",
-    "bridge",
+    "channel",
     "bot"
   ],
   "pi": {
