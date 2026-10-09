@@ -95,6 +95,8 @@ pi install -l git:github.com/chenydev/pi-feishu-channel
     `import` 它（`src/session/pi-session-backend.ts`），所以这份拷贝不是多余的。
 - 仓库里的 `package.json` 声明了 `pi.extensions: ["./src/index.ts"]`，安装后 pi 启动时
   自动加载本扩展（WS 长连接 daemon、`/feishu` 命令、审批卡、工具进度都在这条扩展里）。
+- 同时声明了 `pi.skills: ["./skills"]`，附带运维 skill `feishu-channel-ops`：问 agent 怎么改配置、为什么消息没反应时，
+  它会按这份速查排查（也可以用 `/skill:feishu-channel-ops` 主动加载）。
 - 只想跑一次、不写设置：`pi -e git:github.com/chenydev/pi-feishu-channel`。
 - 看装了什么：`pi list`；卸载：`pi remove git:github.com/chenydev/pi-feishu-channel`。
 

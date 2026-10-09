@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 新增运维 skill `feishu-channel-ops`（`skills/feishu-channel-ops/`，经 `pi.skills` 随包发布）：配置修改、健康检查、
+  消息被丢的排查、常见症状速查和上线验收，供 agent 在配置和排障时加载。
 - 运行环境：最低 Node 版本改为 22（Node 20 已于 2026-04-30 停止维护）；CI 在 Node 22 与 24 上运行。
 - 修复（审批）：pi-permission-system 转发来的审批卡只显示规则匹配到的那一段命令 —— 例如实际执行
   `echo x > ~/.bashrc` 时卡片上只显示 `echo x`。现在显示完整命令，理由里注明规则匹配的部分。
