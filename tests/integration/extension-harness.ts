@@ -55,10 +55,12 @@ export class FakePi {
 export class HeldSessions {
 	private waiting: Array<() => void> = [];
 	readonly prompts: Array<{ conversationKey: string; text: string }> = [];
+	/** 每个会话创建时拿到的工作目录（undefined = 进程启动目录）。 */
+	readonly cwds = new Map<string, string | undefined>();
 	sessionIdFor = (conversationKey: string) => `sid:${conversationKey}`;
 
 	readonly backend: SessionBackend = {
-		createSession: async ({ conversationKey }) => ({
+		createSession: async ({ conversationKey, cwd }) => { this.cwds.set(conversationKey, cwd); return {
 			sessionId: this.sessionIdFor(conversationKey),
 			prompt: async (text: string) => {
 				this.prompts.push({ conversationKey, text });
@@ -69,7 +71,7 @@ export class HeldSessions {
 			abort: async () => {},
 			dispose: async () => {},
 			modelId: "fake-model",
-		}),
+		}; },
 	};
 
 	/** 放行所有停住的轮次。 */

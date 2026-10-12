@@ -59,13 +59,23 @@ export class ConversationCommands {
 	}
 
 	/** 查看当前会话工作区（只显示别名与是否启用，不泄露绝对路径）。 */
-	workspaceInfo(msg: FeishuInboundMessage): string {
-		const aliases = Object.keys(this.deps.config.workspaces?.aliases ?? {});
-		if (aliases.length === 0) return "未配置受控工作区（如需启用，请在 config.json 的 workspaces.aliases 登记别名）";
+	workspaceInfo(msg: FeishuInboundMessage, options: { isAdmin?: boolean } = {}): string {
+		const workspaces = this.deps.config.workspaces;
+		const aliases = workspaces?.aliases ?? {};
+		const manage = "管理员可用 /workspace add <别名> <绝对路径>、/workspace rm <别名>、/workspace default <别名>|reset 管理";
+		if (Object.keys(aliases).length === 0) return `未配置受控工作区，当前使用 pi 进程的启动目录。\n${manage}`;
 		const key = buildConversationKey(msg, this.deps.config);
 		const pointer = this.host.conversationStore?.get(key);
-		const current = this.host.workspaceAliasByKey.get(key) ?? pointer?.workspace ?? this.host.sessions.get(key)?.workspaceAlias;
-		return `当前工作区：${current ?? "默认工作区"}\n可用别名：${aliases.join(" / ")}`;
+		const current = this.host.workspaceAliasByKey.get(key) ?? pointer?.workspace ?? this.host.sessions.get(key)?.workspaceAlias ?? workspaces?.default;
+		const usable = current !== undefined && this.resolveWorkspace(current).ok;
+		// 目录只给管理员看：别名之外的绝对路径对普通成员没有用处
+		const list = Object.entries(aliases).map(([alias, path]) => `· ${alias}${alias === workspaces?.default ? "（默认）" : ""}${options.isAdmin ? `：${path}` : ""}`);
+		return [
+			`当前工作区：${usable ? current : "pi 进程的启动目录"}${current && !usable ? `（${current} 不可用）` : ""}`,
+			"可用工作区：",
+			...list,
+			...(options.isAdmin ? [manage] : []),
+		].join("\n");
 	}
 
 	/**
@@ -74,7 +84,7 @@ export class ConversationCommands {
 	 * 失败时保留当前工作区；**绝不修改进程 cwd**。
 	 */
 	async switchWorkspace(msg: FeishuInboundMessage, alias?: string, options: { isAdmin?: boolean } = {}): Promise<string> {
-		if (!alias) return this.workspaceInfo(msg);
+		if (!alias) return this.workspaceInfo(msg, options);
 		if (!options.isAdmin) return "仅管理员可切换工作区";
 		const key = buildConversationKey(msg, this.deps.config);
 		const session = this.host.sessions.get(key);

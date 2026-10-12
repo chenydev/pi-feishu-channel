@@ -200,7 +200,8 @@ export const fileConfigSchema = z.object({
 		keepOnFinish: m(bool, "回答完成后保留进度消息；设为 false 时撤回"),
 	}).partial(), "处理进度"),
 	workspaces: m(z.object({
-		aliases: m(z.record(z.string(), str), "工作区别名（别名 → 目录）。只能切换到这里列出的目录；空 = 不允许切换工作区"),
+		aliases: m(z.record(z.string(), str), "工作区别名（别名 → 目录）。只能切换到这里列出的目录；空 = 不允许切换工作区。管理员可在运行中用 `/workspace add <别名> <绝对路径>` / `/workspace rm <别名>` 增删"),
+		default: m(str, "新会话默认使用的工作区别名（必须在 `aliases` 里）；不设 = pi 进程的启动目录。可用 `/workspace default <别名>|reset` 修改"),
 	}).partial(), "工作区"),
 	sessionDir: m(str, "保留字段，目前不生效：会话文件固定在运行时目录的 `sessions/` 下"),
 	debug: m(bool, "输出调试日志", { env: "FEISHU_DEBUG" }),

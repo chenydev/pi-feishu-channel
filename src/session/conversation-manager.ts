@@ -1367,9 +1367,10 @@ export class ConversationManager {
 	private getOrCreateSession(msg: FeishuInboundMessage, key: string): BridgeSession {
 		const existing = this.sessions.get(key);
 		if (existing) return existing;
-		// 恢复该会话的工作区（别名 → realpath；配置被移除时退回到默认）
+		// 恢复该会话的工作区（别名 → realpath）；没切换过的会话用 workspaces.default；
+		// 别名已被删除或目录不可用时退回进程启动目录
 		const storedWorkspace = this.conversationStore?.get(key)?.workspace;
-		const effectiveWorkspace = this.workspaceAliasByKey.get(key) ?? storedWorkspace;
+		const effectiveWorkspace = this.workspaceAliasByKey.get(key) ?? storedWorkspace ?? this.deps.config.workspaces?.default;
 		const workspaceResolved = effectiveWorkspace ? this.commands.resolveWorkspace(effectiveWorkspace) : undefined;
 		const session: BridgeSession = {
 			...(workspaceResolved?.ok ? { workspaceAlias: effectiveWorkspace, workspacePath: workspaceResolved.path } : {}),

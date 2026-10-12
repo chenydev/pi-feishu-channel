@@ -4,6 +4,10 @@
 
 ## 未发布
 
+- 工作区：新增 `workspaces.default`，新会话默认在这个工作区里运行（不设仍是 pi 进程的启动目录）。
+  管理员可在运行中用 `/workspace add <别名> <绝对路径>`、`/workspace rm <别名>`、`/workspace default <别名>|reset`
+  增删工作区和设置默认，立即写入配置，不用重启（日志 `feishu.conv.workspace_added` / `workspace_removed` / `workspace_default_changed`）。
+  `/workspace` 列出全部工作区并标出默认；目录只对管理员显示。
 - **破坏性变更（页脚）**：回答页脚改为默认关闭（`footer.enabled` 默认 `false`）。`/feishu footer on|off` 仍只改当前会话；
   新增 `-g` 改全局默认（写入 `footer.enabled`，立即生效），`/feishu footer reset` 让当前会话改回跟随全局。
   日志 `feishu.footer.toggled` 增加 `scope`（`chat` / `global`）。

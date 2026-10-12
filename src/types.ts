@@ -325,7 +325,8 @@ export interface BridgeConfig {
 	 * 受控工作区别名 —— 只允许别名映射到 realpath 白名单目录。
 	 * 空对象 = 功能关闭（默认）；绝对路径/`..`/白名单外的值一律拒绝。
 	 */
-	workspaces: { aliases: Record<string, string> };
+	/** 受控工作区：别名 → 目录；`default` 是新会话默认使用的别名（不设 = pi 进程的启动目录）。 */
+	workspaces: { aliases: Record<string, string>; default?: string };
 	sessionDir: string;
 	debug: boolean;
 	/** 最近已发消息缓存容量（回复判定用） */

@@ -53,7 +53,8 @@
 | `/sessions` `/name` `/resume` | 浏览（卡片，一键恢复）、重命名、恢复历史会话 |
 | `/export [html\|md\|summary]` | 把当前会话导出成文件发到当前聊天 |
 | `/model` `/models` `/thinking` | 切换模型（模糊匹配、最近使用、`-g` 设全局）与思考强度 |
-| `/workspace` | 切换工作区（白名单别名） |
+| `/workspace [别名]` | 查看 / 切换当前会话的工作区（只能切到登记过的别名；切换仅管理员） |
+| `/workspace add <别名> <绝对路径>` `/workspace rm <别名>` `/workspace default <别名>\|reset` | 运行中增删工作区、设置新会话的默认工作区，立即写入配置，不用重启（管理员） |
 | `/cron add "<表达式>" <任务>` `list` `rm` `pause` `resume` | 定时任务（管理员，需 `cron.enabled`） |
 | `!<命令>` | 管理员直接执行 shell 命令（需 `directBash.enabled`） |
 | `/feishu status` `/feishu doctor` `/feishu export` | 状态、可解释诊断、脱敏诊断包导出 |

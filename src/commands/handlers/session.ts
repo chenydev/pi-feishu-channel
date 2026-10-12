@@ -1,8 +1,12 @@
 /**
  * 对话与会话类命令：新会话、停止、排队、插话、重试、撤销、分叉、导出、压缩、历史会话、工作区。
  */
+import { realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 import type { CommandHandler } from "../dispatch.js";
 import type { CommandServices } from "./services.js";
+import { saveConfigFields } from "../../config.js";
 import { buildConversationKey } from "../../session/conversation-key.js";
 import type { FeishuInboundMessage } from "../../types.js";
 import { buildNewSessionCard, buildSessionsCard } from "../cards.js";
@@ -95,8 +99,13 @@ export function sessionCommands(svc: CommandServices): Record<string, CommandHan
 		"/resume": async ({ msg, args, reply }) => {
 			reply(await svc.rt.convManager?.commands.resumeConversation(msg, args[0]) ?? "会话不可用");
 		},
-		"/workspace": async ({ msg, args, isAdmin, reply }) => {
-			// 查看（任何人）/ 切换（仅管理员）
+		"/workspace": async ({ msg, args, rest, isAdmin, reply }) => {
+			// 查看（任何人）/ 切换、增删、设默认（仅管理员）
+			const sub = args[0]?.toLowerCase();
+			if (sub === "add" || sub === "rm" || sub === "default") {
+				reply(isAdmin ? manageWorkspaces(svc, msg, sub, args[1], rest) : "仅管理员或应用归属人可管理工作区");
+				return;
+			}
 			reply(await svc.rt.convManager?.commands.switchWorkspace(msg, args[0], { isAdmin }) ?? "会话不可用");
 		},
 	};
@@ -105,4 +114,67 @@ export function sessionCommands(svc: CommandServices): Record<string, CommandHan
 /** 会话是否多人共用（话题、不按人隔离的群）：导出这类会话要二次确认。 */
 function isSharedConversation(svc: CommandServices, msg: FeishuInboundMessage): boolean {
 	return buildConversationKey(msg, svc.rt.config).includes(":t:") || (msg.chatType === "group" && !svc.rt.config.groupSessionsPerUser);
+}
+
+/** 别名：字母、数字、下划线、连字符（含中文），不能和子命令重名；不允许 `.`，否则写回配置时会被当成路径分隔。 */
+const WORKSPACE_ALIAS = /^[\p{L}\p{N}_-]{1,32}$/u;
+const WORKSPACE_SUBCOMMANDS = new Set(["add", "rm", "default", "reset"]);
+
+/**
+ * `/workspace add <别名> <绝对路径>` / `rm <别名>` / `default <别名>|reset`：运行中增删工作区，立即写回配置。
+ * 只校验目录存在；能把 agent 指到哪里由管理员决定（命令本身仅管理员可用）。
+ */
+function manageWorkspaces(svc: CommandServices, msg: FeishuInboundMessage, sub: "add" | "rm" | "default", alias: string | undefined, rest: string): string {
+	const { rt, log } = svc;
+	const workspaces = rt.config.workspaces ?? { aliases: {} };
+	const aliases = workspaces.aliases ?? {};
+	const save = (next: typeof workspaces, field: string): boolean => {
+		const previous = rt.config.workspaces;
+		rt.config.workspaces = next;
+		if (saveConfigFields(rt.homeDir, rt.config, [field])) return true;
+		rt.config.workspaces = previous;
+		return false;
+	};
+
+	if (sub === "add") {
+		const path = expandHome(rest.replace(/^\s*add\s+\S+/i, "").trim());
+		if (!alias || !path) return "用法：/workspace add <别名> <绝对路径>";
+		if (!WORKSPACE_ALIAS.test(alias) || WORKSPACE_SUBCOMMANDS.has(alias.toLowerCase())) return "别名只能用字母、数字、中文、下划线和连字符（不超过 32 个字），且不能是 add / rm / default / reset";
+		if (aliases[alias]) return `别名已存在：${alias}（${aliases[alias]}）。要改目录请先 /workspace rm ${alias}`;
+		if (!isAbsolute(path)) return "请给出绝对路径（可以用 ~/ 开头）";
+		try {
+			if (!statSync(realpathSync(path)).isDirectory()) return `不是目录：${path}`;
+		} catch {
+			return `目录不存在或不可访问：${path}`;
+		}
+		if (!save({ ...workspaces, aliases: { ...aliases, [alias]: path } }, `workspaces.aliases.${alias}`)) return "工作区写入配置失败，运行态未修改";
+		log.info("feishu.conv.workspace_added", { alias, operator: msg.senderId });
+		return `已添加工作区 ${alias}：${path}\n用 /workspace ${alias} 切换当前会话；/workspace default ${alias} 设为新会话默认`;
+	}
+
+	if (sub === "rm") {
+		if (!alias) return "用法：/workspace rm <别名>";
+		if (!aliases[alias]) return `没有这个工作区：${alias}`;
+		if (workspaces.default === alias) return `${alias} 是默认工作区，先用 /workspace default reset 或改成别的再删除`;
+		const { [alias]: _removed, ...remaining } = aliases;
+		if (!save({ ...workspaces, aliases: remaining }, `workspaces.aliases.${alias}`)) return "工作区写入配置失败，运行态未修改";
+		log.info("feishu.conv.workspace_removed", { alias, operator: msg.senderId });
+		return `已删除工作区 ${alias}。正在用它的会话不受影响，下次新建会话时回到默认工作区`;
+	}
+
+	if (!alias) return "用法：/workspace default <别名>|reset";
+	if (alias.toLowerCase() === "reset") {
+		const { default: _previous, ...withoutDefault } = workspaces;
+		if (!save(withoutDefault, "workspaces.default")) return "工作区写入配置失败，运行态未修改";
+		log.info("feishu.conv.workspace_default_changed", { alias: null, operator: msg.senderId });
+		return "已清除默认工作区：新会话使用 pi 进程的启动目录（没切换过工作区的已有会话在 /new 或重启后生效）";
+	}
+	if (!aliases[alias]) return `没有这个工作区：${alias}（先 /workspace add ${alias} <绝对路径>）`;
+	if (!save({ ...workspaces, default: alias }, "workspaces.default")) return "工作区写入配置失败，运行态未修改";
+	log.info("feishu.conv.workspace_default_changed", { alias, operator: msg.senderId });
+	return `默认工作区：${alias}（新会话生效；没切换过工作区的已有会话在 /new 或重启后生效，也可以用 /workspace ${alias} 立即切换）`;
+}
+
+function expandHome(path: string): string {
+	return path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
 }

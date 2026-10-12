@@ -42,7 +42,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 	{ name: "/name", usage: "/name <名称>", description: "重命名当前会话", group: "会话" },
 	{ name: "/fork", usage: "/fork [#N]", description: "从第 N 条用户消息处分叉出新会话", group: "会话" },
 	{ name: "/export", usage: "/export [html|md|summary]", description: "把当前会话导出成文件发到这里", group: "会话" },
-	{ name: "/workspace", usage: "/workspace [别名]", description: "查看（任何人）/切换（管理员）受控工作区", group: "会话" },
+	{ name: "/workspace", usage: "/workspace [别名] | add <别名> <绝对路径> | rm <别名> | default <别名>|reset", description: "查看（任何人）/切换、增删、设默认（管理员）受控工作区", group: "会话" },
 	{ name: "/cron", usage: "/cron add \"<表达式>\" <任务> | list | rm <id> | pause <id> | resume <id>", description: "定时任务（管理员）", group: "会话", adminOnly: true },
 	// ---- 管理 ----
 	{ name: "/help", aliases: ["/h", "/?", "/commands", "/feishu help"], usage: "/help", description: "本帮助", group: "管理" },

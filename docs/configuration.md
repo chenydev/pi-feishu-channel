@@ -246,7 +246,8 @@
 
 | 字段 | 类型 | 默认 | 环境变量 | 说明 |
 |---|---|---|---|---|
-| `workspaces.aliases` | { [id]: string } | `{}` |  | 工作区别名（别名 → 目录）。只能切换到这里列出的目录；空 = 不允许切换工作区 |
+| `workspaces.aliases` | { [id]: string } | `{}` |  | 工作区别名（别名 → 目录）。只能切换到这里列出的目录；空 = 不允许切换工作区。管理员可在运行中用 `/workspace add <别名> <绝对路径>` / `/workspace rm <别名>` 增删 |
+| `workspaces.default` | string | — |  | 新会话默认使用的工作区别名（必须在 `aliases` 里）；不设 = pi 进程的启动目录。可用 `/workspace default <别名>\|reset` 修改 |
 
 ## `agentContext`：给 agent 的上下文
 

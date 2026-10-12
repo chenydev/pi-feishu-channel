@@ -117,7 +117,8 @@ test("工作区切换：非管理员无权切换（但可以查看）", async ()
 		const denied = await manager.commands.switchWorkspace(message("m1"), "workspace", { isAdmin: false });
 		assert.ok(denied.includes("仅管理员"), denied);
 		const info = await manager.commands.switchWorkspace(message("m1"), undefined, { isAdmin: false });
-		assert.ok(info.includes("可用别名：workspace"), info);
+		assert.ok(info.includes("可用工作区：\n· workspace"), info);
+		assert.ok(!info.includes(ws), "普通成员看不到目录");
 		assert.ok(!info.includes(dir), "查看信息不得泄露绝对路径");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
