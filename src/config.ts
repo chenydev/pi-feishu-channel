@@ -403,7 +403,7 @@ function withoutEnvCredentials(cfg: BridgeConfig, fileCfg: Partial<BridgeConfig>
 	// 启动时查询得到的字段绝不写回文件（换应用后必须重新查询）
 	delete out.implicitAdmins;
 	delete out.appOwnerId;
-	delete out.appCollaboratorIds;
+	delete out.appAdminIds;
 	for (const [key, envKey] of [["appId", "FEISHU_APP_ID"], ["appSecret", "FEISHU_APP_SECRET"]] as const) {
 		if (!env[envKey]) continue;
 		if (fileCfg[key] === undefined) delete out[key];

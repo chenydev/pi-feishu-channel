@@ -2,7 +2,7 @@
  * 开通申请：未放行的群里有人 @ 机器人 → 找管理员审批。
  *
  * 路由规则：
- * - 管理员（应用归属人、协作者、config.admins）有人在群里 → 审批卡直接发在群里，@ 这些人，并回复申请人那条消息；
+ * - 管理员（应用归属人、应用管理员、config.admins）有人在群里 → 审批卡直接发在群里，@ 这些人，并回复申请人那条消息；
  * - 没有 → 私聊应用归属人（拿不到归属人时私聊全体管理员，最多 5 人），群里回复申请人"已发给谁"。
  *
  * 限流：同一个群在冷却期内只发一次审批；期间再有人 @，每人最多提醒一次"已在审批中"；
@@ -16,12 +16,12 @@ export interface AccessRequestPlan {
 }
 
 export interface PlanInput {
-	/** 全部可审批的人（归属人 + 协作者 + config.admins），**已按角色排好序**（归属人在前）。 */
+	/** 全部可审批的人（归属人 + 应用管理员 + config.admins），**已按角色排好序**（归属人在前）。 */
 	admins: string[];
 	/** 应用归属人。 */
 	ownerId?: string;
-	/** 应用协作者（不含归属人）。 */
-	collaboratorIds?: string[];
+	/** 应用管理员（不含归属人）。 */
+	appAdminIds?: string[];
 	/** 群成员 open_id；undefined = 拿不到（缺权限或接口失败）。 */
 	groupMembers?: ReadonlySet<string>;
 	/** 申请人（本身就是管理员时，一定在群里）。 */
@@ -29,12 +29,12 @@ export interface PlanInput {
 }
 
 export function planAccessRequest(input: PlanInput): AccessRequestPlan {
-	// admins 已按角色排序：@ 的顺序即优先级（归属人 → 协作者 → 管理员）
+	// admins 已按角色排序：@ 的顺序即优先级（归属人 → 应用管理员 → 管理员）
 	const inGroup = input.admins.filter((id) => id === input.requesterId || input.groupMembers?.has(id));
 	if (inGroup.length > 0) return { mode: "group", approvers: inGroup.slice(0, 5) };
-	// 都不在群里：私聊归属人；没有归属人找协作者；再没有找管理员
+	// 都不在群里：私聊归属人；没有归属人找应用管理员；再没有找管理员
 	if (input.ownerId) return { mode: "dm", approvers: [input.ownerId] };
-	if (input.collaboratorIds?.length) return { mode: "dm", approvers: input.collaboratorIds.slice(0, 5) };
+	if (input.appAdminIds?.length) return { mode: "dm", approvers: input.appAdminIds.slice(0, 5) };
 	if (input.admins.length > 0) return { mode: "dm", approvers: input.admins.slice(0, 5) };
 	return { mode: "none", approvers: [] };
 }

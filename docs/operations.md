@@ -37,7 +37,7 @@
 |---|---|
 | `credentials`、`bot_identity`、`feishu_scopes` | 凭据、机器人身份、开放平台权限 |
 | `transport`、`connection_stability`、`status_heartbeat` | 连接状态、抖动、心跳是否过期 |
-| `permissions`、`access_approvers` | 有效管理员（显式配置 + 应用归属人 / 协作者）、谁能批准开通 |
+| `permissions`、`access_approvers` | 有效管理员（显式配置 + 应用归属人 / 应用管理员）、谁能批准开通 |
 | `config_fields` | 配置里无法识别的字段（通常是拼错了）；不报错，只提示 |
 | `backlog`、`pending_work`、`rate_budget`、`error_state` | 积压、未完成任务、限流冷却、最近错误类别 |
 | `approval_mode` | 全局审批模式（关闭 / 内置 / 插件）及来源；会话里的临时设置看 `/feishu approvals` |
@@ -96,6 +96,7 @@
 | 连接反复断开又连上 | 同一个应用被多个进程同时连接 | 同一个应用只能有一个实例；锁冲突时启动报错 `bridge already running for appId …` |
 | 审批卡没弹，命令直接执行了 | 审批模式是关闭（默认）；或策略里只有允许 / 拒绝，没有需要审批的规则 | `/feishu approvals` 看模式和来源；再查命令分级或 pi-permission-system 的规则 |
 | 审批模式已关闭，仍有调用被拒绝 | 装了 pi-permission-system，它的拦截不受本扩展的模式影响 | 卸掉插件或在它的配置里放行 |
+| 应用归属人 / 应用管理员不被当作管理员 | 应用没开 `application:application:readonly`，或协作者接口查询失败；开发者、运营本来就不算 | 看日志 `feishu.config.app_owner_hydrated`（各角色人数）或 `*_hydrate_failed`；开通权限后重启，或把 open_id 写进 `admins` |
 | 点审批卡提示「已失效」 | 超时（默认 5 分钟），或这一轮已经结束 | 尽快点；或调大 `approval.timeoutMs` |
 | 回复半截，或提示「回复发送失败」 | 编辑次数用尽、没有发言权限、接口持续报错 | 看 `feishu.outbox.failed` 的 `lastError` |
 | 页脚费用一直显示「未知」 | 模型配置里没有费率 | 在 pi 的模型配置里补上 `cost` |

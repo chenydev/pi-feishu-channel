@@ -151,7 +151,7 @@ export function runDoctor(input: {
 		{ name: "bot_identity", ok: Boolean(input.transport?.getBotIdentity().openId), detail: input.transport?.getBotIdentity().openId ? "已获取" : "未取得 open_id" },
 		{ name: "session_dir", ok: existsSync(input.paths.sessionDir) && writable(input.paths.sessionDir), detail: input.paths.sessionDir },
 		{ name: "outbox_dir", ok: existsSync(outboxParent) && writable(outboxParent), detail: outboxParent },
-		// 必须看「有效管理员」= 显式 admins + 启动时从开放平台查到的归属人/协作者。
+		// 必须看「有效管理员」= 显式 admins + 启动时从开放平台查到的归属人/应用管理员。
 		// 只看 config.admins 会误报：admins 常常是空的（本来就靠启动时自动查到的归属人），
 		// 而判定链全部走 effectiveAdmins —— 只看 admins 会谎报"审批将默认拒绝"，
 		// 实际审批卡是点得动的。
@@ -162,7 +162,7 @@ export function runDoctor(input: {
 				name: "permissions",
 				ok: effective.length > 0,
 				detail: effective.length > 0
-					? `可审批 ${effective.length} 人：应用归属人 ${counts.owner} · 应用协作者 ${counts.collaborator} · 管理员（config.admins）${counts.admin}`
+					? `可审批 ${effective.length} 人：应用归属人 ${counts.owner} · 应用管理员 ${counts.app_admin} · 管理员（config.admins）${counts.admin}`
 					: "没有任何管理员（显式与隐式都为空）—— 审批卡将无人能点（默认拒绝）。"
 						+ "请确认能查到应用归属人（需要 application:application:readonly scope），或在 config.json 的 admins 里显式配置。",
 			};

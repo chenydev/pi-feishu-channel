@@ -64,7 +64,7 @@ export const fileConfigSchema = z.object({
 	allowChats: m(strList, "允许使用机器人的群 id。**空数组 = 拒绝所有群**", { env: "FEISHU_ALLOW_CHATS" }),
 	allowUsers: m(strList, "允许私聊机器人的用户 open_id。**空数组 = 拒绝所有私聊**；管理员与应用归属人始终可以私聊", { env: "FEISHU_ALLOW_USERS" }),
 	adminBypassMention: m(bool, "管理员与应用归属人在群里是否可以不 @ 机器人直接触发"),
-	admins: m(strList, "管理员 open_id。管理员不受群策略限制（是否仍需 @ 见 `adminBypassMention`），可以审批工具调用、执行管理命令。应用归属人与协作者启动时自动识别，不用写进来", { env: "FEISHU_ADMINS" }),
+	admins: m(strList, "管理员 open_id。管理员不受群策略限制（是否仍需 @ 见 `adminBypassMention`），可以审批工具调用、执行管理命令。应用归属人与应用管理员启动时自动识别，不用写进来", { env: "FEISHU_ADMINS" }),
 	allowBots: m(strList, "允许触发机器人的其它机器人或应用：`app_id`（`cli_` 开头，换应用也不变，推荐）、机器人的 open_id（换应用后会变），或特殊值 `\"mentions\"`（任何 @ 了本机器人的机器人都放行）。空数组 = 拒绝所有机器人发的消息"),
 	runIdleTimeoutMs: m(nonNegative, "一轮任务连续多久没有任何进展就中止（毫秒；0 = 不限制）"),
 	runMaxDurationMs: m(nonNegative, "一轮任务的总时长上限（毫秒；0 = 不限制）"),
@@ -136,7 +136,7 @@ export const fileConfigSchema = z.object({
 		notifyAdmins: m(bool, "未放行的群里有人 @ 机器人时提示管理员", { default: "true" }),
 		accessRequest: m(bool, "开通申请：未放行的群里有人 @ 机器人时，把申请发给能审批的人（在群里弹审批卡，或私聊应用归属人），放行后通知申请人（可选能力，默认关闭）", { default: "false" }),
 		accessRequestCooldownMs: m(nonNegative, "同一个群两次开通申请的最短间隔（毫秒）", { default: "3600000" }),
-		accessApprovers: m(choice(["owner", "owner_collaborators", "all"], "开通审批人范围"), "谁能审批群开通：`owner` 只有应用归属人；`owner_collaborators` 加上应用协作者；`all` 再加上 `admins`", { default: "\"owner\"" }),
+		accessApprovers: m(choice(["owner", "owner_admins", "all"], "开通审批人范围"), "谁能审批群开通：`owner` 只有应用归属人；`owner_admins` 加上应用管理员；`all` 再加上 `admins`", { default: "\"owner\"" }),
 	}).partial(), "入群与开通"),
 	feedback: m(z.object({
 		enabled: m(bool, "统计用户对回复点的 👍 / 👎（只记计数）", { default: "true" }),
@@ -219,7 +219,7 @@ export const fileConfigSchema = z.object({
 	}).partial(), "长连接"),
 	implicitAdmins: m(strList, "启动时查询得到的应用归属人等隐式管理员。不要手写，也不会写回文件", { runtime: true }),
 	appOwnerId: m(str, "启动时查询得到的应用归属人 open_id", { runtime: true }),
-	appCollaboratorIds: m(strList, "启动时查询得到的应用协作者 open_id", { runtime: true }),
+	appAdminIds: m(strList, "启动时查询得到的应用管理员 open_id", { runtime: true }),
 }).partial();
 
 /** 配置文件的类型（全部字段可选；由 schema 推导）。 */

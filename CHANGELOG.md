@@ -4,6 +4,11 @@
 
 ## 未发布
 
+- **破坏性变更（管理员）**：启动时识别的隐式管理员只认应用归属人和协作者里的**应用管理员**（`type: administrator`）；
+  开发者、运营以及角色不明的协作者不再当作管理员（此前所有协作者都算，能点审批卡、用管理员命令、绕过私聊白名单）。
+  `onboarding.accessApprovers` 的 `owner_collaborators` 改为 `owner_admins`，运行时字段 `appCollaboratorIds` 改为 `appAdminIds`。
+  启动日志 `feishu.config.app_owner_hydrated` 增加各角色人数（`appAdminCount`、`excludedCollaborators`）；
+  角色不明时告警 `feishu.config.app_collaborator_type_unknown`。README「所需权限」补上 `application:application:readonly`。
 - 审批：内置审批下 `feishu_ask`（向会话提选择题）不再弹审批卡 —— 它本身就在等人回答，不产生副作用。
   `pi-permission-system` 模式下仍由 pi-permission-system 的规则决定。
 - **破坏性变更（审批）**：审批改为默认关闭。字段 `approval.policyEngine` 改为 `approval.mode`，取值

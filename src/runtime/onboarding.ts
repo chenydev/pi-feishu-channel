@@ -40,7 +40,7 @@ export class Onboarding {
 		return accessApproverPolicy(this.rt.config.onboarding?.accessApprovers);
 	}
 
-	/** 带角色的 @ 列表（卡片 markdown）："应用归属人 @张三、应用协作者 @李四"。 */
+	/** 带角色的 @ 列表（卡片 markdown）："应用归属人 @张三、应用管理员 @李四"。 */
 	atByRole(ids: string[]): string {
 		return describeByRole(this.rt.config, ids, (id) => atList([id]));
 	}

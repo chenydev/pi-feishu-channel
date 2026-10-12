@@ -50,7 +50,7 @@ export const accessRequestFeature: BridgeFeature = {
 
 /**
  * 开通申请：未放行的群里有人 @ 机器人。
- * 管理员（归属人/协作者/admins）有人在群里 → 群里弹审批卡并 @ 他们（回复申请人那条消息）；
+ * 管理员（归属人/应用管理员/admins）有人在群里 → 群里弹审批卡并 @ 他们（回复申请人那条消息）；
  * 否则私聊应用归属人，群里回告申请人"已发给谁"。同一个群冷却期内只申请一次。
  */
 async function requestChatAccess({ rt, log, onboarding }: FeatureContext, tracker: AccessRequestTracker, msg: FeishuInboundMessage): Promise<void> {
@@ -72,7 +72,7 @@ async function requestChatAccess({ rt, log, onboarding }: FeatureContext, tracke
 	const plan = planAccessRequest({
 		admins: eligible,
 		ownerId: rt.config.appOwnerId && eligible.includes(rt.config.appOwnerId) ? rt.config.appOwnerId : undefined,
-		collaboratorIds: rt.config.appCollaboratorIds?.filter((id) => eligible.includes(id)),
+		appAdminIds: rt.config.appAdminIds?.filter((id) => eligible.includes(id)),
 		groupMembers: members, requesterId: msg.senderId,
 	});
 	if (plan.mode === "none") {
@@ -80,7 +80,7 @@ async function requestChatAccess({ rt, log, onboarding }: FeatureContext, tracke
 			chatId: msg.chatId, policy,
 			hint: policy === "owner"
 				? "accessApprovers=owner 但没有查到应用归属人（需要 application:application:readonly 权限）；或把 onboarding.accessApprovers 放宽"
-				: "按 onboarding.accessApprovers 没有任何可审批的人（查询归属人/协作者失败且 config.admins 为空）",
+				: "按 onboarding.accessApprovers 没有任何可审批的人（查询归属人/应用管理员失败且 config.admins 为空）",
 		});
 		await onboarding.sendChatCard(msg.chatId, buildAccessNoticeCard(`${atList([msg.senderId])} 本群还没有开通机器人，暂时找不到可以审批的人，请联系应用归属人开通。`, "grey"), replyOpts, "no_approver");
 		return;

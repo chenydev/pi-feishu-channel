@@ -96,8 +96,8 @@ export interface BridgeConfig {
 	implicitAdmins?: string[];
 	/** 启动时查询得到：应用归属人 open_id（不落盘）。展示与开通申请私聊用。 */
 	appOwnerId?: string;
-	/** 启动时查询得到：应用协作者 open_id（不含归属人，不落盘）。 */
-	appCollaboratorIds?: string[];
+	/** 启动时查询得到：应用管理员 open_id（不含归属人，不落盘）。 */
+	appAdminIds?: string[];
 	/** 管理员 open_id；豁免群策略层（@ 层由 adminBypassMention 决定） */
 	admins: string[];
 	/**
@@ -238,9 +238,9 @@ export interface BridgeConfig {
 		accessRequestCooldownMs?: number;
 		/**
 		 * 谁能审批群开通（点"放行此群 / 暂不放行"，也决定申请发给谁）。默认 `owner`：仅应用归属人。
-		 * `owner_collaborators` = 归属人 + 应用协作者；`all` = 再加 config.admins。
+		 * `owner_admins` = 归属人 + 应用管理员；`all` = 再加 config.admins。
 		 */
-		accessApprovers?: "owner" | "owner_collaborators" | "all";
+		accessApprovers?: "owner" | "owner_admins" | "all";
 	};
 	/** 表情反馈统计（默认开，只记计数）与 agent 自定义卡片工具（默认关）。 */
 	feedback?: { enabled?: boolean };

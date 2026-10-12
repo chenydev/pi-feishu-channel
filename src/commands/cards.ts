@@ -193,7 +193,7 @@ export interface AccessRequestCardInput {
 	chatName?: string;
 	requesterId: string;
 	approvers: string[];
-	/** 带角色的审批人描述（"应用归属人 <at> 、应用协作者 <at>"）；缺省只列 @。 */
+	/** 带角色的审批人描述（"应用归属人 <at> 、应用管理员 <at>"）；缺省只列 @。 */
 	approverLabel?: string;
 	/** 谁能点（"仅应用归属人"）；缺省不写。 */
 	approverHint?: string;

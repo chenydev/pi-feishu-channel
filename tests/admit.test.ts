@@ -126,7 +126,7 @@ test("DM：管理员与应用归属人即使不在 allowUsers 里也放行", () 
 	const lastSent = new LastSentCache(8);
 	// 显式管理员
 	assert.deepEqual(admit(cfg({ admins: ["ou_user"] }), msg, false, false, lastSent), { ok: true });
-	// 应用归属人 / 协作者（启动时查询后写入 implicitAdmins）
+	// 应用归属人 / 应用管理员（启动时查询后写入 implicitAdmins）
 	assert.deepEqual(admit(cfg({ implicitAdmins: ["ou_user"] }), msg, false, false, lastSent), { ok: true });
 	// 既不是管理员也不是归属人 → 拒绝
 	assert.equal(verdictOf(admit(cfg({ implicitAdmins: ["ou_someone_else"] }), msg, false, false, lastSent)), "dm_policy_rejected");

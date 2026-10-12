@@ -12,14 +12,14 @@ test("开通申请路由：管理员有人在群里 → 群里弹卡，按角色
 	assert.deepEqual(plan, { mode: "group", approvers: [OWNER, COLLAB] });
 });
 
-test("开通申请路由：只有协作者在群里也在群里弹卡（不打扰不在群里的归属人）", () => {
+test("开通申请路由：只有应用管理员在群里也在群里弹卡（不打扰不在群里的归属人）", () => {
 	const plan = planAccessRequest({ admins: [OWNER, COLLAB], ownerId: OWNER, groupMembers: new Set(["ou_x", COLLAB]), requesterId: "ou_x" });
 	assert.deepEqual(plan, { mode: "group", approvers: [COLLAB] });
 });
 
 test("开通申请路由：管理员都不在群里 → 私聊归属人；没有归属人 → 私聊全体管理员", () => {
 	assert.deepEqual(planAccessRequest({ admins: [OWNER, ADMIN], ownerId: OWNER, groupMembers: new Set(["ou_x"]), requesterId: "ou_x" }), { mode: "dm", approvers: [OWNER] });
-	assert.deepEqual(planAccessRequest({ admins: [COLLAB, ADMIN], collaboratorIds: [COLLAB], groupMembers: new Set(["ou_x"]), requesterId: "ou_x" }), { mode: "dm", approvers: [COLLAB] }, "没有归属人先找协作者");
+	assert.deepEqual(planAccessRequest({ admins: [COLLAB, ADMIN], appAdminIds: [COLLAB], groupMembers: new Set(["ou_x"]), requesterId: "ou_x" }), { mode: "dm", approvers: [COLLAB] }, "没有归属人先找应用管理员");
 	assert.deepEqual(planAccessRequest({ admins: [ADMIN], groupMembers: new Set(["ou_x"]), requesterId: "ou_x" }), { mode: "dm", approvers: [ADMIN] });
 	assert.deepEqual(planAccessRequest({ admins: [], groupMembers: new Set(), requesterId: "ou_x" }), { mode: "none", approvers: [] });
 });

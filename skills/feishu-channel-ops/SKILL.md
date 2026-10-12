@@ -39,7 +39,7 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 | 群里不 @ 也响应 | `groupPolicy` / `groupRules.<群id>.policy` 设为 `open` |
 | 只让部分人在某群使用 | `groupRules.<群id>.policy: "allowlist"` + `allowlist` |
 | 让其它机器人 / webhook 触发 | `allowBots` 加 `"mentions"`（任何 @ 了本机器人的 bot 都放行，不依赖 id，换应用不失效）；或加对方 `app_id` |
-| 指定管理员 | `admins`（open_id）。应用归属人和协作者启动时自动识别，**不用写** |
+| 指定管理员 | `admins`（open_id）。应用归属人和应用管理员启动时自动识别（开发者、运营不算），**不用写** |
 | 限制某群可用的工具 | `groupRules.<群id>.tools`：`readonly` / `standard` / `full` / 工具名数组 |
 
 open_id 是**按应用生成**的：换了飞书应用，`admins`、`allowUsers`、`groupRules` 里的 open_id 和 `allowBots` 里的机器人 open_id 全部要重新确认。
@@ -98,7 +98,8 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 每开一个会话多一条 `ws_ready` | 子会话没剔除本扩展 | `feishu.session.resource_loader_ready` 的 `strippedGateways` 应为 1 |
 | 审批卡没弹，命令直接执行 | 审批模式是关闭（默认）；用 pi-permission-system 时没配「询问」规则；或内置分级判为只读 | 查 `/feishu approvals` 的模式和来源、PS 规则 |
 | 审批已关闭，仍有调用被拒 | 装了 pi-permission-system，不受本扩展模式影响 | 卸插件或在它的配置里放行 |
-| 审批卡点不动 | 点的人不是管理员 | 加进 `admins`，或由归属人点 |
+| 审批卡点不动 | 点的人不是管理员（协作者里的开发者、运营不算） | 加进 `admins`，或由归属人 / 应用管理员点 |
+| 归属人 / 应用管理员没被识别 | 缺 `application:application:readonly` 或协作者接口失败 | 看 `feishu.config.app_owner_hydrated` / `*_hydrate_failed`；开权限后重启，或写进 `admins` |
 | 点卡片提示「已失效」 | 超时（默认 5 分钟）或这一轮已结束 | 尽快点；或调大 `approval.timeoutMs` |
 | PS 的「询问」全被拒绝 | 没开转发 | `approval.mode: "pi-permission-system"` 与 `approval.forwarding.enabled: true` **一起开** |
 | 回复半截 / 「回复发送失败」 | 编辑次数用尽、无发言权限、接口报错 | `feishu.outbox.failed` 的 `lastError` |

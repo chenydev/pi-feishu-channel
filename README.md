@@ -66,7 +66,7 @@
 
 - 群策略：`open` / `mention` / `disabled` / `allowlist` / `blacklist` / `admin_only`，支持每群覆盖
 - 管理员语义分两层：**策略层**豁免（`admin_only` 等），**@ 层**默认不豁免（`adminBypassMention`）
-- 应用**归属人自动成为管理员**（启动时查询）（换应用后重启自动刷新，不写配置文件）
+- 应用**归属人和应用管理员自动成为管理员**（启动时查询；协作者里的开发者、运营不算）（换应用后重启自动刷新，不写配置文件）
 - `allowBots` 白名单：允许自定义机器人 / webhook 驱动
 - `ignoreAtAll`：默认过滤 `@所有人`
 
@@ -144,6 +144,7 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 | `im:message.reaction:write` | 处理中表情 |
 | `im:chat:readonly` | 群信息 |
 | `cardkit:card:write` | **可选**：CardKit 流式卡片（未授权时自动降级为文本） |
+| `application:application:readonly` | **可选**：启动时查询应用归属人和应用管理员，自动当作管理员（查不到时只有 `admins` 生效，日志 `feishu.config.app_owner_hydrate_failed` / `app_collaborators_hydrate_failed`） |
 
 订阅事件：`im.message.receive_v1`；卡片交互需订阅 `card.action.trigger`。
 
