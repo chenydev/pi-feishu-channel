@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 修复（审批）：PS 转来的审批卡上点「始终批准」，会把工具名（如 `bash`）写进 `approval.autoApprove`，点「本会话批准」会记成
+  本会话免审该工具；之后切回内置审批，这个工具就全部免审。外部来源的审批卡现在只由外部来源自己记录选择。
 - 工作区：新增 `workspaces.default`，新会话默认在这个工作区里运行（不设仍是 pi 进程的启动目录）。
   管理员可在运行中用 `/workspace add <别名> <绝对路径>`、`/workspace rm <别名>`、`/workspace default <别名>|reset`
   增删工作区和设置默认，立即写入配置，不用重启（日志 `feishu.conv.workspace_added` / `workspace_removed` / `workspace_default_changed`）。

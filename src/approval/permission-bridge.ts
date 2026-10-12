@@ -43,6 +43,12 @@ export interface PendingApproval {
 	 */
 	choices?: ApprovalChoice[];
 	/**
+	 * 外部审批源登记的审批（requestExternal）。「本会话批准」「始终批准」由外部审批源自己记
+	 * （pi-permission-system 按规则名记），桥不把工具名写进会话授权或 `approval.autoApprove` ——
+	 * 否则在 PS 模式下批一次 bash，切回内置审批后所有 bash 都免审。
+	 */
+	external?: boolean;
+	/**
 	 * 用户实际点的选项（超时/失效/被撤销时没有）。
 	 * 转发响应必须区分「仅本次」与「本会话」（对应 PS 的 approved / approved_for_session）。
 	 */
@@ -144,7 +150,7 @@ export class PermissionBridge {
 		});
 		if (decision !== "ask") return { decision };
 		// 同一 run 里已有同类请求在等审批 → 并到那张卡上（不连续弹卡刷屏），跟随它的决定
-		const leader = input.runId ? [...this.pending.values()].find((item) => !item.leaderId
+		const leader = input.runId ? [...this.pending.values()].find((item) => !item.leaderId && !item.external
 			&& item.conversationKey === input.conversationKey && item.runId === input.runId && item.toolName === input.toolName) : undefined;
 		if (leader) {
 			const follower = this.enqueue(input, Math.max(1_000, leader.expiresAt - this.now()), { leader });
@@ -167,7 +173,7 @@ export class PermissionBridge {
 		input: PendingApprovalInput,
 		options: { timeoutMs?: number; auditDecision?: string } = {},
 	): Promise<{ pending: PendingApproval; verdict: ApprovalVerdict; choice?: ApprovalChoice; operatorId?: string }> {
-		const pending = this.enqueue(input, options.timeoutMs ?? this.deps.getConfig().timeoutMs);
+		const pending = this.enqueue({ ...input, external: true }, options.timeoutMs ?? this.deps.getConfig().timeoutMs);
 		this.deps.onAudit?.({
 			conversationKey: pending.conversationKey, sessionId: pending.sessionId, runId: pending.runId,
 			toolCallId: pending.toolCallId, toolName: pending.toolName,
@@ -192,7 +198,7 @@ export class PermissionBridge {
 		if (input.token !== pending.token || input.messageId !== pending.cardMessageId || input.chatId !== pending.chatId) return { ok: false, reason: "审批上下文不匹配" };
 
 		// “始终允许”必须先落盘成功才放行；落盘失败按拒绝处理，不得反馈持久授权成功。
-		if (input.choice === "always") {
+		if (input.choice === "always" && !pending.external) {
 			// biome-ignore lint/suspicious/noConfusingVoidType: 接收 onAlwaysAllow 的返回值
 			let persisted: boolean | void = true;
 			try {
@@ -209,7 +215,7 @@ export class PermissionBridge {
 		pending.operatorOpenId = input.operatorOpenId;
 		this.pending.delete(pending.id);
 		if (pending.timer) clearTimeout(pending.timer);
-		if (input.choice === "session") {
+		if (input.choice === "session" && !pending.external) {
 			const allowed = this.sessionAllow.get(pending.conversationKey) ?? new Set<string>();
 			allowed.add(pending.toolName);
 			this.sessionAllow.set(pending.conversationKey, allowed);

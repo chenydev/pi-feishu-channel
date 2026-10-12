@@ -130,6 +130,28 @@ test("外部审批源（PS 父会话转发）：不提供「始终批准」，�
 	assert.equal(result.verdict, "approved");
 	assert.equal(result.choice, "session", "转发响应要靠它区分「仅本次」与「本会话」");
 	assert.equal(audits[0]?.decision, "external_ask", "外部来源在审计里可区分（桥侧转发路径会传 ps_forwarding_ask）");
+	assert.deepEqual(bridge.sessionAllowList("oc:u:ou_admin"), [], "外部来源的「本会话批准」由它自己记，不进桥的会话授权");
+});
+
+test("外部审批源：「始终批准」不把工具名写进 autoApprove（否则切回内置审批后该工具全部免审）", async () => {
+	let pending: { id: string; token: string } | undefined;
+	const persisted: string[] = [];
+	const bridge = new PermissionBridge({
+		getConfig: () => ({ autoApprove: [], timeoutMs: 1_000 }),
+		onAsk: async (value) => { pending = value; return "ps-card"; },
+		onAlwaysAllow: (toolName) => { persisted.push(toolName); return true; },
+	});
+	const work = bridge.requestExternal({
+		conversationKey: "oc", sessionId: "s", runId: "r", toolCallId: "req-always",
+		toolName: "bash", paramsText: "npm test", chatId: "oc", allowedOperatorIds: ["ou_admin"],
+		choices: ["once", "session", "always", "deny"],
+	});
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(bridge.decide({ id: pending!.id, token: pending!.token, messageId: "ps-card", chatId: "oc", operatorOpenId: "ou_admin", choice: "always" }).ok, true);
+	const result = await work;
+	assert.equal(result.choice, "always");
+	assert.deepEqual(persisted, []);
+	assert.deepEqual(bridge.sessionAllowList("oc"), []);
 });
 
 test("外部审批源：卡片发送失败按拒绝收尾（与自研路径一致）", async () => {
