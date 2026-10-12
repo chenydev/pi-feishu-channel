@@ -72,6 +72,7 @@ test("审批：重置会话使旧卡失效，本地文件外发默认需要审�
 	assert.equal(await gate.verdict, "denied");
 	assert.equal(bridge.decide({ id: pending!.id, token: pending!.token, messageId: "old-card", chatId: "oc", operatorOpenId: "admin", choice: "once" }).ok, false);
 	assert.equal(classifyToolCall("feishu_send_local_file", [], new Set()), "ask");
+	assert.equal(classifyToolCall("feishu_ask", [], new Set()), "allow", "提问本身就在等人回答，不再审批");
 	assert.equal(redactParams({ command: "API_TOKEN=secret curl -H 'Authorization: Bearer abc'" }).includes("secret"), false);
 	assert.equal(redactParams({ command: "API_TOKEN=secret curl -H 'Authorization: Bearer abc'" }).includes("abc"), false);
 });

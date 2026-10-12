@@ -9,7 +9,11 @@ export type ApprovalCardTerminal = "timeout" | "approved" | "denied" | "invalida
 
 export type ApprovalVerdict = "approved" | "denied" | "timeout";
 
-const SAFE_TOOLS = new Set(["read", "grep", "find", "ls"]);
+/**
+ * 内置免审的工具：只读工具，以及 `feishu_ask`（向会话里的人提选择题：本身就在等人回答，
+ * 不产生副作用、不授予任何权限，再审批一次只是让同一个人多点一下）。
+ */
+const SAFE_TOOLS = new Set(["read", "grep", "find", "ls", "feishu_ask"]);
 const MUTATING_TOOLS = new Set(["bash", "powershell", "edit", "write"]);
 
 export interface PendingApproval {

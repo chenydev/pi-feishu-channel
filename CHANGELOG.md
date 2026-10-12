@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 审批：内置审批下 `feishu_ask`（向会话提选择题）不再弹审批卡 —— 它本身就在等人回答，不产生副作用。
+  `plugin` 模式下仍由 pi-permission-system 的规则决定。
 - **破坏性变更（审批）**：审批改为默认关闭。字段 `approval.policyEngine` 改为 `approval.mode`，取值
   `off`（默认，工具调用直接放行）/ `builtin`（内置：命令分级 + 审批卡，即原 `bridge`）/ `plugin`（交给 pi-permission-system，即原 `pi-permission-system`）；
   环境变量 `FEISHU_CHANNEL_POLICY_ENGINE` 改为 `FEISHU_CHANNEL_APPROVAL_MODE`，取值不对时拒绝启动。旧字段、旧值不再识别。
