@@ -48,6 +48,11 @@ export interface ExtensionAPI {
 		},
 	): void;
 	appendEntry(customType: string, data: unknown): void;
+	/** 扩展之间的事件总线（如 pi-permission-system 的 `permissions:ready`）。 */
+	events: {
+		emit(channel: string, data: unknown): void;
+		on(channel: string, handler: (data: unknown) => void): () => void;
+	};
 	/** 已注册的斜杠命令（扩展命令、prompt 模板、技能）；老版本 pi 没有。 */
 	getCommands?(): Array<{ name: string; description?: string; source?: "extension" | "prompt" | "skill" | string }>;
 }

@@ -9,6 +9,7 @@ import { existsSync as fileExists, readFileSync, statSync } from "node:fs";
 import { unknownConfigFields } from "../config/schema.js";
 import { enabledFeatures } from "../features/switches.js";
 import { describeApprovalMode, globalApprovalMode } from "../approval/mode.js";
+import { PS_LINK_NAME, PS_MIN_VERSION, type PsLinkStatus } from "../approval/pi-permission-system.js";
 
 export interface DoctorCheck { name: string; ok: boolean; detail: string }
 
@@ -43,16 +44,14 @@ export function runDoctor(input: {
 		statusHeartbeatMs?: number;
 		now?: number;
 		/**
-		 * PS 父会话转发状态。缺省（无 forwarder）时写「未验证」，而不是假装通过 ——
-		 * 与诊断的其它检查项同一约定。
+		 * pi-permission-system 授权链环节（全局模式为 pi-permission-system 时才有）。
+		 * 环节没生效时 PS 的「询问」一律被拒绝，而桥这边看不到任何调用，所以要在这里说清。
 		 */
-		forwarding?: {
-			enabled: boolean;
-			parentSessionId?: string;
-			/** 心跳文件是否新鲜（父会话在服务）。 */
-			serving?: boolean;
-			/** 「始终批准」规则数 + 规则名（便于发现"谁把审批放开了"）。 */
-			alwaysApproved?: { count: number; patterns: string[]; enabled: boolean };
+		psLink?: PsLinkStatus & {
+			/** 已挂上环节的会话数。 */
+			registered: number;
+			/** 「始终批准」规则数 + 规则名（便于发现"谁把审批放开了"）；功能关闭时缺省。 */
+			alwaysApproved?: { count: number; patterns: string[] };
 		};
 	};
 }): DoctorCheck[] {
@@ -88,28 +87,29 @@ export function runDoctor(input: {
 			detail: diag.pendingApprovals ? `${diag.pendingApprovals} 个审批等待处理` : "无待审批",
 		});
 	}
-	// PS 父会话转发（<agentDir>/sessions/permission-forwarding/）与桥自己的状态目录分属
-	// 两个根，出问题时容易看错地方 —— 所以在这里显式列出来。
-	const forwardingLines: DoctorCheck[] = [];
-	if (diag?.forwarding) {
-		const f = diag.forwarding;
-		forwardingLines.push({
-			name: "ps_forwarding",
-			ok: !f.enabled || f.serving !== false,
-			detail: !f.enabled
-				? "未启用（PS 的 ask 将无人应答 → 子会话判拒绝）"
-				: `已启用 · 父会话 ${f.parentSessionId ?? "?"} · ${f.serving === false ? "⚠️ 心跳缺失/过期（子会话会判父会话不在服务）" : "心跳正常"}`,
+	const psLines: DoctorCheck[] = [];
+	if (diag?.psLink) {
+		const link = diag.psLink;
+		const problems = [
+			!link.installed ? "未安装（会退回内置审批）" : undefined,
+			link.installed && !link.versionOk ? `版本 ${link.version} 过低（需要 ≥ ${PS_MIN_VERSION}）` : undefined,
+			link.installed && !link.inChain ? `authorizerChain 里没有 ${PS_LINK_NAME}（它的「询问」会被一律拒绝）` : undefined,
+		].filter(Boolean);
+		psLines.push({
+			name: "ps_link",
+			ok: problems.length === 0,
+			detail: problems.length > 0
+				? `pi-permission-system：${problems.join("；")}`
+				: `pi-permission-system ${link.version} · authorizerChain 已包含 ${PS_LINK_NAME} · 已挂到 ${link.registered} 个会话`,
 		});
-		if (f.enabled && f.alwaysApproved) {
-			const a = f.alwaysApproved;
-			forwardingLines.push({
+		if (link.alwaysApproved) {
+			const a = link.alwaysApproved;
+			psLines.push({
 				name: "ps_always_approved",
 				ok: true,
-				detail: !a.enabled
-					? "「始终批准」已关闭"
-					: a.count === 0
-						? "「始终批准」已开启，当前无放行规则"
-						: `「始终批准」放行 ${a.count} 条规则：${a.patterns.slice(0, 3).join("、")}${a.count > 3 ? " …" : ""}`,
+				detail: a.count === 0
+					? "「始终批准」已开启，当前无放行规则"
+					: `「始终批准」放行 ${a.count} 条规则：${a.patterns.slice(0, 3).join("、")}${a.count > 3 ? " …" : ""}`,
 			});
 		}
 	}
@@ -144,7 +144,7 @@ export function runDoctor(input: {
 	}
 
 	return [
-		...forwardingLines,
+		...psLines,
 		...statusLines,
 		{ name: "credentials", ok: Boolean(input.config.appId && input.config.appSecret), detail: input.config.appId && input.config.appSecret ? "已配置" : "缺少 appId/appSecret" },
 		{ name: "transport", ok: Boolean(input.transport?.isRunning()), detail: input.transport?.isConnected() ? "WS 已连接" : input.transport?.isRunning() ? "运行中但未连接" : "未启动" },

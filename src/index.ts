@@ -5,14 +5,14 @@
  * - 启停、心跳、断线补收、重连：runtime/lifecycle.ts；组件装配：runtime/assemble.ts
  * - 斜杠命令：commands/dispatch.ts + commands/handlers/；TUI 命令：commands/tui.ts
  * - 卡片按钮：interaction/card-router.ts + interaction/card-ops.ts；平台事件：interaction/platform-events.ts
- * - 工具调用审批：approval/gate.ts；PS 父会话转发：approval/ps-forwarding-sync.ts
+ * - 工具调用审批：approval/gate.ts；pi-permission-system 的「询问」转审批卡：approval/ps-authorizer.ts
  * - 可选能力（默认关闭）：features/
  */
 import { dirname, join } from "node:path";
 import { createToolGate } from "./approval/gate.js";
 import { redactParams } from "./approval/permission-bridge.js";
 import { setReportedAgentDir } from "./approval/pi-permission-system.js";
-import { PsForwardingSync } from "./approval/ps-forwarding-sync.js";
+import { createPsAuthorizer } from "./approval/ps-authorizer.js";
 import { CommandDispatcher, createCommandReplier } from "./commands/dispatch.js";
 import { adminCommands } from "./commands/handlers/admin.js";
 import type { CommandServices } from "./commands/handlers/services.js";
@@ -115,7 +115,8 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	cardRouter.register("onboarding", platformEvents.cardOps());
 	/** 工具调用审批（外层 tool_call 与子会话内联扩展共用）。 */
 	const gateToolCall = createToolGate({ rt, log });
-	const psForwardingSync = new PsForwardingSync({ rt, log });
+	/** pi-permission-system 授权链环节（进程内一个，子会话的内联扩展挂上它）。 */
+	rt.psAuthorizer = createPsAuthorizer({ rt, log });
 
 	/** 把本地文件经持久发送队列发到会话（导出、超长回答附件共用）。 */
 	const sendLocalFileToChat: NonNullable<ConversationManagerDeps["sendLocalFile"]> = (chatId, path, opts, meta) => {
@@ -138,7 +139,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		featureLines: () => featureHost.statusLines(),
 	});
 	const lifecycle: BridgeLifecycle = new BridgeLifecycle({
-		rt, log, status, features: featureHost, psForwardingSync,
+		rt, log, status, features: featureHost,
 		featureContext: () => ({
 			rt, log, onboarding, replier: replierFor, sendLocalFile: sendLocalFileToChat,
 			reconnectsLast5m: () => lifecycle.reconnects().last5m,
@@ -207,8 +208,6 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		rt.homeDir = channelEnv(process.env, "HOME") ?? agentDir;
 		if (!prepareRuntimeDir(rt.homeDir, process.env, log)) return;
 		rt.config = loadConfig(rt.homeDir);
-		// PS 父会话转发的父子声明越早越好：它要在任何桥会话被创建之前就位。
-		psForwardingSync.syncEnv();
 		if (!rt.config.appId || !rt.config.appSecret) {
 			log.warn("FEISHU_APP_ID/SECRET 未配置，桥未启动。请配置后运行 /feishu:start。");
 			return;

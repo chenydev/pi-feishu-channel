@@ -41,8 +41,7 @@
     "commandPolicy": {
       "enabled": true
     },
-    "forwarding": {
-      "enabled": false,
+    "plugin": {
       "alwaysApprove": true
     }
   },

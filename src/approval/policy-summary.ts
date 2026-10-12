@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { BridgeConfig } from "../types.js";
 import { type ApprovalMode, type ApprovalModeSource, describeApprovalMode } from "./mode.js";
+import { PS_LINK_NAME, PS_MIN_VERSION, type PsLinkStatus } from "./pi-permission-system.js";
 
 type Action = "allow" | "ask" | "deny";
 
@@ -58,6 +59,8 @@ export function summarizeApprovalPolicy(input: {
 	mode: { mode: ApprovalMode; source: ApprovalModeSource };
 	ps?: PsPermissionConfig;
 	psInstalled: boolean;
+	/** 授权链环节能否生效（pi-permission-system 模式下显示）。 */
+	link?: PsLinkStatus;
 	alwaysRules?: Array<{ pattern: string }>;
 	pendingApprovals: number;
 }): string {
@@ -70,6 +73,7 @@ export function summarizeApprovalPolicy(input: {
 		if (input.psInstalled) lines.push("· ⚠️ 已安装 pi-permission-system：它的规则仍会独立生效，被它拒绝的调用照样被拒绝");
 	} else if (mode === "pi-permission-system" && input.psInstalled) {
 		lines.push("· 规则由管理员在 pi-permission-system 的配置文件里维护");
+		lines.push(...linkLines(input.link));
 		const ps = input.ps;
 		if (!ps?.permission) {
 			lines.push("· 读不到 PS 配置文件，无法摘要（运行时仍以 PS 为准）");
@@ -107,7 +111,7 @@ export function summarizeApprovalPolicy(input: {
 	lines.push("");
 	if (mode !== "off") {
 		lines.push(`· 管理员免审：${config.approval.adminSkipApproval ? "开（管理员发起的调用直接放行）" : "关"}`);
-		if (input.alwaysRules) {
+		if (mode === "pi-permission-system" && input.alwaysRules) {
 			lines.push(`· 「始终批准」规则：${input.alwaysRules.length ? input.alwaysRules.map((rule) => rule.pattern).slice(0, 10).join("、") : "无"}`);
 		}
 		lines.push(`· 审批卡超时：${Math.round(config.approval.timeoutMs / 60_000)} 分钟（超时按拒绝处理）`);
@@ -115,6 +119,17 @@ export function summarizeApprovalPolicy(input: {
 	lines.push(`· 当前待审批：${input.pendingApprovals} 条`);
 	lines.push("", "切换（管理员）：/feishu approvals off|builtin|pi-permission-system 只改本会话；加 -g 写入配置；/feishu approvals reset 恢复全局设置");
 	return lines.join("\n");
+}
+
+/** 「需审批」的调用会怎样：弹卡，还是因为环节没生效被直接拒绝。 */
+function linkLines(link: PsLinkStatus | undefined): string[] {
+	if (!link) return [];
+	if (!link.versionOk) return [`· ⚠️ pi-permission-system ${link.version ?? "?"} 版本过低（需要 ≥ ${PS_MIN_VERSION}）：「需审批」的调用会被直接拒绝`];
+	if (!link.inChain) return [`· ⚠️ 它的 authorizerChain 里没有 ${PS_LINK_NAME}：「需审批」的调用会被直接拒绝`];
+	return [
+		"· 「需审批」的调用弹飞书审批卡",
+		"· 访问路径类的请求（path / external_directory）不能在卡上批准，需要时在它的配置里放行",
+	];
 }
 
 function label(action: string): string {

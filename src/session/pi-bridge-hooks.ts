@@ -9,6 +9,7 @@
  * 因此这里只注入「无网关生命周期」的桥侧能力，并共享 outer 的桥状态：
  *   1. `tool_call` → outer PermissionBridge.gate（危险工具审批，含 deny/超时阻断）
  *   2. `feishu_send_local_file` → outer conversation/outbox
+ *   3. pi-permission-system 授权链环节（attachPermissions）→ 把它的「询问」变成审批卡
  * 子会话的扩展发现结果另由 `stripGatewayExtensions()` 剔除网关扩展自身。
  */
 import { realpathSync } from "node:fs";
@@ -121,6 +122,8 @@ export interface BridgeHookContext {
 	 * 用于把「本轮结束」认定得比 turn_end/agent_end 更准确。
 	 */
 	markSettled?(sessionId: string): void;
+	/** 在子会话上挂 pi-permission-system 的授权链环节（approval/ps-authorizer.ts）。 */
+	attachPermissions?(pi: ExtensionAPI): void;
 	log?: (level: "debug" | "info" | "warn" | "error", msg: string, meta?: unknown) => void;
 }
 
@@ -133,6 +136,8 @@ export type InlineBridgeExtension = (pi: ExtensionAPI) => void;
  */
 export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridgeExtension {
 	return (pi: ExtensionAPI) => {
+		ctx.attachPermissions?.(pi);
+
 		pi.registerTool({
 			name: "feishu_send_local_file",
 			label: "发送文件到飞书",

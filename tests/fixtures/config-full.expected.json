@@ -74,10 +74,8 @@
         "terraform destroy"
       ]
     },
-    "forwarding": {
-      "enabled": true,
-      "parentSessionId": "example-parent",
-      "alwaysApprove": true
+    "plugin": {
+      "alwaysApprove": false
     },
     "mode": "pi-permission-system"
   },

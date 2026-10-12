@@ -88,17 +88,15 @@ export const fileConfigSchema = z.object({
 		autoApprove: m(strList, "不需要审批的工具名"),
 		timeoutMs: m(nonNegative, "审批卡的有效期（毫秒），超时视为拒绝"),
 		adminSkipApproval: m(bool, "管理员与应用归属人发起的工具调用不用审批"),
-		mode: m(choice(["off", "builtin", "pi-permission-system"], "审批模式"), "工具调用要不要审批：`off` 不审批，直接放行；`builtin` 内置审批（命令分级 + 免审工具 + 飞书审批卡）；`pi-permission-system` 交给 pi-permission-system 插件（插件没装上时退回 `builtin`）。管理员可用 `/feishu approvals <模式>` 只改当前会话，加 `-g` 写回这里。详见 [approval.md](approval.md)", { default: '"off"', env: "FEISHU_CHANNEL_APPROVAL_MODE" }),
+		mode: m(choice(["off", "builtin", "pi-permission-system"], "审批模式"), "工具调用要不要审批：`off` 不审批，直接放行；`builtin` 内置审批（命令分级 + 免审工具 + 飞书审批卡）；`pi-permission-system` 交给 pi-permission-system 插件（插件没装上时退回 `builtin`；要它的「询问」弹审批卡，还需在它的配置里写 `\"authorizerChain\": [\"feishu-channel\"]`，版本 ≥ 27.0.0）。管理员可用 `/feishu approvals <模式>` 只改当前会话，加 `-g` 写回这里。详见 [approval.md](approval.md)", { default: '"off"', env: "FEISHU_CHANNEL_APPROVAL_MODE" }),
 		commandPolicy: m(z.object({
 			enabled: m(bool, "按 bash 命令分级：只读命令免审批，危险命令直接拒绝，其余弹审批卡"),
 			extraReadOnly: m(strList, "额外当作只读的命令名（按命令名匹配，如 `jq`）"),
 			extraDangerous: m(strList, "额外当作危险的命令名（直接拒绝）"),
 		}).partial(), "bash 命令分级（审批模式为 `builtin` 时生效）"),
-		forwarding: m(z.object({
-			enabled: m(bool, "父会话转发：把 pi-permission-system 的「询问」变成飞书审批卡（实验性）", { env: "FEISHU_PS_FORWARDING" }),
-			parentSessionId: m(str, "转发用的父会话 id；必须稳定，且不能和任何真实会话 id 相同", { default: "\"feishu-channel-parent\"" }),
-			alwaysApprove: m(bool, "审批卡上提供「始终批准」；命中已批准规则的请求直接放行。撤销用 `/feishu always revoke`", { env: "FEISHU_PS_ALWAYS" }),
-		}).partial(), "pi-permission-system 父会话转发"),
+		plugin: m(z.object({
+			alwaysApprove: m(bool, "审批卡上提供「始终批准」：按 pi-permission-system 的规则名记住，以后命中同一规则直接放行。撤销用 `/feishu always revoke`", { env: "FEISHU_PS_ALWAYS" }),
+		}).partial(), "pi-permission-system 模式下的审批卡（审批模式为 `pi-permission-system` 时生效）"),
 	}).partial(), "工具审批。详见 [approval.md](approval.md)"),
 	reaction: m(z.object({
 		processingEmoji: m(str, "处理中加在原消息上的表情"),

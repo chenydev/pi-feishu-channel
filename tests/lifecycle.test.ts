@@ -6,7 +6,6 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { PsForwardingSync } from "../src/approval/ps-forwarding-sync.js";
 import { CommandDispatcher } from "../src/commands/dispatch.js";
 import { FeatureHost } from "../src/features/feature.js";
 import { CardRouter } from "../src/interaction/card-router.js";
@@ -35,7 +34,6 @@ function unit(assemble: () => Promise<void>) {
 	const lifecycle: BridgeLifecycle = new BridgeLifecycle({
 		rt, log, features,
 		status: new StatusReporter({ rt, log, setUiStatus() {}, reconnects: () => ({ total: 0, last5m: 0 }), featureLines: () => [] }),
-		psForwardingSync: { syncEnv() { events.push("syncEnv"); }, async syncServer() {} } as unknown as PsForwardingSync,
 		featureContext: () => ({ rt, log, onboarding: new Onboarding(rt, log), replier, sendLocalFile: () => ({ ok: true }), reconnectsLast5m: () => 0 }),
 		assemble,
 	});
@@ -51,7 +49,6 @@ test("生命周期：装配失败时回滚到未启动，释放单实例锁，�
 		assert.equal(rt.appLock, undefined, "锁已释放");
 		assert.equal(rt.reportedConnState, "error");
 		assert.ok(events.includes("bridge start failed"));
-		assert.equal(events[0], "syncEnv", "PS 父会话声明先于一切");
 		fail = false;
 		assert.equal(await lifecycle.start(), "启动失败：second", "锁释放后可以再次尝试启动");
 	} finally { await cleanup(); }

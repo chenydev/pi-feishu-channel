@@ -36,9 +36,7 @@ export interface PendingApproval {
 	sourceMessageId?: string;
 	allowedOperatorIds: string[];
 	/**
-	 * 本审批允许的选项。外部审批源（如 pi-permission-system 转发）可收窄。
-	 * 转发路径现在**提供** always：桥侧用规则表实现等价语义（PS 原生把它记在
-	 * 父会话的 SessionRules 里，桥走不到那条路，改为记 matchedPattern）。
+	 * 本审批允许的选项。外部审批源（pi-permission-system 授权链）可收窄。
 	 * 缺省为四档全开。
 	 */
 	choices?: ApprovalChoice[];
@@ -50,12 +48,12 @@ export interface PendingApproval {
 	external?: boolean;
 	/**
 	 * 用户实际点的选项（超时/失效/被撤销时没有）。
-	 * 转发响应必须区分「仅本次」与「本会话」（对应 PS 的 approved / approved_for_session）。
+	 * 外部审批源据此区分「仅本次」「本会话」「始终」。
 	 */
 	resolvedChoice?: ApprovalChoice;
 	/**
 	 * 实际点卡片的操作者 open_id（已通过 allowedOperatorIds 校验）。
-	 * 外部审批源用它做持久化审计 —— 比如转发路径的「始终批准」要记下是谁放行的。
+	 * 外部审批源用它做持久化审计 —— 比如「始终批准」要记下是谁放行的。
 	 */
 	operatorOpenId?: string;
 	cardMessageId?: string;
@@ -165,9 +163,9 @@ export class PermissionBridge {
 	}
 
 	/**
-	 * 外部审批源（pi-permission-system 父会话转发）：该请求已经由外部策略判定为
+	 * 外部审批源（pi-permission-system 授权链）：该请求已经由外部策略判定为
 	 * 「需要人工批准」，因此不再走桥的分类器，直接登记 + 弹卡，并把用户的选择
-	 * 一并带回（转发响应必须区分「仅本次」与「本会话」）。
+	 * 一并带回（外部审批源要区分「仅本次」「本会话」「始终」）。
 	 */
 	async requestExternal(
 		input: PendingApprovalInput,
@@ -192,7 +190,7 @@ export class PermissionBridge {
 		if (!pending) return { ok: false, reason: "审批已失效" };
 		if (this.now() > pending.expiresAt) { this.consume(pending, "timeout"); return { ok: false, reason: "审批已超时" }; }
 		if (!pending.allowedOperatorIds.includes(input.operatorOpenId)) return { ok: false, reason: "仅管理员可审批" };
-		// 选项白名单：外部审批源可能只提供子集（例如转发路径不给「始终批准」）。
+		// 选项白名单：外部审批源可能只提供子集（例如关闭了「始终批准」）。
 		// 必须在消费之前校验 —— 否则一张被重放/伪造的回调能把「不给的选项」变成授权。
 		if (!(pending.choices ?? ALL_APPROVAL_CHOICES).includes(input.choice)) return { ok: false, reason: "该审批不支持此选项" };
 		if (input.token !== pending.token || input.messageId !== pending.cardMessageId || input.chatId !== pending.chatId) return { ok: false, reason: "审批上下文不匹配" };

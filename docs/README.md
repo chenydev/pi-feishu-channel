@@ -4,7 +4,7 @@
 |---|---|
 | [architecture.md](architecture.md) | 定位、模块分层、一条消息的路径、不变量、会话模型、审批 |
 | [configuration.md](configuration.md) | 配置参考：每个字段的类型、默认值、环境变量和含义（由 schema 生成） |
-| [approval.md](approval.md) | 工具审批：内置策略、交给 pi-permission-system、父会话转发，以及怎么验证 |
+| [approval.md](approval.md) | 工具审批：内置策略、交给 pi-permission-system（它的「询问」转审批卡），以及怎么验证 |
 | [operations.md](operations.md) | 观测入口（status.json、doctor、日志）、消息丢在哪一环、常见症状、上线验收 |
 | [testing.md](testing.md) | 测试命令、分层、飞书假服务、写测试的约定 |
 | [development/refactor-plan.md](development/refactor-plan.md) | 结构重构计划：每一项的改动、可观测信号、单独测试与验收 |

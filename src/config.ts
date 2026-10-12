@@ -17,7 +17,7 @@ export interface ConfigPaths {
 	outboxFile: string;
 	dedupeFile: string;
 	knownChatsFile: string;
-	/** 「始终批准」规则表（转发路径）。 */
+	/** 「始终批准」规则表（pi-permission-system 模式）。 */
 	alwaysApprovedFile: string;
 	/** DeepSeek 余额快照（`/feishu usage` 的消耗速率依据）。 */
 	balanceSnapshotsFile: string;
@@ -211,19 +211,11 @@ export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env
 				extraReadOnly: fileCfg.approval?.commandPolicy?.extraReadOnly ?? DEFAULT_CONFIG.approval.commandPolicy?.extraReadOnly,
 				extraDangerous: fileCfg.approval?.commandPolicy?.extraDangerous ?? DEFAULT_CONFIG.approval.commandPolicy?.extraDangerous,
 			},
-			// 开关优先级：环境变量 FEISHU_PS_FORWARDING=1/0 > 配置文件 > 默认（关）。
-			// 与 streamingCard 同一约定：实验能力必须显式开启。
-			forwarding: {
-				enabled: envPsForwardingEnabled(env)
-					?? fileCfg.approval?.forwarding?.enabled
-					?? DEFAULT_CONFIG.approval.forwarding?.enabled
-					?? false,
-				parentSessionId: fileCfg.approval?.forwarding?.parentSessionId
-					?? DEFAULT_CONFIG.approval.forwarding?.parentSessionId,
-				// 「始终批准」：env FEISHU_PS_ALWAYS=0 可强制关闭（与其它实验能力同一约定）
+			// 「始终批准」：env FEISHU_PS_ALWAYS=0 可强制关闭
+			plugin: {
 				alwaysApprove: envAlwaysApprove(env)
-					?? fileCfg.approval?.forwarding?.alwaysApprove
-					?? DEFAULT_CONFIG.approval.forwarding?.alwaysApprove
+					?? fileCfg.approval?.plugin?.alwaysApprove
+					?? DEFAULT_CONFIG.approval.plugin?.alwaysApprove
 					?? true,
 			},
 		},
@@ -416,22 +408,12 @@ export function loadJsonFile<T>(file: string): T | undefined {
 	return loadJson<T>(file);
 }
 
-/** 环境变量开关：FEISHU_PS_FORWARDING=1|true|yes 打开父会话转发；0|false|no 强制关闭；未设置返回 undefined。 */
 /** `FEISHU_PS_ALWAYS`：`0`/`false` 关闭「始终批准」，`1`/`true` 打开；未设 = 交给配置文件。 */
 function envAlwaysApprove(env: NodeJS.ProcessEnv = process.env): boolean | undefined {
 	const raw = env.FEISHU_PS_ALWAYS;
 	if (raw === undefined || raw === "") return undefined;
 	if (raw === "0" || raw.toLowerCase() === "false") return false;
 	if (raw === "1" || raw.toLowerCase() === "true") return true;
-	return undefined;
-}
-
-function envPsForwardingEnabled(env: NodeJS.ProcessEnv = process.env): boolean | undefined {
-	const raw = env.FEISHU_PS_FORWARDING;
-	if (raw === undefined || raw === "") return undefined;
-	const normalized = raw.trim().toLowerCase();
-	if (["1", "true", "yes", "on"].includes(normalized)) return true;
-	if (["0", "false", "no", "off"].includes(normalized)) return false;
 	return undefined;
 }
 

@@ -81,6 +81,6 @@ test("配置字段表：拼错的字段按路径列出；按 id 索引的表与�
 		footerByChat: { oc_1: true },
 		userPrompts: { ou_1: "hi" },
 		_comment: "注释",
-		approval: { forwarding: { enable: true } },
-	}), ["allowchats", "progress.maxline", "groupRules.oc_1.promt", "approval.forwarding.enable"]);
+		approval: { plugin: { alwaysApprov: true } },
+	}), ["allowchats", "progress.maxline", "groupRules.oc_1.promt", "approval.plugin.alwaysApprov"]);
 });

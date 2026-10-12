@@ -4,6 +4,20 @@
 
 ## 未发布
 
+- **破坏性变更（审批）**：pi-permission-system（下称 PS）的「询问」改为经它的授权链变成审批卡，不再冒充它的父会话转发。
+  - **要求 PS 27.0.0 及以上**，并在 PS 配置里写 `"authorizerChain": ["feishu-channel"]`；只设 `approval.mode: "pi-permission-system"` 不够。
+  - 删除 `approval.forwarding.*`（`enabled`、`parentSessionId`）和环境变量 `FEISHU_PS_FORWARDING`；
+    「始终批准」开关从 `approval.forwarding.alwaysApprove` 移到 `approval.plugin.alwaysApprove`（环境变量 `FEISHU_PS_ALWAYS` 不变），
+    已记的规则（`ps-always-approved.json`）继续有效。`status.json` 的 `features` 不再有 `psForwarding`。
+  - 会话里临时切到 `pi-permission-system` 也会弹卡（原先的转发只跟全局模式走）。
+  - 读写工作目录以外的文件（PS 的 `path`、`external_directory` 请求）不能再在卡上批准：PS 不允许授权链放行这两类，
+    需要时在 PS 配置里放行（日志 `feishu.approval.ps_link_capped`）。飞书会话里 subagent 发起的询问不弹卡。
+  - bash 复合命令里有几段需要询问时，每段的规则都批准过才按「本会话批准」「始终批准」自动放行（原先只看第一段）。
+  - `approval.adminSkipApproval` 在 PS 模式下也生效：管理员发起的调用不再弹卡。
+  - 可观测：启动日志 `feishu.approval.ps_link`（版本、`authorizerChain`），没写上时 `ps_link_not_in_chain`，版本过低时 `ps_version_unsupported`；
+    `/feishu doctor` 的 `ps_forwarding` 换成 `ps_link`；`/feishu approvals` 显示「询问」会弹卡还是被直接拒绝。
+    `feishu.approval.ps_forwarding*` 系列日志删除，新增 `ps_link_decision`、`ps_always_approved`、`ps_session_approved`、`ps_always_recorded`。
+  - 端到端脚本 `scripts/e2e/ps-forwarding.ts` 换成 `scripts/e2e/ps-authorizer.ts`。
 - 修复（审批）：PS 转来的审批卡上点「始终批准」，会把工具名（如 `bash`）写进 `approval.autoApprove`，点「本会话批准」会记成
   本会话免审该工具；之后切回内置审批，这个工具就全部免审。外部来源的审批卡现在只由外部来源自己记录选择。
 - 工作区：新增 `workspaces.default`，新会话默认在这个工作区里运行（不设仍是 pi 进程的启动目录）。

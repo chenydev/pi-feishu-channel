@@ -31,7 +31,7 @@
     "adminSkipApproval": false,
     "mode": "pi-permission-system",
     "commandPolicy": { "enabled": true, "extraReadOnly": ["kubectl get"], "extraDangerous": ["terraform destroy"] },
-    "forwarding": { "enabled": true, "parentSessionId": "example-parent", "alwaysApprove": true }
+    "plugin": { "alwaysApprove": false }
   },
   "reaction": { "enabled": true, "processingEmoji": "Typing" },
   "queueNotice": true,

@@ -95,7 +95,7 @@ test("审批：审计记录包含 run/tool/card/operator 关联字段", async ()
 	assert.equal(final?.operatorOpenId, "admin");
 });
 
-test("外部审批源（PS 父会话转发）：不提供「始终批准」，且选择要带回给转发响应", async () => {
+test("外部审批源（PS 授权链）：选项可以收窄，且选择要带回给调用方", async () => {
 	let pending: { id: string; token: string; choices?: string[] } | undefined;
 	const audits: Array<Record<string, unknown>> = [];
 	const bridge = new PermissionBridge({
@@ -128,8 +128,8 @@ test("外部审批源（PS 父会话转发）：不提供「始终批准」，�
 	}).ok, true);
 	const result = await work;
 	assert.equal(result.verdict, "approved");
-	assert.equal(result.choice, "session", "转发响应要靠它区分「仅本次」与「本会话」");
-	assert.equal(audits[0]?.decision, "external_ask", "外部来源在审计里可区分（桥侧转发路径会传 ps_forwarding_ask）");
+	assert.equal(result.choice, "session", "调用方要靠它区分「仅本次」与「本会话」");
+	assert.equal(audits[0]?.decision, "external_ask", "外部来源在审计里可区分（PS 授权链传 ps_ask）");
 	assert.deepEqual(bridge.sessionAllowList("oc:u:ou_admin"), [], "外部来源的「本会话批准」由它自己记，不进桥的会话授权");
 });
 
@@ -168,14 +168,14 @@ test("外部审批源：卡片发送失败按拒绝收尾（与自研路径一�
 	assert.equal(bridge.pendingCount(), 0);
 });
 
-test("外部审批源：审批卡等待上限可以单独指定（不得越过上游转发超时）", async () => {
+test("外部审批源：审批卡等待上限可以单独指定", async () => {
 	const bridge = new PermissionBridge({ getConfig: () => ({ autoApprove: [], timeoutMs: 60_000 }), onAsk: async () => "card" });
 	const result = await holdEventLoop(() => bridge.requestExternal({
 		conversationKey: "oc:u:ou_admin", sessionId: "s", runId: "r", toolCallId: "req-3",
 		toolName: "bash", paramsText: "echo hi", chatId: "oc", allowedOperatorIds: ["ou_admin"],
 		choices: ["once", "deny"],
 	}, { timeoutMs: 5 }));
-	assert.equal(result.verdict, "timeout", "转发路径用 5ms 上限而不是全局的 60s");
+	assert.equal(result.verdict, "timeout", "用 5ms 上限而不是全局的 60s");
 });
 
 test("审批合并与提醒：同一 run 的同类请求并到一张卡，旧卡 token 失效，点一次一并放行", async () => {

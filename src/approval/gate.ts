@@ -46,9 +46,9 @@ export function createToolGate({ rt, log, psInstalled = piPermissionSystemInstal
 		// 把策略交给 PS：它的 tool_call 拦截在桥之前执行，deny 时桥的 handler 根本不会被调用
 		// （实测：PS 先 → 桥后，首个 block 立即返回）。因此桥这一步只需"放行自己不再判断"。
 		//
-		// PS 的 ask **不经过这里** —— 走 approval.forwarding（PS 的父会话转发）：桥当应答方，
-		// 把请求文件变成审批卡（见 ps-forwarding.ts）。所以这里继续直接放行，不能改成落到桥的弹卡逻辑：
-		// PS 放行后本函数会被再调用一次，那时再弹一张卡就是对同一次调用弹两次卡（两次判定还可能不一致）。
+		// PS 的 ask **不经过这里** —— 走它的授权链：桥注册的环节把 ask 变成审批卡（见 ps-authorizer.ts）。
+		// 所以这里继续直接放行，不能改成落到桥的弹卡逻辑：PS 放行后本函数会被再调用一次，
+		// 那时再弹一张卡就是对同一次调用弹两次卡（两次判定还可能不一致）。
 		if (mode === "pi-permission-system") {
 			if (psInstalled()) return undefined;
 			// 默认拒绝：插件没装成 → 内置审批是唯一防线，绝不能同时关掉

@@ -8,8 +8,7 @@ agent 调用工具（执行命令、写文件等）之前，本扩展可以先�
 |---|---|---|---|
 | 关闭（默认） | 不配置，或 `approval.mode: "off"` | 不判定，直接放行 | 无 |
 | 内置 | `approval.mode: "builtin"` | 本扩展（命令分级 + 免审工具） | 本扩展 |
-| 插件 | `approval.mode: "pi-permission-system"` | pi-permission-system | 无（它的「询问」没人应答 → 拒绝） |
-| 插件 + 父会话转发 | 上一行 + `approval.forwarding.enabled: true` | pi-permission-system | 本扩展（把它的「询问」变成审批卡） |
+| 插件 | `approval.mode: "pi-permission-system"`，并在 pi-permission-system 配置里写 `"authorizerChain": ["feishu-channel"]` | pi-permission-system | 本扩展（把它的「询问」变成审批卡） |
 
 **关闭模式关不掉插件**：只要装了 pi-permission-system，它的拦截就先于本扩展执行，被它拒绝的调用照样被拒绝。
 要完全不审批，还得卸掉插件或在它的配置里放行。
@@ -27,7 +26,7 @@ agent 调用工具（执行命令、写文件等）之前，本扩展可以先�
 
 - 「当前会话」按会话键算：私聊是这个私聊，群里默认是发命令的人在这个群里的会话，话题是这个话题。`/new` 之后仍然有效。
 - 设了环境变量时，`-g` 照样写文件，但环境变量优先，回复里会提示。
-- 父会话转发是整个进程的设置，只跟全局模式走：在会话里临时切到 `pi-permission-system` 不会为它打开转发；`-g` 改全局模式后，转发要重启才跟着变。
+- 会话临时切到 `pi-permission-system` 也会弹卡；从 `pi-permission-system` 切走的会话，它的「询问」不再弹卡，由它自己拒绝。
 - 日志：启动时 `feishu.approval.mode`（全局模式与来源），切换时 `feishu.approval.mode_changed`（`scope: session / global`）。
 
 ## 1. 审批卡
@@ -63,53 +62,67 @@ agent 调用工具（执行命令、写文件等）之前，本扩展可以先�
 
 ## 3. 插件：交给 pi-permission-system
 
-[pi-permission-system](https://www.npmjs.com/package/@gotgenes/pi-permission-system) 是一个 pi 扩展，用规则文件决定每个工具调用是允许、拒绝还是询问。
+[pi-permission-system](https://www.npmjs.com/package/@gotgenes/pi-permission-system)（下称 PS）是一个 pi 扩展，用规则文件决定每个工具调用是允许、拒绝还是询问。
 设置 `approval.mode: "pi-permission-system"`（或环境变量 `FEISHU_CHANNEL_APPROVAL_MODE=pi-permission-system`）后：
 
-- 本扩展不再做判定，也不弹卡。pi-permission-system 的拦截先于本扩展执行，它拒绝的调用本扩展根本看不到；
-- **它的「询问」规则需要一个能应答的界面**。飞书会话里没有，所以不开转发时，命中「询问」的调用一律被拒绝；
+- 本扩展不再按自己的规则判定。PS 的拦截先于本扩展执行，它拒绝的调用本扩展根本看不到；
+- **它的「询问」变成飞书审批卡**（见下文 §4）；
 - **插件没装上时自动退回内置审批**（日志 `feishu.approval.plugin_unavailable`），不会因此变成全部放行。
 
-## 4. 父会话转发
+**版本要求：PS 27.0.0 及以上。** 更早的版本不按会话发布服务，本扩展挂不上去，它的「询问」一律被拒绝。
+启动日志 `feishu.approval.ps_link` 写出检测到的版本；版本过低时另有 `feishu.approval.ps_version_unsupported`。
 
-pi-permission-system 支持把「询问」转发给一个「父会话」来应答：子会话把请求写成文件，父会话写回响应。
-打开 `approval.forwarding.enabled`（或 `FEISHU_PS_FORWARDING=1`）后，本扩展充当这个父会话：
+## 4. 把「询问」变成审批卡
 
-1. 在进程环境里声明父会话（`PI_SUBAGENT_PARENT_SESSION` 和 `PI_AGENT_ROUTER_PARENT_SESSION_ID`，值是 `approval.forwarding.parentSessionId`，默认 `feishu-channel-parent`），
-   于是这个进程里所有会话的「询问」都转发过来；
-2. 在 `<pi 的 agent 目录>/sessions/permission-forwarding/` 下写心跳文件，表明「有人在应答」；
-3. 读到请求文件后弹审批卡，管理员点完写回响应，pi-permission-system 随即放行或拒绝。
+PS 把「询问」交给它的**授权链**：按配置 `authorizerChain` 的顺序问每个环节，环节回答放行、拒绝或「交给下一个」；
+都不回答时由 PS 自己处理 —— 飞书会话没有终端界面，结果是拒绝。本扩展在每个飞书会话里注册一个名为 `feishu-channel` 的环节，
+**要在 PS 的配置里写上它才生效**（PS 的全局配置在 `<pi 的 agent 目录>/extensions/pi-permission-system/config.json`）：
 
-**两个开关要一起开**：转发只在全局审批模式为 `pi-permission-system` 时生效，否则同一次调用会被判定两次，日志 `feishu.approval.ps_forwarding_inactive` 会提示。
+```json
+{
+  "authorizerChain": ["feishu-channel"]
+}
+```
 
-**卡片显示完整命令**：pi-permission-system 的规则可能只匹配命令的一部分（例如规则 `echo *` 匹配 `echo x > ~/.bashrc` 里的 `echo x`）。
-卡片正文显示实际要执行的完整命令，理由里注明规则匹配的部分。
+没写上时，启动日志有 `feishu.approval.ps_link_not_in_chain`，`/feishu doctor` 的 `ps_link` 项不通过。
 
-**始终批准**（`approval.forwarding.alwaysApprove`，默认开启）：按 pi-permission-system 给出的规则名（如 `echo *`）记录，
-以后命中同一条规则的请求直接放行，不再弹卡。规则保存在运行时目录的 `ps-always-approved.json`。
+环节收到「询问」后：
 
-- 查看：`/feishu always`
-- 撤销：`/feishu always revoke <规则名>`，例如 `/feishu always revoke echo *`
+1. 会话不是本扩展管的，或这个会话的审批模式不是 `pi-permission-system`：交还 PS（结果是拒绝），日志 `feishu.approval.ps_link_mode_skip` / `ps_link_no_route`；
+2. **访问路径类的请求不弹卡**：PS 规定授权链不能放行 `path` 和 `external_directory` 两类请求（读写工作目录以外的文件等），
+   弹了卡也批不下来。这类请求直接交还 PS（结果是拒绝），日志 `feishu.approval.ps_link_capped`。
+   **需要访问时，在 PS 的配置里放行对应路径**；
+3. 发起人是管理员且开了 `approval.adminSkipApproval`：直接放行；
+4. 命中「始终批准」或本会话批准过的规则：直接放行（日志 `feishu.approval.ps_always_approved` / `ps_session_approved`）；
+5. 其余弹审批卡，管理员的选择原样交回 PS（日志 `feishu.approval.ps_link_decision`）。
 
-这两个命令只有管理员能用。关闭 `alwaysApprove` 后卡片上只有三个选项。
+**卡片显示完整命令**：PS 的规则可能只匹配命令的一部分（例如规则 `echo *` 匹配 `echo x > ~/.bashrc` 里的 `echo x`）。
+卡片正文显示实际要执行的完整命令，理由里写命中的规则和规则匹配的部分。
 
-**关闭转发**时，本扩展会撤回自己设置的环境变量。之后 pi-permission-system 会回到自己的处理方式（没人应答就拒绝），
-不会把请求转发到一个没人读的目录。
+**本会话批准、始终批准都按 PS 的规则名记**（如 `echo *`）：
 
-### 转发链路的日志
+- 本会话批准：只在这个会话里有效，`/new` 之后失效；
+- 始终批准（`approval.plugin.alwaysApprove`，默认开启）：所有会话命中同一条规则都直接放行，保存在运行时目录的 `ps-always-approved.json`。
+  查看用 `/feishu always`，撤销用 `/feishu always revoke <规则名>`（例如 `/feishu always revoke echo *`），只有管理员能用。
+  关闭 `alwaysApprove` 后卡片上只有三个选项；
+- 一条 bash 命令里有几段都需要询问时（如 `npm i && git push`），每段的规则都批准过才自动放行，卡片理由里列出全部规则；
+- PS 没给出规则名的请求，「始终批准」退化为本会话批准（日志 `feishu.approval.ps_always_degraded`）。
 
-一次成功的转发审批，日志按顺序是：
+**限制**：飞书会话里由 subagent 发起的「询问」不会弹卡 —— PS 只把子会话的询问交给有终端界面的会话应答。
+
+### 日志
+
+一次成功的审批，日志按顺序是：
 
 ```
-feishu.approval.ps_forwarding_started          转发应答方已启动（启动时一次）
-feishu.approval.ps_forwarding.audit  event: ps_forwarding.request_seen    读到请求
-feishu.approval.audit  decision: ps_forwarding_ask  paramsSummary: <命令>  弹卡
-feishu.approval.audit  decision: once / session / always / deny           管理员的选择（含 operatorOpenId）
-feishu.approval.ps_forwarding.audit  event: ps_forwarding.answered        响应已写回
+feishu.approval.ps_link                         启动时：PS 版本、authorizerChain、是否写上了本扩展
+feishu.approval.audit  decision: ps_ask         弹卡（paramsSummary 是命令）
+feishu.approval.audit  decision: once / session / always / deny   管理员的选择（含 operatorOpenId）
+feishu.approval.ps_link_decision                交回 PS 的结果（verdict、choice、规则名）
 ```
 
 ```bash
-grep -E 'ps_forwarding|decision:' <日志文件>
+grep -E 'feishu\.approval\.(ps_|audit)' <日志文件>
 ```
 
 最终以命令真的执行了为准（agent 的回复里有命令输出）。
@@ -118,15 +131,15 @@ grep -E 'ps_forwarding|decision:' <日志文件>
 
 ### 隔离端到端测试
 
-`scripts/e2e/ps-forwarding.ts` 用真实的 pi 和真实的 pi-permission-system，在临时目录里走一遍转发链路，只有「管理员点卡片」这一步是模拟的。
-不需要飞书凭据，也不需要容器；需要本机装了 pi、装过 pi-permission-system，并且 pi 能调用一个模型。
+`scripts/e2e/ps-authorizer.ts` 用真实的 pi 和真实的 PS，在临时目录里走一遍审批链路，只有「管理员点卡片」这一步是模拟的。
+不需要飞书凭据，也不需要容器；需要本机装了 pi、装过 PS，并且 pi 能调用一个模型。
 
 ```bash
-# pi-permission-system 默认从 ~/.pi/agent/npm/node_modules/@gotgenes/pi-permission-system 找，也可以用 PS_PACKAGE 指定；
-# 模型用 E2E_PROVIDER / E2E_MODEL 指定（例如 E2E_PROVIDER=anthropic E2E_MODEL=claude-haiku-4-5）
-npx tsx scripts/e2e/ps-forwarding.ts              # 期望：弹一次卡，命令执行
-npx tsx scripts/e2e/ps-forwarding.ts none         # 对照组：不声明父会话，期望命令被拒绝
-npx tsx scripts/e2e/ps-forwarding.ts --delay 6    # 管理员 6 秒后才点，验证心跳让子会话一直等着
+# PS 默认从 ~/.pi/agent/npm/node_modules/@gotgenes/pi-permission-system 找，也可以用 PS_PACKAGE 指定；
+# 模型默认用 ~/.pi/agent/settings.json 的默认模型，也可以用 E2E_PROVIDER / E2E_MODEL 指定
+npx tsx scripts/e2e/ps-authorizer.ts              # 期望：弹一次卡，管理员批准，命令执行
+npx tsx scripts/e2e/ps-authorizer.ts deny         # 期望：弹一次卡，管理员拒绝，命令不执行
+npx tsx scripts/e2e/ps-authorizer.ts nochain      # 对照组：authorizerChain 没写上，期望不弹卡，命令被拒绝
 ```
 
 判据是命令的副作用（命令把一个随机串写进文件，脚本检查文件内容），而不是 pi 的输出 ——
@@ -136,6 +149,6 @@ npx tsx scripts/e2e/ps-forwarding.ts --delay 6    # 管理员 6 秒后才点，�
 
 步骤见 [operations.md](operations.md) 的「上线验收」。要点：
 
-- pi-permission-system 的配置里**必须有「询问」规则**。只有允许和拒绝规则时永远不会弹卡；
+- pi-permission-system 的配置里**必须有「询问」规则**，并且 `authorizerChain` 里写上 `feishu-channel`。只有允许和拒绝规则时永远不会弹卡；
 - 用会调用工具的消息触发，例如「用 bash 执行 `echo SMOKE-1`，把输出原样告诉我」；
 - 审批卡必须由管理员本人点。群机器人 webhook 可以触发对话，但它不是管理员，点不了卡。

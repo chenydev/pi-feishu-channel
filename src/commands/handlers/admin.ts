@@ -8,7 +8,7 @@ import { formatTimeInZone, resolveFooterEnabled, resolvePaths, saveConfigFields 
 import { buildDiagnosticsBundle, writeDiagnosticsBundle } from "../../runtime/diagnostics.js";
 import { runDoctor } from "../../runtime/doctor.js";
 import { APPROVAL_MODE_LABEL, effectiveApprovalMode, globalApprovalMode, parseApprovalMode } from "../../approval/mode.js";
-import { piPermissionSystemInstalled, psConfigFile } from "../../approval/pi-permission-system.js";
+import { PS_LINK_NAME, PS_MIN_VERSION, piPermissionSystemInstalled, psConfigFile, psLinkStatus } from "../../approval/pi-permission-system.js";
 import { loadPsConfig, summarizeApprovalPolicy } from "../../approval/policy-summary.js";
 import { buildConversationKey } from "../../session/conversation-key.js";
 import type { FeishuInboundMessage, GroupPolicy } from "../../types.js";
@@ -99,7 +99,7 @@ export function setChatPolicy(svc: Pick<CommandServices, "rt">, chatId: string, 
  * 不要各写一份（文案与撤销语义会不一致）。身份校验由调用方负责。
  */
 export function alwaysApprovedCommand(svc: Pick<CommandServices, "rt" | "log">, args: string[], opts: { prefix: string; operator?: string }): string {
-	if (!svc.rt.alwaysApproved) return "「始终批准」未启用（需要 pi-permission-system 转发模式）";
+	if (!svc.rt.alwaysApproved) return "「始终批准」已关闭（approval.plugin.alwaysApprove）";
 	if (args[0]?.toLowerCase() === "revoke") {
 		const pattern = args.slice(1).join(" ").trim();
 		if (!pattern) return `用法：${opts.prefix} revoke <规则名>（规则名见 ${opts.prefix}）`;
@@ -183,6 +183,7 @@ function approvalsCommand(svc: CommandServices, msg: FeishuInboundMessage, rest:
 			mode: effectiveApprovalMode(rt.config, rt.approvalModeOverrides, key),
 			ps: loadPsConfig(psConfigFile()),
 			psInstalled: piPermissionSystemInstalled(),
+			link: psLinkStatus(),
 			...(rt.alwaysApproved ? { alwaysRules: rt.alwaysApproved.list() } : {}),
 			pendingApprovals: rt.permissionBridge?.pendingCount() ?? 0,
 		});
@@ -201,11 +202,14 @@ function approvalsCommand(svc: CommandServices, msg: FeishuInboundMessage, rest:
 	if (mode !== "off" && !rt.permissionBridge) notes.push("⚠️ 桥未启动，审批暂不生效");
 	if (mode === "pi-permission-system" && !piPermissionSystemInstalled()) notes.push("⚠️ pi-permission-system 未安装，实际按内置审批执行");
 	if (mode === "off" && piPermissionSystemInstalled()) notes.push("⚠️ 已安装 pi-permission-system：它的规则仍会独立生效，本扩展关不掉");
+	if (mode === "pi-permission-system" && piPermissionSystemInstalled()) {
+		const link = psLinkStatus();
+		if (!link.versionOk) notes.push(`⚠️ pi-permission-system ${link.version ?? "?"} 版本过低（需要 ≥ ${PS_MIN_VERSION}），它的「询问」不会变成审批卡`);
+		else if (!link.inChain) notes.push(`⚠️ pi-permission-system 配置的 authorizerChain 里没有 ${PS_LINK_NAME}，它的「询问」会被直接拒绝`);
+	}
 	if (!wantsGlobal) {
 		rt.approvalModeOverrides.set(key, mode);
 		log.info("feishu.approval.mode_changed", { scope: "session", mode, conversationKey: key, operator: msg.senderId });
-		// 转发是进程级的，只跟全局模式走
-		if (mode === "pi-permission-system" && globalApprovalMode(rt.config).mode !== "pi-permission-system") notes.push("父会话转发只跟全局模式走：插件的「询问」在本会话没人应答，会被拒绝");
 		return [`本会话审批模式：${APPROVAL_MODE_LABEL[mode]}（临时，重启后失效；加 -g 写入配置）`, ...notes].join("\n");
 	}
 	const previous = rt.config.approval.mode;
@@ -218,7 +222,6 @@ function approvalsCommand(svc: CommandServices, msg: FeishuInboundMessage, rest:
 	log.info("feishu.approval.mode_changed", { scope: "global", mode, operator: msg.senderId });
 	const effective = globalApprovalMode(rt.config);
 	if (effective.source === "env") notes.push(`⚠️ 环境变量 FEISHU_CHANNEL_APPROVAL_MODE 优先，当前实际仍是：${APPROVAL_MODE_LABEL[effective.mode]}`);
-	if (mode === "pi-permission-system" || previous === "pi-permission-system") notes.push("父会话转发的开关重启后才跟着变");
 	return [`已写入配置：审批模式 ${APPROVAL_MODE_LABEL[mode]}（全局，立即生效；其他会话的临时设置不受影响）`, ...notes].join("\n");
 }
 

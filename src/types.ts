@@ -153,7 +153,7 @@ export interface BridgeConfig {
 		 * - "off"：不审批，工具调用直接放行
 		 * - "builtin"：内置审批（command-policy + 免审工具 + 飞书审批卡）
 		 * - "pi-permission-system"：交给 @gotgenes/pi-permission-system
-		 *   （它在 pi 的子会话里先于桥的拦截执行，deny 时桥根本收不到调用），桥不再弹审批卡。
+		 *   （它在 pi 的子会话里先于桥的拦截执行，deny 时桥根本收不到调用）；它的「询问」经授权链变成飞书审批卡。
 		 *   **默认拒绝**：若该插件实际上没装成，退回 `builtin` 而非静默放行。
 		 *
 		 * 这里只放配置文件里的值；环境变量与会话覆盖在判定时叠加。
@@ -165,18 +165,10 @@ export interface BridgeConfig {
 			extraDangerous?: string[];
 		};
 		/**
-		 * pi-permission-system 父会话转发（**默认关闭**，实验性）。
-		 *
-		 * 打开后桥充当该扩展的「父会话应答方」：在进程环境里声明父子关系（PI_SUBAGENT_PARENT_SESSION，
-		 * 见 approval/ps-forwarding.ts 的 PS_FORWARDING_PARENT_ENV_KEYS），
-		 * 并在 <agentDir>/sessions/permission-forwarding/ 下发布心跳 + 轮询子会话写入的请求文件，
-		 * 把 PS 的 ask 变成飞书审批卡。
-		 * 关闭时桥不碰该环境变量、不读写转发目录（保持 33.0.3 的现状：ask 无人应答 → 拒绝）。
+		 * 模式为 pi-permission-system 时，桥在 PS 的授权链上注册 `feishu-channel` 环节，
+		 * 把它的「询问」变成飞书审批卡（见 approval/ps-authorizer.ts；要在 PS 配置的 authorizerChain 里写上才生效）。
 		 */
-		forwarding?: {
-			enabled: boolean;
-			/** 桥侧父会话 id（PS 用它命名转发目录；必须稳定且不等于任何真实 session id）。 */
-			parentSessionId?: string;
+		plugin?: {
 			/**
 			 * 「始终批准」规则表（默认 true）。开启后审批卡多一个 always 按钮；
 			 * 命中已记规则的请求直接放行、不再弹卡。撤销见 `/feishu always revoke`。
@@ -380,15 +372,8 @@ export const DEFAULT_CONFIG: BridgeConfig = {
 	forwarding: { acceptMergeForward: true },
 	approval: {
 		autoApprove: [], timeoutMs: 300_000, adminSkipApproval: false, commandPolicy: { enabled: true },
-		// 实验性：默认关闭。打开前先确认 pi-permission-system 的 ask 规则确实需要人工判定。
-		forwarding: {
-			enabled: false,
-			// 「始终批准」：桥侧维护规则表，命中规则的转发请求直接放行、不再弹卡。
-			// 语义等价于 PS 原生对话框的「始终批准」（PS 记在父会话 SessionRules 里，
-			// 桥走不到那条路，改为按规则名记在自己的表里）。默认开 —— 它需要管理员
-			// 主动点卡片才生效，且撤销入口存在（/feishu always revoke）。
-			alwaysApprove: true,
-		},
+		// 「始终批准」默认开：它需要管理员主动点卡片才生效，且撤销入口存在（/feishu always revoke）。
+		plugin: { alwaysApprove: true },
 	},
 	reaction: { processingEmoji: "Typing", enabled: true, failureEmoji: "CrossMark", steerEmoji: "JIAYI" },
 	queueNotice: true,

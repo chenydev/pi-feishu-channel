@@ -3,6 +3,7 @@
  * 与诊断上下文（供 `/feishu doctor` 和诊断包复用）。
  */
 import { describeApprovalMode, globalApprovalMode } from "../approval/mode.js";
+import { psLinkStatus } from "../approval/pi-permission-system.js";
 import { formatTimeInZone, resolvePaths } from "../config.js";
 import { enabledFeatures } from "../features/switches.js";
 import type { BridgeRuntime } from "./bridge-runtime.js";
@@ -85,20 +86,16 @@ export class StatusReporter {
 			statusHeartbeatMs: rt.config.statusHeartbeatMs ?? 30_000,
 			uptimeMs: Math.round(process.uptime() * 1_000),
 			transport: { running: Boolean(rt.transport?.isRunning()), connected: Boolean(rt.transport?.isConnected()) },
-			forwarding: {
-				enabled: Boolean(rt.psForwarding),
-				parentSessionId: rt.psForwardingParentId,
-				// 心跳新鲜度 = 父会话真的在服务。缺了它子会话会判「父会话不在服务」而提前放弃，
-				// 而这种情况在日志里只表现为"等到超时"，很难定位 —— 所以 doctor 里明说。
-				serving: rt.psForwarding ? rt.psForwarding.isServing() : undefined,
-				alwaysApproved: rt.alwaysApproved
-					? {
-						enabled: rt.config.approval.forwarding?.alwaysApprove !== false,
-						count: rt.alwaysApproved.size,
-						patterns: rt.alwaysApproved.list().map((rule) => rule.pattern),
-					}
-					: undefined,
-			},
+			// pi-permission-system 授权链环节：只在全局模式为 pi-permission-system 时检查
+			psLink: globalApprovalMode(rt.config).mode === "pi-permission-system"
+				? {
+					...psLinkStatus(),
+					registered: rt.psAuthorizer?.registeredCount() ?? 0,
+					alwaysApproved: rt.alwaysApproved
+						? { count: rt.alwaysApproved.size, patterns: rt.alwaysApproved.list().map((rule) => rule.pattern) }
+						: undefined,
+				}
+				: undefined,
 		};
 	}
 

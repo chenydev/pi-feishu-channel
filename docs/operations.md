@@ -41,7 +41,7 @@
 | `config_fields` | 配置里无法识别的字段（通常是拼错了）；不报错，只提示 |
 | `backlog`、`pending_work`、`rate_budget`、`error_state` | 积压、未完成任务、限流冷却、最近错误类别 |
 | `approval_mode` | 全局审批模式（关闭 / 内置 / 插件）及来源；会话里的临时设置看 `/feishu approvals` |
-| `ps_forwarding`、`ps_always_approved` | pi-permission-system 转发状态与「始终批准」规则 |
+| `ps_link`、`ps_always_approved` | 模式为 pi-permission-system 时：它的版本是否 ≥ 27.0.0、`authorizerChain` 里有没有 `feishu-channel`、挂上了几个会话；「始终批准」的规则 |
 | `session_dir`、`outbox_dir`、`runtime` | 目录可写、运行环境 |
 
 ## 2. 一条消息走到哪了
@@ -56,7 +56,7 @@
 | 准入 | —— | **`feishu.pipeline.drop`**（见 §3） |
 | 命令 | `feishu.command` | `feishu.card.command_failed` |
 | 执行 | `feishu.session.resource_loader_ready`（`strippedGateways` 正常为 1）、`feishu.session.created`、`feishu.conv.send_reply_start` | `feishu.conv.run_error`、`run_idle_timeout`、`budget_exceeded` |
-| 审批 | `feishu.approval.mode`（启动时的全局模式）、`mode_changed`、`audit`、`command_allow` / `command_ask` / `command_deny` | `feishu.approval.invalidated`、`card_terminal_failed`、`plugin_unavailable` |
+| 审批 | `feishu.approval.mode`（启动时的全局模式）、`mode_changed`、`audit`、`command_allow` / `command_ask` / `command_deny`；pi-permission-system 模式：`ps_link`、`ps_link_decision`、`ps_always_approved`、`ps_session_approved` | `feishu.approval.invalidated`、`card_terminal_failed`、`plugin_unavailable`、`ps_link_not_in_chain`、`ps_version_unsupported`、`ps_link_capped`、`ps_link_unavailable` |
 | 回复 | `feishu.conv.reply_sent`、`feishu.outbox.delivered` | `feishu.outbox.failed`、`feishu.sender.*_fallback` |
 
 **以最终效果为准**：看到 `tool_execution_*` 只说明过程发生了；要确认功能可用，得看 agent 的回复里有没有命令的真实输出。
@@ -96,6 +96,8 @@
 | 连接反复断开又连上 | 同一个应用被多个进程同时连接 | 同一个应用只能有一个实例；锁冲突时启动报错 `bridge already running for appId …` |
 | 审批卡没弹，命令直接执行了 | 审批模式是关闭（默认）；或策略里只有允许 / 拒绝，没有需要审批的规则 | `/feishu approvals` 看模式和来源；再查命令分级或 pi-permission-system 的规则 |
 | 审批模式已关闭，仍有调用被拒绝 | 装了 pi-permission-system，它的拦截不受本扩展的模式影响 | 卸掉插件或在它的配置里放行 |
+| pi-permission-system 的「询问」全被拒绝，不弹卡 | 它的 `authorizerChain` 里没写 `feishu-channel`，或版本低于 27.0.0 | `/feishu doctor` 的 `ps_link`；日志 `feishu.approval.ps_link_not_in_chain` / `ps_version_unsupported`；在它的配置里加 `"authorizerChain": ["feishu-channel"]` 后重启 |
+| 读写工作目录以外的文件总被拒绝，不弹卡 | pi-permission-system 不允许授权链放行路径类请求（`path`、`external_directory`） | 日志 `feishu.approval.ps_link_capped`；在 pi-permission-system 的配置里放行这些路径 |
 | 应用归属人 / 应用管理员不被当作管理员 | 应用没开 `application:application:readonly`，或协作者接口查询失败；开发者、运营本来就不算 | 看日志 `feishu.config.app_owner_hydrated`（各角色人数）或 `*_hydrate_failed`；开通权限后重启，或把 open_id 写进 `admins` |
 | 点审批卡提示「已失效」 | 超时（默认 5 分钟），或这一轮已经结束 | 尽快点；或调大 `approval.timeoutMs` |
 | 回复半截，或提示「回复发送失败」 | 编辑次数用尽、没有发言权限、接口持续报错 | 看 `feishu.outbox.failed` 的 `lastError` |

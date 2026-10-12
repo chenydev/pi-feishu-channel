@@ -39,46 +39,46 @@ test("doctor：旧版 PID 探针残留不会造成目录不可写假阴性", () 
 	} finally { rmSync(home, { recursive: true, force: true }); }
 });
 
-// ── PS 父会话转发状态（本轮新增）────────────────────────────────────────
-// 转发目录（<agentDir>/sessions/permission-forwarding/）与桥自己的状态目录分属两个根，
-// 出问题时容易看错地方；心跳停了也只表现为"等到超时"，所以 doctor 要显式说出来。
+// ── pi-permission-system 授权链环节 ────────────────────────────────────
+// 环节没生效（版本过低、authorizerChain 没写上）时 PS 的「询问」一律被拒绝，
+// 而桥这边看不到任何调用 —— doctor 要显式说出来。
 
-test("doctor：转发已启用且心跳正常时两项都通过", () => {
+const LINK_OK = { installed: true, version: "40.1.3", versionOk: true, chain: ["feishu-channel"], inChain: true, registered: 2 };
+
+test("doctor：环节可用时 ps_link 通过，并列出「始终批准」规则", () => {
 	const checks = runDoctor({
 		config: DEFAULT_CONFIG,
-		paths: resolvePaths("/tmp/doctor-fwd"),
-		diagnostics: {
-			forwarding: {
-				enabled: true,
-				parentSessionId: "feishu-channel-parent",
-				serving: true,
-				alwaysApproved: { enabled: true, count: 1, patterns: ["echo PS-TEST-*"] },
-			},
-		},
+		paths: resolvePaths("/tmp/doctor-ps"),
+		diagnostics: { psLink: { ...LINK_OK, alwaysApproved: { count: 1, patterns: ["echo PS-TEST-*"] } } },
 	});
-	const fwd = checks.find((c) => c.name === "ps_forwarding");
-	assert.equal(fwd?.ok, true);
-	assert.match(fwd?.detail ?? "", /feishu-channel-parent/);
-	assert.match(fwd?.detail ?? "", /心跳正常/);
-
-	const always = checks.find((c) => c.name === "ps_always_approved");
-	assert.match(always?.detail ?? "", /echo PS-TEST-\*/);
+	const link = checks.find((c) => c.name === "ps_link");
+	assert.equal(link?.ok, true);
+	assert.match(link?.detail ?? "", /40\.1\.3/);
+	assert.match(link?.detail ?? "", /2 个会话/);
+	assert.match(checks.find((c) => c.name === "ps_always_approved")?.detail ?? "", /echo PS-TEST-\*/);
 });
 
-test("doctor：心跳缺失时 ps_forwarding 判不通过（子会话会误判父会话不在服务）", () => {
-	const checks = runDoctor({
+test("doctor：authorizerChain 没写上或版本过低时 ps_link 不通过", () => {
+	const notInChain = runDoctor({
 		config: DEFAULT_CONFIG,
-		paths: resolvePaths("/tmp/doctor-fwd"),
-		diagnostics: { forwarding: { enabled: true, parentSessionId: "p", serving: false } },
-	});
-	const fwd = checks.find((c) => c.name === "ps_forwarding");
-	assert.equal(fwd?.ok, false);
-	assert.match(fwd?.detail ?? "", /心跳缺失/);
+		paths: resolvePaths("/tmp/doctor-ps"),
+		diagnostics: { psLink: { ...LINK_OK, chain: undefined, inChain: false } },
+	}).find((c) => c.name === "ps_link");
+	assert.equal(notInChain?.ok, false);
+	assert.match(notInChain?.detail ?? "", /authorizerChain 里没有 feishu-channel/);
+
+	const tooOld = runDoctor({
+		config: DEFAULT_CONFIG,
+		paths: resolvePaths("/tmp/doctor-ps"),
+		diagnostics: { psLink: { ...LINK_OK, version: "26.3.1", versionOk: false } },
+	}).find((c) => c.name === "ps_link");
+	assert.equal(tooOld?.ok, false);
+	assert.match(tooOld?.detail ?? "", /26\.3\.1 过低（需要 ≥ 27\.0\.0）/);
 });
 
-test("doctor：未提供转发上下文时不出这两项（不假装通过）", () => {
-	const checks = runDoctor({ config: DEFAULT_CONFIG, paths: resolvePaths("/tmp/doctor-fwd") });
-	assert.equal(checks.some((c) => c.name === "ps_forwarding"), false);
+test("doctor：未提供环节状态时不出这两项（不假装通过）", () => {
+	const checks = runDoctor({ config: DEFAULT_CONFIG, paths: resolvePaths("/tmp/doctor-ps") });
+	assert.equal(checks.some((c) => c.name === "ps_link" || c.name === "ps_always_approved"), false);
 });
 
 // ── permissions 项必须看「有效管理员」（本轮修的真 bug）────────────────

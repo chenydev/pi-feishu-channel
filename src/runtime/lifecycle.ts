@@ -2,15 +2,15 @@
  * 桥的生命周期：启动、停止、状态心跳、断线补收与受控重连。
  *
  * 启动顺序（任何一步失败都回滚到未启动状态）：
- * 1. 声明 PS 父会话环境变量 → 拿单实例锁；
+ * 1. 拿单实例锁；
  * 2. 装配可选能力 → 装配核心组件 → 连上飞书、启动发送队列；
- * 3. 起 PS 转发应答方（失败不阻塞）→ 空闲会话回收 → 收紧会话文件权限 → 状态心跳 → 启动可选能力；
+ * 3. 空闲会话回收 → 收紧会话文件权限 → 状态心跳 → 启动可选能力；
  * 4. 查询应用归属人与应用管理员 → 日志 `feishu.bridge.features`、`feishu.approval.mode`、`bridge started`。
  *
  * 启动与停止串行执行（`/feishu:restart`、SIGTERM 与 session_shutdown 可能同时到达）。
  */
 import { globalApprovalMode } from "../approval/mode.js";
-import type { PsForwardingSync } from "../approval/ps-forwarding-sync.js";
+import { checkPiPermissionSystem } from "../approval/ps-authorizer.js";
 import { resolveAppLockFile, resolvePaths } from "../config.js";
 import type { FeatureContext, FeatureHost } from "../features/feature.js";
 import { enabledFeatures } from "../features/switches.js";
@@ -28,7 +28,6 @@ export interface LifecycleDeps {
 	log: BridgeLogger;
 	status: StatusReporter;
 	features: FeatureHost;
-	psForwardingSync: PsForwardingSync;
 	/** 可选能力的上下文。 */
 	featureContext(): FeatureContext;
 	/** 装配核心组件（见 assemble.ts）。 */
@@ -110,10 +109,8 @@ export class BridgeLifecycle {
 	}
 
 	private async startUnlocked(): Promise<string> {
-		const { rt, log, status, features, psForwardingSync } = this.deps;
+		const { rt, log, status, features } = this.deps;
 		if (rt.started) return "already";
-		// 父子声明要在任何桥会话创建之前落地（PS 每次工具调用时实时读进程环境）
-		psForwardingSync.syncEnv();
 		try {
 			rt.appLock = AppLock.acquire(resolveAppLockFile(rt.homeDir, rt.config.appId), rt.config.appId);
 		} catch (error) {
@@ -135,15 +132,6 @@ export class BridgeLifecycle {
 			await this.deps.assemble();
 			await rt.transport!.start();
 			rt.outbox!.start();
-			// 转发应答方要等 transport/outbox 就绪（弹卡要发得出去）。失败不阻塞桥启动：
-			// 转发只是审批的升级路径，没起来退化成 PS 自己的判定（无人应答 → 拒绝）。
-			try {
-				await psForwardingSync.syncServer();
-			} catch (error) {
-				log.warn("feishu.approval.ps_forwarding_start_failed", {
-					error: error instanceof Error ? error.message : String(error),
-				});
-			}
 			// 空闲会话回收巡检（无 active run/排队/审批且超 TTL 才回收句柄）
 			rt.convManager?.startLifecycle();
 			// 会话文件权限；status 心跳（含可选能力的心跳挂接点，如告警）
@@ -156,6 +144,7 @@ export class BridgeLifecycle {
 			status.setUi("bridge", "飞书桥已启动");
 			log.info("feishu.bridge.features", { enabled: enabledFeatures(rt.config) });
 			log.info("feishu.approval.mode", globalApprovalMode(rt.config));
+			checkPiPermissionSystem(rt, log);
 			log.info("bridge started", { bot: rt.transport?.getBotIdentity() });
 			status.update();
 			return "started";
@@ -182,9 +171,6 @@ export class BridgeLifecycle {
 		await features.stop();
 		try {
 			rt.permissionBridge?.shutdown();
-			// 先停应答方：未决的转发请求已被 shutdown() 判拒绝，等它们把响应写完再撤心跳，
-			// 否则子会话要等满 10 分钟才知道没人服务。
-			await rt.psForwarding?.stop();
 			// 入站在后台处理，先给在途消息一个有时限的收尾窗口（写进待处理记录后重启可恢复）
 			try {
 				await Promise.race([rt.transport?.drainInbound(), new Promise((resolve) => setTimeout(resolve, 2_000).unref())]);

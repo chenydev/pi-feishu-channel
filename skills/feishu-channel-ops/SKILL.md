@@ -46,11 +46,13 @@ open_id 是**按应用生成**的：换了飞书应用，`admins`、`allowUsers`
 
 ### 可选能力默认关闭
 
-`approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest`、`approval.forwarding` 都需要显式开启。
+`approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest` 都需要显式开启。
 
 工具审批：`approval.mode` 取 `off`（默认，直接放行）/ `builtin`（内置分级 + 审批卡）/ `pi-permission-system`（pi-permission-system）。
 管理员在飞书里 `/feishu approvals <模式>` 只改当前会话（重启失效），加 `-g` 写入配置，`reset` 回到全局。
 `off` 关不掉 pi-permission-system：装了它，它的拒绝照样生效。详见 [approval.md](../../docs/approval.md) §0。
+用 `pi-permission-system` 模式时，要它的「询问」弹审批卡，**还要在它的配置里写 `"authorizerChain": ["feishu-channel"]`**，并且版本 ≥ 27.0.0
+（`/feishu doctor` 的 `ps_link` 项检查这两点）。读写工作目录外的文件不能在卡上批准，需要时在它的配置里放行。详见 [approval.md](../../docs/approval.md) §3–4。
 当前开了哪些：启动日志 `feishu.bridge.features`、`status.json` 的 `features` 字段、`/feishu doctor`。
 
 ## 2. 健康检查
@@ -63,7 +65,7 @@ cat "$H/status.json"
 
 - **先看 mtime**：进程每 30 秒刷新一次，**mtime 距今超过 90 秒 = 进程已停**，这时文件里的 `connState: "connected"` 是过期数据。
 - 再看：`connState`、`reconnectsLast5m`（持续偏高 = 抖动）、`sessionQueues.waiting`（持续 > 0 = 并发不够）、`pendingApprovals`、`outbox.failed` / `oldestAgeMs`、`messageDropped`。
-- 配置和权限问题：在飞书里发 `/feishu doctor`，每项给出 `ok` 或具体问题。
+- 配置和权限问题：在飞书里发 `/feishu doctor`，每项给出 `ok` 或具体问题（pi-permission-system 模式下看 `ps_link`）。
 
 ## 3. 排障：消息没反应
 
@@ -101,7 +103,8 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 审批卡点不动 | 点的人不是管理员（协作者里的开发者、运营不算） | 加进 `admins`，或由归属人 / 应用管理员点 |
 | 归属人 / 应用管理员没被识别 | 缺 `application:application:readonly` 或协作者接口失败 | 看 `feishu.config.app_owner_hydrated` / `*_hydrate_failed`；开权限后重启，或写进 `admins` |
 | 点卡片提示「已失效」 | 超时（默认 5 分钟）或这一轮已结束 | 尽快点；或调大 `approval.timeoutMs` |
-| PS 的「询问」全被拒绝 | 没开转发 | `approval.mode: "pi-permission-system"` 与 `approval.forwarding.enabled: true` **一起开** |
+| PS 的「询问」全被拒绝，不弹卡 | PS 的 `authorizerChain` 没写 `feishu-channel`，或 PS 版本 < 27.0.0 | `/feishu doctor` 的 `ps_link`；在 PS 配置加 `"authorizerChain": ["feishu-channel"]` 后重启 |
+| 读写工作目录外的文件总被拒，不弹卡 | PS 不允许授权链放行路径类请求 | 日志 `feishu.approval.ps_link_capped`；在 PS 配置里放行这些路径 |
 | 回复半截 / 「回复发送失败」 | 编辑次数用尽、无发言权限、接口报错 | `feishu.outbox.failed` 的 `lastError` |
 | 页脚费用「未知」 | 模型配置没有费率 | 在 pi 模型配置里补 `cost` |
 | 日志 `feishu.config.deprecated_env` | 用了旧环境变量 `FEISHU_BRIDGE_*` | 改成日志里的 `replacement` |

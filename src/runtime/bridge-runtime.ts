@@ -7,7 +7,7 @@
  */
 import type { AlwaysApprovedStore } from "../approval/always-approved-store.js";
 import type { PermissionBridge } from "../approval/permission-bridge.js";
-import type { PsForwardingServer } from "../approval/ps-forwarding.js";
+import type { PsAuthorizer } from "../approval/ps-authorizer.js";
 import type { LastSentCache } from "../inbound/admit.js";
 import type { InboundPipeline } from "../inbound/pipeline.js";
 import type { FeishuTransport } from "../inbound/transport.js";
@@ -64,13 +64,10 @@ export class BridgeRuntime {
 	permissionBridge: PermissionBridge | undefined;
 	/** 会话级审批模式覆盖（`/feishu approvals <模式>`，按会话键）；只在内存里，重启即失效。 */
 	readonly approvalModeOverrides = new Map<string, ApprovalMode>();
-	/** pi-permission-system 父会话转发（默认关）：桥充当应答方，把 PS 的 ask 变成审批卡。 */
-	psForwarding: PsForwardingServer | undefined;
-	/** 「始终批准」规则表（转发路径）；未启用时为 undefined。 */
+	/** pi-permission-system 授权链环节：把它的「询问」变成审批卡（进程内只有一个，跨重启保留）。 */
+	psAuthorizer: PsAuthorizer | undefined;
+	/** 「始终批准」规则表（pi-permission-system 模式）；`approval.plugin.alwaysApprove: false` 时为 undefined。 */
 	alwaysApproved: AlwaysApprovedStore | undefined;
-	psForwardingParentId: string | undefined;
-	/** 本进程自己声明过的父会话 id（撤回时只删自己设的值，不动外层启动方的声明）。 */
-	psForwardingOwnEnvId: string | undefined;
 	/** 澄清提问（与审批完全独立，选择不授予任何工具权限）。 */
 	clarificationStore: ClarificationStore | undefined;
 

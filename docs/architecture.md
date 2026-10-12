@@ -20,7 +20,7 @@ src/
                限流熔断、诊断、用量记录、群开通公共操作
   inbound/     飞书长连接、消息解析、准入、去重与合批、入站流水线
   outbound/    错误统一分类、长文分片、发送、流式通道、持久化 outbox、页脚指标
-  approval/    审批模式、工具调用审批检查、权限桥、命令分级、审批卡、pi-permission-system 父会话转发
+  approval/    审批模式、工具调用审批检查、权限桥、命令分级、审批卡、pi-permission-system 授权链环节
   session/     pi 会话后端、会话管理器、调度、单轮执行、进度、会话指针
   commands/    命令注册表与分发、按组的命令处理函数、TUI 命令、状态与帮助卡片
   interaction/ 卡片回调路由与核心按钮、平台事件（撤回/入群/欢迎/反馈）、澄清提问
@@ -107,7 +107,9 @@ src/
 
 工具调用依次经过：
 
-1. **pi-permission-system**（只要安装了就会执行，不受本扩展的模式影响）：它的 `tool_call` 拦截先于本扩展执行。它判定 deny 时直接拦截；判定 ask 时，在全局模式为 `pi-permission-system` 并开启**父会话转发**时变成飞书审批卡。
+1. **pi-permission-system**（只要安装了就会执行，不受本扩展的模式影响）：它的 `tool_call` 拦截先于本扩展执行。它判定 deny 时直接拦截；判定 ask 时交给它的授权链，
+   本扩展在每个子会话里注册的 `feishu-channel` 环节（`approval/ps-authorizer.ts`）在该会话模式为 `pi-permission-system` 时把它变成飞书审批卡，
+   其余情况交还 pi-permission-system（结果是拒绝）。环节要写进 pi-permission-system 配置的 `authorizerChain` 才生效。
 2. **审批模式**：`off` 直接放行；`pi-permission-system` 且插件已安装时放行（已由插件判定），插件没装时按 `builtin` 继续。
 3. **命令分级**（`builtin`）：只读命令免审，危险命令直接拒绝，其余需要审批。
 4. **审批卡**：发给会话，只有管理员（显式配置的管理员 + 应用归属人 / 应用管理员）能点。选项有「批准一次 / 本会话批准 / 始终批准 / 拒绝」；超时按拒绝处理。
@@ -117,4 +119,6 @@ src/
 - 只使用 pi 官方导出的 API；本地类型声明（`src/pi-types.ts`）保持独立的类型检查，
   `tests/pi-api.test.ts` 在编译期核对其中每个成员都真实存在于 pi 的 `ExtensionAPI` 上。
 - pi 的 `ExtensionAPI` 上没有 `getAgentDir` 和 `ui`：agent 目录取自包导出的 `getAgentDir()`（`runtime/agent-dir.ts`），界面取自事件的 `ctx.ui`。
-- 每个会话是一个独立的 pi 子会话。子会话加载扩展时会剔除本扩展，否则每个子会话都会再启动一个飞书长连接；同时注入一个内联扩展，提供审批检查和文件、通知、提问工具。
+- 与 pi-permission-system 只通过它公开的跨扩展接口交互：监听 `permissions:ready`，按会话取它的服务调用 `registerAuthorizer`（要求 27.0.0 及以上）。
+  服务从它发布用的进程级槽位读取，不 import 它的包（本扩展常以本地路径加载，包名解析不到它的安装目录）。
+- 每个会话是一个独立的 pi 子会话。子会话加载扩展时会剔除本扩展，否则每个子会话都会再启动一个飞书长连接；同时注入一个内联扩展，提供审批检查、pi-permission-system 授权链环节和文件、通知、提问工具。

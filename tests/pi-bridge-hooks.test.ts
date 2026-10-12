@@ -252,3 +252,11 @@ test("子会话会话后端：resource_loader_ready 记录剔除的网关扩展�
 	const ready = logs.find((l) => l.msg === "feishu.session.resource_loader_ready");
 	assert.equal((ready?.meta as { strippedGateways?: number })?.strippedGateways, 1);
 });
+
+test("桥侧内联扩展：每个子会话都挂上 pi-permission-system 授权链环节", () => {
+	const { api } = fakePi();
+	const { ctx } = fakeCtx(ROUTE);
+	const attached: ExtensionAPI[] = [];
+	createBridgeInlineExtension({ ...ctx, attachPermissions: (pi) => { attached.push(pi); } })(api);
+	assert.deepEqual(attached, [api]);
+});

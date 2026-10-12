@@ -33,8 +33,8 @@
     "mode": "off",
     "autoApprove": [],
     "timeoutMs": 300000,
-    "forwarding": {
-      "enabled": false
+    "plugin": {
+      "alwaysApprove": true
     }
   },
   "reaction": {

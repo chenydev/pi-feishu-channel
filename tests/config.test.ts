@@ -68,19 +68,13 @@ test("config：非法 group rule 字段 fail-fast，并收紧已有配置权限"
 	});
 });
 
-test("config：PS 父会话转发默认关闭，且 env 覆盖优先于文件", () => {
-	// 实验性能力必须显式开启（与 streamingCard 同一约定）：默认值写死在 DEFAULT_CONFIG 里。
+test("config：「始终批准」默认开，配置文件可关，env 优先于文件", () => {
 	withConfigFile({}, (home) => {
-		const cfg = loadConfig(home, {});
-		assert.equal(cfg.approval.forwarding?.enabled, false, "默认必须是关");
-		assert.equal(cfg.approval.forwarding?.parentSessionId, undefined, "未配置时用代码里的默认父会话 id");
+		assert.equal(loadConfig(home, {}).approval.plugin?.alwaysApprove, true, "默认开（要管理员主动点卡才生效）");
 	});
-	withConfigFile({ approval: { autoApprove: [], timeoutMs: 1000, forwarding: { enabled: true, parentSessionId: "from-file" } } }, (home) => {
-		assert.equal(loadConfig(home, {}).approval.forwarding?.enabled, true, "显式开启后生效");
-		assert.equal(loadConfig(home, {}).approval.forwarding?.parentSessionId, "from-file");
-		// env 优先：容器里临时试验不必改仓库配置
-		assert.equal(loadConfig(home, { FEISHU_PS_FORWARDING: "0" }).approval.forwarding?.enabled, false, "env=0 强制关");
-		assert.equal(loadConfig(home, { FEISHU_PS_FORWARDING: "1" }).approval.forwarding?.enabled, true);
+	withConfigFile({ approval: { autoApprove: [], timeoutMs: 1000, plugin: { alwaysApprove: false } } }, (home) => {
+		assert.equal(loadConfig(home, {}).approval.plugin?.alwaysApprove, false);
+		assert.equal(loadConfig(home, { FEISHU_PS_ALWAYS: "1" }).approval.plugin?.alwaysApprove, true, "env 优先");
 	});
 });
 

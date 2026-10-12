@@ -1,11 +1,12 @@
 /**
- * 按当前配置装配桥的核心组件（每次启动一次）：飞书长连接、审批、澄清提问、发送器与持久发送队列、
+ * 按当前配置装配桥的核心组件（每次启动一次）：飞书长连接、审批（含「始终批准」规则表）、澄清提问、发送器与持久发送队列、
  * 会话管理（含子会话的内联扩展）、入站流水线。组件都挂在 `BridgeRuntime` 上。
  *
  * 组件之间的回调（连接状态、卡片点击、平台事件、命令、准入拒绝……）由调用方通过 `AssembleContext` 提供，
  * 这里只负责把它们接到对应组件上。
  */
 import { join } from "node:path";
+import { AlwaysApprovedStore } from "../approval/always-approved-store.js";
 import { buildApprovalCard } from "../approval/cards.js";
 import type { ToolGateResult } from "../approval/gate.js";
 import { PermissionBridge, redactParams } from "../approval/permission-bridge.js";
@@ -74,6 +75,10 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 		// 管理员名单为空时不允许任何人作答（默认拒绝，避免任意群成员替用户做决定）
 		onAudit: (event) => log.info("feishu.clarify.audit", event),
 	});
+	// 「始终批准」规则表（pi-permission-system 模式下的审批卡用；每次启动按配置重建）
+	rt.alwaysApproved = rt.config.approval.plugin?.alwaysApprove === false
+		? undefined
+		: new AlwaysApprovedStore({ file: paths.alwaysApprovedFile });
 	rt.permissionBridge = new PermissionBridge({
 		getConfig: () => rt.config.approval,
 		onAsk: async (pending) => {
@@ -185,6 +190,8 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 			// 同时剔除网关扩展，避免子会话重复启动飞书 WS / 创建空状态。
 			bridgeExtensionFactory: createBridgeInlineExtension({
 				routeForSessionId: (sessionId) => rt.convManager?.routeForSessionId(sessionId),
+				// pi-permission-system 的「询问」→ 审批卡（PS 没装时只是多听一个不会触发的事件）
+				attachPermissions: (pi) => rt.psAuthorizer?.attach(pi),
 				markToolBoundary: (sessionId) => rt.convManager?.markPendingToolBoundary(sessionId),
 				gateToolCall: (input) => ctx.gateToolCall(input),
 				notifyCompaction: ({ sessionId, phase, detail }) => {

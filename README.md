@@ -21,7 +21,7 @@
 ### 交互
 
 - **工具审批卡**：工具调用前弹卡片（一次性 / 本会话 / 始终 / 拒绝），超时自动失效，防重放；管理员可配置免审批
-- **「始终批准」跨进程可用**：`pi-permission-system` 转来的 ask 同样支持「始终批准」—— 语义对齐 PS 原生对话框（记在**父会话**而非子会话，撤销后立即恢复询问），入口是 `/feishu always`
+- **接入 pi-permission-system**：它的「询问」变成飞书审批卡（经它的授权链，需 ≥ 27.0.0），同样支持本会话批准和「始终批准」（按它的规则名记，`/feishu always` 查看与撤销）
 - **澄清选择卡**：Agent 可就地提问并给出选项，超时或越权自动回退为文本
 - **流式输出**：内置文本流式（默认）；可选 CardKit 流式卡片（需应用权限，见下）
 - **进度与思考**：工具名 + 耗时 + 脱敏命令摘要，工具风暴自动折叠
@@ -182,14 +182,13 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 | 群开通申请：未放行的群里有人 @ 机器人时，把申请发给能审批的人 | `onboarding.accessRequest` |
 | 云文档读取工具 `feishu_doc_read` | `docTools.enabled` |
 | 流式卡片展示处理过程 | `streamingCard.enabled` |
-| pi-permission-system 父会话转发 | `approval.forwarding.enabled`（见 [docs/approval.md](docs/approval.md)） |
 
 当前打开了哪些，看启动日志 `feishu.bridge.features`、`status.json` 的 `features` 字段或 `/feishu doctor`。变更记录见 `CHANGELOG.md`。
 
 ### 工具审批
 
 默认关闭，工具调用直接放行。`approval.mode` 可选：`off`（关闭）、`builtin`（内置：bash 命令分级 + 审批卡）、
-`pi-permission-system`（交给 pi-permission-system，可由本扩展把它的「询问」转成审批卡）。
+`pi-permission-system`（交给 pi-permission-system；在它的配置里写 `"authorizerChain": ["feishu-channel"]` 后，它的「询问」变成审批卡）。
 管理员可以在会话里用 `/feishu approvals <模式>` 临时切换当前会话，加 `-g` 写入配置。详见 [docs/approval.md](docs/approval.md)。
 
 ---

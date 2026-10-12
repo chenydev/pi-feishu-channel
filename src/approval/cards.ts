@@ -124,8 +124,7 @@ export function buildApprovalCard(pending: PendingApproval, resolution?: Approva
 	} else if (resolution?.terminal === "invalidated") {
 		elements.push({ tag: "markdown", content: "该请求已结束（任务中止或会话重置），此审批不再有效" });
 	}
-	// 按钮集合由 pending.choices 决定：外部审批源（PS 转发）不提供「始终批准」
-	// —— 那条路径写不进对方策略引擎的配置，给了按钮也做不到。
+	// 按钮集合由 pending.choices 决定：外部审批源（PS 授权链）关闭「始终批准」时只有三档。
 	const choices = pending.choices?.length ? pending.choices : ALL_APPROVAL_CHOICES;
 	for (const choice of choices) {
 		const chosen = resolution?.choice === choice;
