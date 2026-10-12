@@ -114,9 +114,9 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 
 ## 5. 改动后的验收
 
-本地测试通过不等于可用。依次确认：
+本地测试通过不等于可用。`npm test` 不在部署环境跑（pi 装扩展不带开发依赖，没有 tsx，不要补装）。依次确认：
 
-1. 重启后日志出现 `bridge started`；
+1. 重启后日志出现 `bridge started`（出现 `feishu.bridge.autostart_skipped` = 不是 `pi --mode rpc` 启动的）；
 2. `status.json` mtime 在 90 秒内，`connState` 为 `connected`；
 3. `feishu.bridge.features` 与预期一致；
 4. 在测试群 @ 机器人，发**会调用工具**的消息，例如「用 bash 执行 `echo SMOKE-1`，把输出原样告诉我」（知识问答不会触发工具，测不到审批）；
