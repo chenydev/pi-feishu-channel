@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { buildApprovalCard } from "../approval/cards.js";
 import type { ToolGateResult } from "../approval/gate.js";
 import { PermissionBridge, redactParams } from "../approval/permission-bridge.js";
-import { saveConfigFields, resolvePaths } from "../config.js";
+import { loadJsonFile, saveConfigFields, resolvePaths } from "../config.js";
 import type { FeatureHost } from "../features/feature.js";
 import { LastSentCache, effectiveAdmins } from "../inbound/admit.js";
 import { DedupeStore } from "../inbound/dedupe-store.js";
@@ -118,7 +118,11 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 		},
 		onAlwaysAllow: (toolName) => {
 			const previous = [...rt.config.approval.autoApprove];
-			if (!rt.config.approval.autoApprove.includes(toolName)) rt.config.approval.autoApprove.push(toolName);
+			// 以文件里当前的名单为底：配置只在启动时读一次，进程运行期间手工加进文件的项
+			// 不能被内存里的旧名单覆盖掉（合并后内存也同步成文件的样子）。
+			const onDisk = loadJsonFile<{ approval?: { autoApprove?: unknown } }>(paths.configFile)?.approval?.autoApprove;
+			const base = Array.isArray(onDisk) ? onDisk.filter((item): item is string => typeof item === "string") : previous;
+			rt.config.approval.autoApprove = base.includes(toolName) ? base : [...base, toolName];
 			// saveConfig 失败时回滚内存改动 —— 不得反馈“已持久授权”。
 			if (saveConfigFields(rt.homeDir, rt.config, ["approval.autoApprove"])) return true;
 			rt.config.approval.autoApprove = previous;

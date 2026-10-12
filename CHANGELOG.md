@@ -4,6 +4,8 @@
 
 ## 未发布
 
+- 修复（审批）：点「始终批准」会用内存里的免审名单整个覆盖 `approval.autoApprove`，进程运行期间手工加进
+  配置文件的工具被冲掉。现在写入前先合并文件里当前的名单，合并结果同时在内存里生效。
 - 修复：没设 `FEISHU_CHANNEL_HOME` 时桥起不来，日志 `extension_error session_start "pi.getAgentDir is not a function"`。
   pi 传给扩展的 API 对象上没有 `getAgentDir` 和 `ui`，入口却直接调用了它们。现在 agent 目录取自
   `@earendil-works/pi-coding-agent` 导出的 `getAgentDir()`（取不到时按 `PI_CODING_AGENT_DIR`、`~/.pi/agent` 推算），

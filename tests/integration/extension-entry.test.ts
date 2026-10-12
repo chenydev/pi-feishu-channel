@@ -5,7 +5,7 @@
  * 拆分入口（refactor-plan D1–D6）的每一步都必须让这里保持全绿。
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { startHarness, type Harness } from "./extension-harness.js";
@@ -124,6 +124,28 @@ test("入口·审批检查：需要审批的工具调用发出审批卡；非管
 		assert.equal(toastOf(byAdmin)?.type, "success");
 		assert.equal(await verdict, undefined, "批准后工具调用放行（不返回 block）");
 		assert.ok(h.hasLog("feishu.approval.audit"), "审批过程有审计日志");
+	});
+});
+
+test("入口·审批检查：「始终批准」写回时保留进程运行期间手工加进文件的免审工具", T, async () => {
+	await withHarness(baseConfig, async (h) => {
+		const { chatId, sessionId } = await startRun(h);
+		const verdict = toolCall(h, sessionId, "write", { path: "a.txt", content: "x" });
+		await h.waitForMessage(chatId, /"op":"approval"/);
+
+		// 运行期间有人手工改了配置文件
+		const configFile = join(h.home, "feishu-channel", "config.json");
+		const onDisk = h.config();
+		writeFileSync(configFile, JSON.stringify({ ...onDisk, approval: { autoApprove: ["edit"] } }, null, 2));
+
+		const [always] = h.buttonValues((v) => v.op === "approval" && v.choice === "always");
+		assert.ok(always, "审批卡上有「始终批准」按钮");
+		await h.click({ messageId: always.messageId, chatId, operator: ADMIN, value: always.value });
+		assert.equal(await verdict, undefined);
+
+		assert.deepEqual((h.config().approval as { autoApprove: string[] }).autoApprove, ["edit", "write"]);
+		// 合并后的名单立即生效：手工加的 edit 不用重启就免审
+		assert.equal(await toolCall(h, sessionId, "edit", { path: "a.txt" }, "call-2"), undefined);
 	});
 });
 
