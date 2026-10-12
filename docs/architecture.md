@@ -118,6 +118,8 @@ src/
 
 - 只使用 pi 官方导出的 API；本地类型声明（`src/pi-types.ts`）保持独立的类型检查，
   `tests/pi-api.test.ts` 在编译期核对其中每个成员都真实存在于 pi 的 `ExtensionAPI` 上。
+- 只在 `ctx.mode === "rpc"` 时自动启动桥（`ctx.mode` 缺失的老版本 pi 照旧自动启动）；TUI、print、json 模式只注册命令，
+  由 `/feishu:start` 手动启动。SIGTERM 的优雅关闭只在自动启动时挂上，TUI 的信号处理留给 pi。
 - pi 的 `ExtensionAPI` 上没有 `getAgentDir` 和 `ui`：agent 目录取自包导出的 `getAgentDir()`（`runtime/agent-dir.ts`），界面取自事件的 `ctx.ui`。
 - 与 pi-permission-system 只通过它公开的跨扩展接口交互：监听 `permissions:ready`，按会话取它的服务调用 `registerAuthorizer`（要求 27.0.0 及以上）。
   服务从它发布用的进程级槽位读取，不 import 它的包（本扩展常以本地路径加载，包名解析不到它的安装目录）。

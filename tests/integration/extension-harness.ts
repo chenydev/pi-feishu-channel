@@ -126,6 +126,8 @@ function collectValues(node: unknown, out: Array<Record<string, unknown>>): void
 export interface HarnessOptions {
 	/** 不设 `FEISHU_CHANNEL_HOME`，改用 `PI_CODING_AGENT_DIR` 指向临时目录：走「状态目录 = pi 的 agent 目录」这条路径。 */
 	homeFromAgentDir?: boolean;
+	/** 事件 ctx 上的运行模式（不设 = 老版本 pi，ctx 上没有 mode）。非 rpc 模式不自动启动，也就不等 `bridge started`。 */
+	mode?: ExtensionRuntimeContext["mode"];
 }
 
 /** 启动一个完整的扩展实例。`config` 写入 `<home>/feishu-channel/config.json`。 */
@@ -177,8 +179,8 @@ export async function startHarness(config: Record<string, unknown>, options: Har
 	const pi = new FakePi();
 	const sessions = new HeldSessions();
 	feishuBridgeExtension(pi as unknown as ExtensionAPI, { larkSdk, sessionBackend: sessions.backend });
-	await pi.emit("session_start", { type: "session_start" }, { ui: pi.ctxUi });
-	await waitUntil(() => logs.some((line) => line.event === "bridge started"), 3_000, "bridge started");
+	await pi.emit("session_start", { type: "session_start" }, { ui: pi.ctxUi, ...(options.mode ? { mode: options.mode } : {}) });
+	if (!options.mode || options.mode === "rpc") await waitUntil(() => logs.some((line) => line.event === "bridge started"), 3_000, "bridge started");
 
 	let seq = 0;
 	const harness: Harness = {

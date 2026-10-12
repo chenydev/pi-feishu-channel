@@ -17,6 +17,8 @@ export interface ExtensionRuntimeContext {
 	sessionManager: { getSessionId(): string };
 	/** 界面只挂在事件的 ctx 上，不在 ExtensionAPI 上；没有界面时（print 模式）是空实现。 */
 	ui?: ExtensionUI;
+	/** 运行模式（`pi --mode rpc` 为 `"rpc"`，终端界面为 `"tui"`）；老版本 pi 没有。 */
+	mode?: "tui" | "rpc" | "json" | "print";
 }
 
 export interface ExtensionToolResult {

@@ -212,6 +212,15 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			log.warn("FEISHU_APP_ID/SECRET 未配置，桥未启动。请配置后运行 /feishu:start。");
 			return;
 		}
+		// 只在 RPC 模式（部署用的 `pi --mode rpc`）自动启动：本地 TUI、print 模式自动连上会和部署的实例
+		// 抢同一个应用的长连接。需要时 /feishu:start 手动启动。老版本 pi 的 ctx 上没有 mode，照旧自动启动。
+		if (ctx?.mode && ctx.mode !== "rpc") {
+			if (rt.started) return;
+			log.info("feishu.bridge.autostart_skipped", { mode: ctx.mode });
+			status.setUi("bridge", "飞书桥未启动（仅 RPC 模式自动启动，/feishu:start 手动启动）");
+			return;
+		}
+		handleSigterm();
 		await lifecycle.start();
 		// 网关重启恢复：重发上次中断的未完成消息（hermes resume_pending）
 		const recovered = await rt.convManager?.recoverPending() ?? 0;
@@ -223,7 +232,15 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	// 避免残留"🤖 正在处理…"消息和敲键盘表情（kill -9 时由 recoverPending 兜底重发）。
 	// 关闭预算 8s（Docker 默认 10s 后 SIGKILL）。旧的 3s 比 shutdown 内部几段 2s 等待之和还短，
 	// outbox 在途请求会被截断；8s 给处理完入站消息、收尾进度、等在途发送留足时间，又不至于被 SIGKILL。
-	process.on("SIGTERM", () => {
+	// 只在自动启动时挂上：TUI 自己处理 SIGTERM（先发 session_shutdown 让扩展收尾，再恢复终端），
+	// 这里抢先 exit 会让终端来不及恢复。TUI 里手动 /feishu:start 的桥由 session_shutdown 收尾。
+	let sigtermHandled = false;
+	function handleSigterm(): void {
+		if (sigtermHandled) return;
+		sigtermHandled = true;
+		process.on("SIGTERM", onSigterm);
+	}
+	function onSigterm(): void {
 		const budgetMs = Number(process.env.FEISHU_SHUTDOWN_BUDGET_MS) || 8_000;
 		const started = Date.now();
 		setTimeout(() => {
@@ -234,7 +251,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 			log.info("feishu.shutdown.done", { ms: Date.now() - started });
 			process.exit(0);
 		});
-	});
+	}
 
 	pi.on("session_shutdown", async () => {
 		await lifecycle.dispose();

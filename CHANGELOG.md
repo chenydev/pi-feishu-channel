@@ -4,6 +4,10 @@
 
 ## 未发布
 
+- **破坏性变更（启动）**：只在 RPC 模式（`pi --mode rpc`）自动启动飞书桥。本地 TUI、print / json 模式装了本扩展也不再自动连飞书，
+  免得和部署的实例抢同一个应用的长连接；需要时在 TUI 里 `/feishu:start` 手动启动。跳过时打日志 `feishu.bridge.autostart_skipped`（带 `mode`），
+  状态栏显示「飞书桥未启动」。老版本 pi 的扩展上下文里没有运行模式，照旧自动启动。
+  SIGTERM 的优雅关闭也只在自动启动时挂上，TUI 下交给 pi 自己处理（原先会抢在 pi 恢复终端之前退出进程）。
 - **破坏性变更（审批）**：pi-permission-system（下称 PS）的「询问」改为经它的授权链变成审批卡，不再冒充它的父会话转发。
   - **要求 PS 27.0.0 及以上**，并在 PS 配置里写 `"authorizerChain": ["feishu-channel"]`；只设 `approval.mode: "pi-permission-system"` 不够。
   - 删除 `approval.forwarding.*`（`enabled`、`parentSessionId`）和环境变量 `FEISHU_PS_FORWARDING`；

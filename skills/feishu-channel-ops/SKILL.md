@@ -94,6 +94,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 
 | 症状 | 原因 | 处理 |
 |---|---|---|
+| 桥没起来，日志 `feishu.bridge.autostart_skipped` | 不是 `pi --mode rpc` 启动的，其他模式不自动连 | 部署改用 `--mode rpc`；本地 TUI 要连就 `/feishu:start` |
 | `status.json` 说已连接，却没反应 | 文件过期，进程已停 | 看 mtime，重启 |
 | 桥没起来，日志 `pi.getAgentDir is not a function` | 扩展版本过旧 | 升级扩展；临时设 `FEISHU_CHANNEL_HOME` |
 | 连接反复断开又连上 | 同一应用被多个进程连接 | 一个应用只能有一个实例；锁冲突时启动报 `bridge already running for appId …` |

@@ -133,7 +133,9 @@ chmod 600 ~/.pi/agent/feishu-channel/config.json
 pi --mode rpc --provider <provider> --model <model>
 ```
 
-扩展随 pi 进程启动。审批的几种工作方式见 [docs/approval.md](docs/approval.md)。
+扩展随 pi 进程启动。**只有 RPC 模式会自动连飞书**：本地用 TUI（或 `pi -p`）时扩展照常加载但不连接，
+不会和部署的实例抢连接；确实要在 TUI 里连，用 `/feishu:start`（`/feishu:stop` 断开）。
+审批的几种工作方式见 [docs/approval.md](docs/approval.md)。
 
 依赖：`@larksuiteoapi/node-sdk`
 peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一并装进 clone；本扩展用它创建子会话）

@@ -92,6 +92,7 @@
 |---|---|---|
 | 消息发了完全没反应 | 没有 @；群不在白名单里 | 查 `feishu.pipeline.drop` 的 `reason` |
 | 桥没起来，日志 `extension_error session_start … pi.getAgentDir is not a function` | 扩展版本过旧，调用了 pi 扩展 API 上不存在的方法 | 升级扩展；临时绕过：设置 `FEISHU_CHANNEL_HOME` |
+| 桥没起来，日志 `feishu.bridge.autostart_skipped` | 不是 RPC 模式（`mode` 字段为 `tui` / `print` / `json`），只有 `pi --mode rpc` 自动启动 | 部署用 `pi --mode rpc`；本地 TUI 里要连就 `/feishu:start` |
 | `status.json` 显示已连接，却没反应 | 文件已经过期，进程早就停了 | 看 mtime；`/feishu doctor` 的 `status_heartbeat` |
 | 连接反复断开又连上 | 同一个应用被多个进程同时连接 | 同一个应用只能有一个实例；锁冲突时启动报错 `bridge already running for appId …` |
 | 审批卡没弹，命令直接执行了 | 审批模式是关闭（默认）；或策略里只有允许 / 拒绝，没有需要审批的规则 | `/feishu approvals` 看模式和来源；再查命令分级或 pi-permission-system 的规则 |

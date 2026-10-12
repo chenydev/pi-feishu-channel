@@ -288,3 +288,45 @@ test("入口·启动：没设 FEISHU_CHANNEL_HOME 时用 pi 的 agent 目录，�
 		await h.stop();
 	}
 });
+
+test("入口·启动：RPC 模式自动启动并接管 SIGTERM", T, async () => {
+	const before = process.listenerCount("SIGTERM");
+	const h = await startHarness(baseConfig, { mode: "rpc" });
+	try {
+		assert.ok(h.hasLog("bridge started"));
+		assert.equal(process.listenerCount("SIGTERM"), before + 1);
+	} finally {
+		await h.stop();
+	}
+});
+
+test("入口·启动：TUI 模式不自动连飞书、不接管 SIGTERM，/feishu:start 可手动启动", T, async () => {
+	const before = process.listenerCount("SIGTERM");
+	const h = await startHarness(baseConfig, { mode: "tui" });
+	try {
+		assert.ok(h.hasLog("feishu.bridge.autostart_skipped"));
+		assert.ok(!h.hasLog("bridge started"), "TUI 模式不应自动启动");
+		assert.match(h.pi.statuses.get("feishu-bridge") ?? "", /未启动.*\/feishu:start/);
+		assert.equal(process.listenerCount("SIGTERM"), before, "SIGTERM 交给 pi 的 TUI 处理");
+		// 工具调用照常放行（TUI 自己的会话不经飞书审批）
+		assert.equal(await h.pi.emit("tool_call", { toolCallId: "t1", toolName: "bash", input: { command: "rm -rf x" } }, { sessionManager: { getSessionId: () => "tui-session" } }), undefined);
+
+		await h.pi.commands.get("feishu:start")?.handler("", undefined as never, []);
+		assert.ok(h.hasLog("bridge started"), "手动启动后桥起来了");
+		// 切换会话再次触发 session_start：已在运行的桥不受影响，状态栏也不改回「未启动」
+		await h.pi.emit("session_start", { type: "session_start" }, { ui: h.pi.ctxUi, mode: "tui" });
+		assert.doesNotMatch(h.pi.statuses.get("feishu-bridge") ?? "", /未启动/);
+	} finally {
+		await h.stop();
+	}
+});
+
+test("入口·启动：print 模式不自动启动", T, async () => {
+	const h = await startHarness(baseConfig, { mode: "print" });
+	try {
+		assert.ok(h.hasLog("feishu.bridge.autostart_skipped"));
+		assert.ok(!h.hasLog("bridge started"));
+	} finally {
+		await h.stop();
+	}
+});
