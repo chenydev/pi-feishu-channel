@@ -290,7 +290,7 @@ export interface BridgeConfig {
 	 *
 	 * 为什么不只放全局：页脚对"看答案的人"是噪声，对"管钱的人"是信号 —— 群里谁来
 	 * 决定？让该群的管理员当场决定（`/feishu footer off`），而不是让所有人一起去改配置。
-	 * 缺省（该群没有条目）= 跟随 `footer.enabled`。
+	 * 缺省（该群没有条目）= 跟随 `footer.enabled`（默认关）。
 	 */
 	footerByChat?: Record<string, boolean>;
 	/**
@@ -391,7 +391,7 @@ export const DEFAULT_CONFIG: BridgeConfig = {
 	},
 	reaction: { processingEmoji: "Typing", enabled: true, failureEmoji: "CrossMark", steerEmoji: "JIAYI" },
 	queueNotice: true,
-	footer: { enabled: true, showCost: true, showCny: true, showContext: true, showSession: true },
+	footer: { enabled: false, showCost: true, showCny: true, showContext: true, showSession: true },
 	footerByChat: {},
 	usage: { balanceTtlMs: 5 * 60_000, snapshots: true },
 	sessionLifecycle: { idleTtlMs: 30 * 60_000, maxResidentSessions: 32, sweepIntervalMs: 60_000 },

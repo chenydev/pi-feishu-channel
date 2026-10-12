@@ -4,6 +4,9 @@
 
 ## 未发布
 
+- **破坏性变更（页脚）**：回答页脚改为默认关闭（`footer.enabled` 默认 `false`）。`/feishu footer on|off` 仍只改当前会话；
+  新增 `-g` 改全局默认（写入 `footer.enabled`，立即生效），`/feishu footer reset` 让当前会话改回跟随全局。
+  日志 `feishu.footer.toggled` 增加 `scope`（`chat` / `global`）。
 - **破坏性变更（管理员）**：启动时识别的隐式管理员只认应用归属人和协作者里的**应用管理员**（`type: administrator`）；
   开发者、运营以及角色不明的协作者不再当作管理员（此前所有协作者都算，能点审批卡、用管理员命令、绕过私聊白名单）。
   `onboarding.accessApprovers` 的 `owner_collaborators` 改为 `owner_admins`，运行时字段 `appCollaboratorIds` 改为 `appAdminIds`。

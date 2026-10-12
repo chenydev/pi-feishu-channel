@@ -28,7 +28,7 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 - 凭据（`appId` / `appSecret`）建议走环境变量 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，不要写进文件，也**不要在回复或日志里输出 secret**。
 - 运行中的进程会把部分字段写回文件：`/feishu policy`、`/feishu footer`、群开通审批（`allowChats`）、「始终批准」（`approval.autoApprove`）等。
   进程会用内存里的值覆盖这些字段，所以**手改同名字段后要立即重启**，别和运行中的命令交叉修改。
-- 能用飞书命令改的优先用命令（即时生效，自动写回）：`/feishu policy <策略>`、`/feishu footer on|off`、`/feishu approvals <模式> -g`、`/feishu prompt set <内容>`、`/feishu budget <美元>|off`、`/feishu always revoke <规则名>`。多数只有管理员能用。
+- 能用飞书命令改的优先用命令（即时生效，自动写回）：`/feishu policy <策略>`、`/feishu footer on|off|reset [-g]`（页脚默认关）、`/feishu approvals <模式> -g`、`/feishu prompt set <内容>`、`/feishu budget <美元>|off`、`/feishu always revoke <规则名>`。多数只有管理员能用。
 
 ### 准入是默认拒绝的
 

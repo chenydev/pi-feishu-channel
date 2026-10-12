@@ -125,6 +125,7 @@ test("时区：formatTimeInZone 按指定时区格式化，且无效时区不抛
 test("页脚群级开关：群级优先于全局，缺省跟随全局，非法值直接报错", async () => {
 	const { resolveFooterEnabled, loadConfig, saveConfig } = await import("../src/config.js");
 	const { DEFAULT_CONFIG } = await import("../src/types.js");
+	assert.deepEqual(resolveFooterEnabled(DEFAULT_CONFIG, "oc_a"), { enabled: false, source: "global" }, "默认关");
 	const base = { ...DEFAULT_CONFIG, footer: { ...DEFAULT_CONFIG.footer, enabled: true } };
 	assert.deepEqual(resolveFooterEnabled(base, "oc_a"), { enabled: true, source: "global" });
 	assert.deepEqual(resolveFooterEnabled({ ...base, footerByChat: { oc_a: false } }, "oc_a"), { enabled: false, source: "chat" });

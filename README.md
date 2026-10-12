@@ -25,7 +25,7 @@
 - **澄清选择卡**：Agent 可就地提问并给出选项，超时或越权自动回退为文本
 - **流式输出**：内置文本流式（默认）；可选 CardKit 流式卡片（需应用权限，见下）
 - **进度与思考**：工具名 + 耗时 + 脱敏命令摘要，工具风暴自动折叠
-- **页脚指标**（卡片里是**独立一块**：分割线 + 小号淡色）：
+- **页脚指标**（默认关闭；卡片里是**独立一块**：分割线 + 小号淡色）：
   ```
   本轮 deepseek-flash · 1.8s · in 251 / out 21 · cache 20.5k · <$0.01 / <¥0.01（估算）
   会话 in 67.4k / out 9.4k · cache 514.7k · ctx 2.1%（20.8k/1.0M） · $0.02 / ¥0.13（估算）
@@ -33,8 +33,9 @@
   - **本轮**＝这一轮花的（跨工具多轮累加）；**会话**＝本次聊天累计 + 当前上下文占用
   - 费用 2 位小数；不足一分钱显示 `<$0.01`（不显示假 0）；¥ 由**官方 CNY 价表**推导（不是汇率），模型不在价表内时只显示 `$`
   - 开关：`footer.showCost` / `showCny` / `showContext` / `showSession`（`showSession:false` 只留本轮）
-  - **群级开关**：`/feishu footer off`（管理员/应用归属人）关掉当前会话的页脚，`/feishu footer on` 恢复，`/feishu footer` 查看状态；
-    落盘在 `config.json` 的 `footerByChat`（缺省跟随全局 `footer.enabled`，默认开）。页脚只进**出站消息**，不进会话历史/上下文
+  - **开关**（管理员/应用归属人）：`/feishu footer on|off` 只改当前会话（群或私聊），落盘在 `footerByChat`；
+    加 `-g` 改全局默认 `footer.enabled`（默认关）；`/feishu footer reset` 让当前会话改回跟随全局；`/feishu footer` 查看状态。
+    都即时生效。页脚只进**出站消息**，不进会话历史/上下文
 
 ### 命令
 
@@ -60,7 +61,7 @@
 | `/feishu usage [week]` | 本会话用量 + 账户余额（`usage.provider`）；`week` = 近 7 天按天/按人汇总 |
 | `/feishu budget [<美元>\|off]` | 本群每日费用上限（管理员；超限后拒绝新任务） |
 | `/feishu prompt [show\|set <内容>\|clear]` | 本群提示词；私聊里设置的是个人提示词 |
-| `/feishu policy` `/feishu footer [on\|off]` `/feishu always [revoke <规则名>]` | 群策略、页脚开关、「始终批准」规则（管理员） |
+| `/feishu policy` `/feishu footer [on\|off\|reset] [-g]` `/feishu always [revoke <规则名>]` | 群策略、页脚开关、「始终批准」规则（管理员） |
 
 ### 触发与准入
 

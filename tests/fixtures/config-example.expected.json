@@ -54,7 +54,7 @@
   },
   "queueNotice": true,
   "footer": {
-    "enabled": true,
+    "enabled": false,
     "showCost": true,
     "showCny": true,
     "showContext": true,

@@ -338,7 +338,7 @@ export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env
 export function resolveFooterEnabled(cfg: BridgeConfig, chatId: string): { enabled: boolean; source: "chat" | "global" } {
 	const override = cfg.footerByChat?.[chatId];
 	if (typeof override === "boolean") return { enabled: override, source: "chat" };
-	return { enabled: cfg.footer?.enabled !== false, source: "global" };
+	return { enabled: cfg.footer?.enabled === true, source: "global" };
 }
 
 /**

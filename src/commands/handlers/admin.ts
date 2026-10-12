@@ -39,34 +39,8 @@ export function adminCommands(svc: CommandServices): Record<string, CommandHandl
 			if (!policy || !VALID_POLICIES.includes(policy)) { reply(`用法：/feishu policy <${VALID_POLICIES.join("|")}>`); return; }
 			reply(setChatPolicy(svc, msg.chatId, policy) ? `已设置本群策略：${policy}` : "策略落盘失败，运行态未修改");
 		},
-		"/feishu footer": ({ msg, args, isAdmin, reply }) => {
-			// 页脚是"给人看的元信息"，每个群的信息密度需求不同 —— 交给该群管理员当场决定，
-			// 而不是让所有人一起去改配置文件。缺省跟随全局 footer.enabled（默认开）。
-			const state = resolveFooterEnabled(svc.rt.config, msg.chatId);
-			const action = args[0]?.toLowerCase();
-			if (!action) {
-				reply([
-					`本会话页脚：${state.enabled ? "开" : "关"}（${state.source === "chat" ? "管理员设置" : "全局默认"}）`,
-					"用法：/feishu footer off 关闭本会话页脚；/feishu footer on 恢复显示（仅管理员或应用归属人）。",
-				].join("\n"));
-				return;
-			}
-			if (action !== "on" && action !== "off") { reply("用法：/feishu footer [on|off]"); return; }
-			if (!isAdmin) { reply("仅管理员或应用归属人可修改本会话页脚设置"); return; }
-			const wanted = action === "on";
-			const previous = svc.rt.config.footerByChat?.[msg.chatId];
-			svc.rt.config.footerByChat = { ...(svc.rt.config.footerByChat ?? {}), [msg.chatId]: wanted };
-			if (saveConfigFields(svc.rt.homeDir, svc.rt.config, [`footerByChat.${msg.chatId}`])) {
-				svc.log.info("feishu.footer.toggled", { chatId: msg.chatId, enabled: wanted, operator: msg.senderId });
-				reply(wanted
-					? "已开启本会话页脚（模型/耗时/上下文/累计用量/费用）。用 /feishu footer off 可关闭。"
-					: "已关闭本会话页脚。用 /feishu footer on 可恢复；/feishu usage 仍可随时查看完整用量。");
-			} else {
-				// 落盘失败就回滚运行态：否则重启后又变回去，用户以为设置没生效
-				if (previous === undefined) delete svc.rt.config.footerByChat[msg.chatId];
-				else svc.rt.config.footerByChat[msg.chatId] = previous;
-				reply("页脚设置落盘失败，运行态未修改");
-			}
+		"/feishu footer": ({ msg, rest, isAdmin, reply }) => {
+			reply(footerCommand(svc, msg, rest, isAdmin));
 		},
 		"/feishu approvals": ({ msg, rest, isAdmin, reply }) => {
 			reply(approvalsCommand(svc, msg, rest, isAdmin));
@@ -246,4 +220,57 @@ function approvalsCommand(svc: CommandServices, msg: FeishuInboundMessage, rest:
 	if (effective.source === "env") notes.push(`⚠️ 环境变量 FEISHU_CHANNEL_APPROVAL_MODE 优先，当前实际仍是：${APPROVAL_MODE_LABEL[effective.mode]}`);
 	if (mode === "pi-permission-system" || previous === "pi-permission-system") notes.push("父会话转发的开关重启后才跟着变");
 	return [`已写入配置：审批模式 ${APPROVAL_MODE_LABEL[mode]}（全局，立即生效；其他会话的临时设置不受影响）`, ...notes].join("\n");
+}
+
+/**
+ * `/feishu footer [on|off|reset] [-g]`：页脚是"给人看的元信息"，每个群的信息密度需求不同 ——
+ * 交给该群管理员当场决定（存进 footerByChat），`-g` 改全局默认 footer.enabled（默认关）。
+ */
+function footerCommand(svc: CommandServices, msg: FeishuInboundMessage, rest: string, isAdmin: boolean): string {
+	const { rt, log } = svc;
+	const { wantsGlobal, value } = splitGlobalFlag(rest);
+	const action = value.toLowerCase();
+	const usage = "用法：/feishu footer on|off 只改本会话；加 -g 改全局默认；/feishu footer reset 本会话改回跟随全局（仅管理员或应用归属人）。";
+	if (!action && !wantsGlobal) {
+		const state = resolveFooterEnabled(rt.config, msg.chatId);
+		return [
+			`本会话页脚：${state.enabled ? "开" : "关"}（${state.source === "chat" ? "本会话设置" : "跟随全局"}）；全局默认：${rt.config.footer.enabled ? "开" : "关"}`,
+			usage,
+		].join("\n");
+	}
+	const valid = wantsGlobal ? action === "on" || action === "off" : action === "on" || action === "off" || action === "reset";
+	if (!valid) return usage;
+	if (!isAdmin) return "仅管理员或应用归属人可修改页脚设置";
+
+	if (wantsGlobal) {
+		const wanted = action === "on";
+		const previous = rt.config.footer.enabled;
+		rt.config.footer = { ...rt.config.footer, enabled: wanted };
+		if (!saveConfigFields(rt.homeDir, rt.config, ["footer.enabled"])) {
+			rt.config.footer = { ...rt.config.footer, enabled: previous };
+			return "页脚设置落盘失败，运行态未修改";
+		}
+		log.info("feishu.footer.toggled", { scope: "global", enabled: wanted, operator: msg.senderId });
+		const overridden = Object.keys(rt.config.footerByChat ?? {}).length;
+		return `已${wanted ? "开启" : "关闭"}全局页脚（立即生效）。${overridden ? `有 ${overridden} 个会话单独设置过，不受影响；在那里用 /feishu footer reset 改回跟随全局。` : ""}`;
+	}
+
+	const previous = rt.config.footerByChat?.[msg.chatId];
+	const next = { ...(rt.config.footerByChat ?? {}) };
+	if (action === "reset") delete next[msg.chatId];
+	else next[msg.chatId] = action === "on";
+	rt.config.footerByChat = next;
+	if (!saveConfigFields(rt.homeDir, rt.config, [`footerByChat.${msg.chatId}`])) {
+		// 落盘失败就回滚运行态：否则重启后又变回去，用户以为设置没生效
+		const rollback = { ...next };
+		if (previous === undefined) delete rollback[msg.chatId];
+		else rollback[msg.chatId] = previous;
+		rt.config.footerByChat = rollback;
+		return "页脚设置落盘失败，运行态未修改";
+	}
+	log.info("feishu.footer.toggled", { scope: "chat", chatId: msg.chatId, enabled: action === "reset" ? null : action === "on", operator: msg.senderId });
+	if (action === "reset") return `本会话页脚改回跟随全局（当前${rt.config.footer.enabled ? "开" : "关"}）。`;
+	return action === "on"
+		? "已开启本会话页脚（模型/耗时/上下文/累计用量/费用）。用 /feishu footer off 可关闭。"
+		: "已关闭本会话页脚。用 /feishu footer on 可恢复；/feishu usage 仍可随时查看完整用量。";
 }

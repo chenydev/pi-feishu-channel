@@ -52,7 +52,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 	{ name: "/feishu approvals", usage: "/feishu approvals [off|builtin|pi-permission-system|reset] [-g]", description: "查看审批策略；管理员可切换审批模式（只改本会话；-g 写入配置）", group: "管理" },
 	{ name: "/feishu export", usage: "/feishu export", description: "导出脱敏诊断包（发到管理员私聊）", group: "管理", adminOnly: true },
 	{ name: "/feishu policy", usage: "/feishu policy <策略>", description: "设置当前群策略", group: "管理", adminOnly: true },
-	{ name: "/feishu footer", usage: "/feishu footer [on|off]", description: "开关当前会话的页脚", group: "管理", adminOnly: true },
+	{ name: "/feishu footer", usage: "/feishu footer [on|off|reset] [-g]", description: "开关当前会话的页脚（默认关；-g 改全局默认）", group: "管理", adminOnly: true },
 	{ name: "/feishu always", usage: "/feishu always [revoke <规则名>]", description: "查看/撤销「始终批准」规则", group: "管理", adminOnly: true },
 	{ name: "/feishu prompt", usage: "/feishu prompt [show|set <内容>|clear]", description: "查看/设置本群（或私聊个人）提示词", group: "管理" },
 	{ name: "/feishu budget", usage: "/feishu budget [<美元>|off]", description: "查看/设置本群每日费用上限", group: "管理", adminOnly: true },

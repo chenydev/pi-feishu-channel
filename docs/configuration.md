@@ -210,7 +210,7 @@
 
 | 字段 | 类型 | 默认 | 环境变量 | 说明 |
 |---|---|---|---|---|
-| `footer.enabled` | boolean | `true` |  | 在最终回答末尾显示页脚（模型、耗时、token、上下文、费用） |
+| `footer.enabled` | boolean | `false` |  | 在最终回答末尾显示页脚（模型、耗时、token、上下文、费用） |
 | `footer.showCost` | boolean | `true` |  | 页脚显示费用（美元） |
 | `footer.showCny` | boolean | `true` |  | 页脚显示折算的人民币 |
 | `footer.showContext` | boolean | `true` |  | 页脚显示上下文占用 |

@@ -228,7 +228,7 @@ test("入口·命令权限：管理类命令对非管理员一律拒绝", T, asy
 			["/feishu always", /仅管理员或应用归属人可查看或撤销「始终批准」规则/],
 			["/feishu export", /仅管理员或应用归属人可导出诊断包/],
 			["/feishu budget 10", /仅管理员或应用归属人可设置费用上限/],
-			["/feishu footer off", /仅管理员或应用归属人可修改本会话页脚设置/],
+			["/feishu footer off", /仅管理员或应用归属人可修改页脚设置/],
 		];
 		for (const [text, expected] of cases) {
 			await h.message({ chatId: GROUP, chatType: "group", sender: USER, text });
