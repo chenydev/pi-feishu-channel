@@ -110,5 +110,7 @@ src/
 
 ## 7. 与 pi 的边界
 
-- 只使用 pi 官方导出的 API；本地类型声明（`src/pi-types.ts`）保持独立的类型检查。
+- 只使用 pi 官方导出的 API；本地类型声明（`src/pi-types.ts`）保持独立的类型检查，
+  `tests/pi-api.test.ts` 在编译期核对其中每个成员都真实存在于 pi 的 `ExtensionAPI` 上。
+- pi 的 `ExtensionAPI` 上没有 `getAgentDir` 和 `ui`：agent 目录取自包导出的 `getAgentDir()`（`runtime/agent-dir.ts`），界面取自事件的 `ctx.ui`。
 - 每个会话是一个独立的 pi 子会话。子会话加载扩展时会剔除本扩展，否则每个子会话都会再启动一个飞书长连接；同时注入一个内联扩展，提供审批检查和文件、通知、提问工具。

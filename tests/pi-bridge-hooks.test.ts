@@ -24,9 +24,6 @@ function fakePi() {
 	const tools: Array<{ name: string; execute: (...args: unknown[]) => unknown }> = [];
 	const handlers = new Map<string, Handler[]>();
 	const api = {
-		getAgentDir: () => "/tmp/agent",
-		getPackageDir: () => "/tmp/pkg",
-		ui: { setStatus() {}, notify() {} },
 		on(event: string, handler: Handler) {
 			handlers.set(event, [...(handlers.get(event) ?? []), handler]);
 		},

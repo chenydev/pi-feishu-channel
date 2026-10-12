@@ -15,6 +15,8 @@ export interface ExtensionCommandContext {
 export interface ExtensionRuntimeContext {
 	cwd: string;
 	sessionManager: { getSessionId(): string };
+	/** 界面只挂在事件的 ctx 上，不在 ExtensionAPI 上；没有界面时（print 模式）是空实现。 */
+	ui?: ExtensionUI;
 }
 
 export interface ExtensionToolResult {
@@ -23,10 +25,12 @@ export interface ExtensionToolResult {
 	isError?: boolean;
 }
 
+/**
+ * 注意：pi 的 ExtensionAPI 上没有 `getAgentDir` / `getPackageDir` / `ui`。
+ * 前两个是 `@earendil-works/pi-coding-agent` 的模块导出（见 runtime/agent-dir.ts），`ui` 在事件 ctx 上。
+ * tests/pi-api.test.ts 在编译期核对这里的每个成员都真实存在。
+ */
 export interface ExtensionAPI {
-	getAgentDir(): string;
-	getPackageDir(): string;
-	ui: ExtensionUI;
 	on(event: string, handler: (event: unknown, ctx: ExtensionRuntimeContext) => unknown | Promise<unknown>): void;
 	registerTool(tool: {
 		name: string;

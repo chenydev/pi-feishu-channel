@@ -2,7 +2,7 @@
  * @gotgenes/pi-permission-system（下称 PS）在本机的位置与安装检测。
  *
  * PS 的配置、父会话转发目录都在 pi 配置目录下：
- * 优先 `PI_CODING_AGENT_DIR`，其次 pi 自己报告的目录（`pi.getAgentDir()`，扩展加载时记下），
+ * 优先 `PI_CODING_AGENT_DIR`，其次 pi 的 agent 目录（`session_start` 时由 runtime/agent-dir.ts 解析后记下），
  * 最后才猜 `cwd/pi-agent` —— 只猜 cwd 在非容器环境里会指错。
  */
 import { existsSync } from "node:fs";
@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 let reportedAgentDir: string | undefined;
 
-/** 记下 pi 报告的配置目录（扩展加载时调用一次）。 */
+/** 记下 pi 的 agent 目录（`session_start` 时调用）。 */
 export function setReportedAgentDir(dir: string | undefined): void {
 	reportedAgentDir = dir;
 }

@@ -18,9 +18,6 @@ import type { ExtensionAPI } from "../src/pi-types.js";
 function fakePi() {
 	const tools: Array<{ name: string; execute: (...args: unknown[]) => unknown }> = [];
 	const api = {
-		getAgentDir: () => "/tmp/agent",
-		getPackageDir: () => "/tmp/pkg",
-		ui: { setStatus() {}, notify() {} },
 		on() {},
 		registerTool(tool: { name: string; execute: (...args: unknown[]) => unknown }) { tools.push(tool); },
 		registerCommand() {},

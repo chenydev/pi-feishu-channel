@@ -250,3 +250,17 @@ test("入口·可观测：启动日志与 status.json 列出已打开的能力",
 		assert.deepEqual(status.features, ["cron", "accessRequest"]);
 	});
 });
+
+// ---------------------------------------------------------------- 启动
+
+test("入口·启动：没设 FEISHU_CHANNEL_HOME 时用 pi 的 agent 目录，状态栏走事件 ctx 上的 ui", T, async () => {
+	// pi 的 ExtensionAPI 上没有 getAgentDir / ui；假 pi 也没有，这里能起来说明入口没有依赖它们
+	const h = await startHarness(baseConfig, { homeFromAgentDir: true });
+	try {
+		assert.equal(process.env.FEISHU_CHANNEL_HOME, undefined);
+		assert.ok(h.hasLog("bridge started"), "配置从 PI_CODING_AGENT_DIR 下读到，桥已启动");
+		assert.ok([...h.pi.statuses.keys()].some((key) => key.startsWith("feishu-")), "状态栏经 ctx.ui 写入");
+	} finally {
+		await h.stop();
+	}
+});

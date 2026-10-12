@@ -90,6 +90,7 @@
 | 症状 | 通常的原因 | 怎么确认 / 修复 |
 |---|---|---|
 | 消息发了完全没反应 | 没有 @；群不在白名单里 | 查 `feishu.pipeline.drop` 的 `reason` |
+| 桥没起来，日志 `extension_error session_start … pi.getAgentDir is not a function` | 扩展版本过旧，调用了 pi 扩展 API 上不存在的方法 | 升级扩展；临时绕过：设置 `FEISHU_CHANNEL_HOME` |
 | `status.json` 显示已连接，却没反应 | 文件已经过期，进程早就停了 | 看 mtime；`/feishu doctor` 的 `status_heartbeat` |
 | 连接反复断开又连上 | 同一个应用被多个进程同时连接 | 同一个应用只能有一个实例；锁冲突时启动报错 `bridge already running for appId …` |
 | 审批卡没弹，命令直接执行了 | 策略里只有允许 / 拒绝，没有需要审批的规则 | 检查命令分级或 pi-permission-system 的规则 |

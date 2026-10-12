@@ -4,6 +4,11 @@
 
 ## 未发布
 
+- 修复：没设 `FEISHU_CHANNEL_HOME` 时桥起不来，日志 `extension_error session_start "pi.getAgentDir is not a function"`。
+  pi 传给扩展的 API 对象上没有 `getAgentDir` 和 `ui`，入口却直接调用了它们。现在 agent 目录取自
+  `@earendil-works/pi-coding-agent` 导出的 `getAgentDir()`（取不到时按 `PI_CODING_AGENT_DIR`、`~/.pi/agent` 推算），
+  状态栏改用事件 ctx 上的 `ui`。附带修好两处一直没生效的地方：pi 状态栏的 `feishu-conn` / `feishu-bridge`，
+  以及没设 `PI_CODING_AGENT_DIR` 时对 pi-permission-system 是否安装的检测（此前会去 `cwd/pi-agent` 下找）。
 - 新增运维 skill `feishu-channel-ops`（`skills/feishu-channel-ops/`，经 `pi.skills` 随包发布）：配置修改、健康检查、
   消息被丢的排查、常见症状速查和上线验收，供 agent 在配置和排障时加载。
 - 运行环境：最低 Node 版本改为 22（Node 20 已于 2026-04-30 停止维护）；CI 在 Node 22 与 24 上运行。

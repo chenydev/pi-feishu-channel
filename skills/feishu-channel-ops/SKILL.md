@@ -89,6 +89,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 症状 | 原因 | 处理 |
 |---|---|---|
 | `status.json` 说已连接，却没反应 | 文件过期，进程已停 | 看 mtime，重启 |
+| 桥没起来，日志 `pi.getAgentDir is not a function` | 扩展版本过旧 | 升级扩展；临时设 `FEISHU_CHANNEL_HOME` |
 | 连接反复断开又连上 | 同一应用被多个进程连接 | 一个应用只能有一个实例；锁冲突时启动报 `bridge already running for appId …` |
 | 每开一个会话多一条 `ws_ready` | 子会话没剔除本扩展 | `feishu.session.resource_loader_ready` 的 `strippedGateways` 应为 1 |
 | 审批卡没弹，命令直接执行 | 用 pi-permission-system 时没配「询问」规则；或内置分级判为只读 | 查 `/feishu approvals`、PS 规则 |

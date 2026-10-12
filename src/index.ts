@@ -30,7 +30,8 @@ import { CardRouter } from "./interaction/card-router.js";
 import { PlatformEvents } from "./interaction/platform-events.js";
 import { stageArtifact, validateLocalArtifact } from "./outbound/artifact.js";
 import { createUsageProvider, type UsageProvider } from "./outbound/usage-provider.js";
-import type { ExtensionAPI } from "./pi-types.js";
+import type { ExtensionAPI, ExtensionUI } from "./pi-types.js";
+import { loadPiAgentDir } from "./runtime/agent-dir.js";
 import { assembleBridge } from "./runtime/assemble.js";
 import { BridgeRuntime } from "./runtime/bridge-runtime.js";
 import { BridgeLifecycle } from "./runtime/lifecycle.js";
@@ -56,11 +57,12 @@ export interface BridgeDeps {
 }
 
 export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps = {}) {
-	try { setReportedAgentDir(pi.getAgentDir()); } catch { /* 老版本 pi / 测试桩 */ }
 	const rt = new BridgeRuntime();
 	const log = createConsoleLogger();
 	const onboarding = new Onboarding(rt, log);
 	const admins = () => effectiveAdmins(rt.config);
+	/** pi 状态栏；界面只在事件 ctx 上，session_start 时记下。 */
+	let ui: ExtensionUI | undefined;
 
 	// ---- 卡片按钮与斜杠命令 ----
 	const cardOpsContext = { rt, log, admins, runCommand: (msg: FeishuInboundMessage) => commandDispatcher.dispatch(msg) };
@@ -131,7 +133,7 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	// ---- 状态与生命周期 ----
 	const status: StatusReporter = new StatusReporter({
 		rt, log,
-		setUiStatus: (key, text) => pi.ui.setStatus(key, text),
+		setUiStatus: (key, text) => ui?.setStatus(key, text),
 		reconnects: () => lifecycle.reconnects(),
 		featureLines: () => featureHost.statusLines(),
 	});
@@ -198,8 +200,11 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 	});
 
 
-	pi.on("session_start", async () => {
-		rt.homeDir = channelEnv(process.env, "HOME") ?? pi.getAgentDir();
+	pi.on("session_start", async (_event, ctx) => {
+		ui = ctx?.ui;
+		const agentDir = await loadPiAgentDir();
+		setReportedAgentDir(agentDir);
+		rt.homeDir = channelEnv(process.env, "HOME") ?? agentDir;
 		if (!prepareRuntimeDir(rt.homeDir, process.env, log)) return;
 		rt.config = loadConfig(rt.homeDir);
 		// PS 父会话转发的父子声明越早越好：它要在任何桥会话被创建之前就位。

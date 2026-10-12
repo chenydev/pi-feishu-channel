@@ -26,10 +26,8 @@ export class FakePi {
 	readonly commands = new Map<string, { handler: (args: string, ctx: never, list: string[]) => string | Promise<string> }>();
 	readonly handlers = new Map<string, Handler[]>();
 	readonly statuses = new Map<string, string>();
-	constructor(private agentDir: string) {}
-	getAgentDir() { return this.agentDir; }
-	getPackageDir() { return this.agentDir; }
-	ui = {
+	/** 事件 ctx 上的界面（pi 只在 ctx 上给 ui，ExtensionAPI 上没有）。 */
+	readonly ctxUi = {
 		setStatus: (key: string, text: string) => { this.statuses.set(key, text); },
 		notify: () => {},
 	};
@@ -123,14 +121,21 @@ function collectValues(node: unknown, out: Array<Record<string, unknown>>): void
 	for (const child of Object.values(record)) collectValues(child, out);
 }
 
+export interface HarnessOptions {
+	/** 不设 `FEISHU_CHANNEL_HOME`，改用 `PI_CODING_AGENT_DIR` 指向临时目录：走「状态目录 = pi 的 agent 目录」这条路径。 */
+	homeFromAgentDir?: boolean;
+}
+
 /** 启动一个完整的扩展实例。`config` 写入 `<home>/feishu-channel/config.json`。 */
-export async function startHarness(config: Record<string, unknown>): Promise<Harness> {
+export async function startHarness(config: Record<string, unknown>, options: HarnessOptions = {}): Promise<Harness> {
 	const home = mkdtempSync(join(tmpdir(), "pi-feishu-channel-entry-"));
 	mkdirSync(join(home, "feishu-channel"), { recursive: true });
 	const configFile = join(home, "feishu-channel", "config.json");
 	writeFileSync(configFile, JSON.stringify({ appId: "cli_test", appSecret: "secret", batch: { enabled: false }, ...config }, null, 2));
 	for (const key of Object.keys(process.env)) if (key.startsWith("FEISHU_") || key.startsWith("LARK_")) delete process.env[key];
-	process.env.FEISHU_CHANNEL_HOME = home;
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	if (options.homeFromAgentDir) process.env.PI_CODING_AGENT_DIR = home;
+	else process.env.FEISHU_CHANNEL_HOME = home;
 
 	const fake = new FakeFeishu();
 	const handlers: Record<string, (data: unknown) => unknown> = {};
@@ -167,10 +172,10 @@ export async function startHarness(config: Record<string, unknown>): Promise<Har
 	};
 	console.log = capture("info"); console.info = capture("info"); console.warn = capture("warn"); console.error = capture("error"); console.debug = capture("debug");
 
-	const pi = new FakePi(home);
+	const pi = new FakePi();
 	const sessions = new HeldSessions();
 	feishuBridgeExtension(pi as unknown as ExtensionAPI, { larkSdk, sessionBackend: sessions.backend });
-	await pi.emit("session_start");
+	await pi.emit("session_start", { type: "session_start" }, { ui: pi.ctxUi });
 	await waitUntil(() => logs.some((line) => line.event === "bridge started"), 3_000, "bridge started");
 
 	let seq = 0;
@@ -230,6 +235,8 @@ export async function startHarness(config: Record<string, unknown>): Promise<Har
 			await pi.emit("session_shutdown");
 			Object.assign(console, original);
 			delete process.env.FEISHU_CHANNEL_HOME;
+			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 			rmSync(home, { recursive: true, force: true });
 		},
 	};
