@@ -89,14 +89,20 @@
   - 飞书会话里由 subagent 发起的询问不弹卡：PS 只让有终端界面的会话应答子会话的询问；
   - 如果将来 PS 提供「无界面会话的人工确认」接口（不受上面那条路径类限制），可以换过去，再把路径类请求也放到卡上。
 
-## ADR-9 只在 RPC 模式自动启动
+## ADR-9 自动启动要显式打开，且只在 RPC 模式
 
 - **状态**：已定
-- **背景**：扩展装在用户级设置里时，本地开 TUI、跑 `pi -p` 都会加载它；只要读到凭据，`session_start` 就自动连飞书，
-  和部署的实例抢同一个应用的长连接（消息可能被本地进程收走）。部署一律是 `pi --mode rpc`，pi 的扩展上下文有 `ctx.mode`。
-- **决定**：`ctx.mode` 为 `"rpc"` 才自动启动；其他模式打日志 `feishu.bridge.autostart_skipped`、状态栏提示，`/feishu:*` 命令照常可用，
-  需要时手动 `/feishu:start`。`ctx.mode` 缺失（老版本 pi）时照旧自动启动。SIGTERM 处理只在自动启动时挂上。
+- **背景**：扩展装在用户级设置里时，本机每个 pi 进程都会加载它：TUI、`pi -p`、编辑器插件拉起的 RPC 进程。只要读到凭据，
+  `session_start` 就自动连飞书，和部署的实例抢同一个应用的长连接（消息可能被本地进程收走）。部署一律是 `pi --mode rpc`，
+  pi 的扩展上下文有 `ctx.mode`。
+- **决定**：
+  - 环境变量 `FEISHU_CHANNEL_ENABLED` 默认关闭，部署的进程显式设 `=1`；
+  - 同时要求 `ctx.mode === "rpc"`：开关写进 shell 配置后，本地开 TUI 也不会连。`ctx.mode` 缺失（老版本 pi）时只看开关；
+  - 不自动启动时打日志 `feishu.bridge.autostart_skipped`（`reason`：`disabled` / `mode`）、状态栏提示，`/feishu:start` 手动启动不受限制；
+  - SIGTERM 处理只在自动启动时挂上，TUI 的信号处理留给 pi。
 - **否决**：
-  - 加配置项（如 `autoStartModes`）：TUI 里要连的场景只有本地联调，手动 `/feishu:start` 已经够用，没有需求前不加；
-  - 按 `ctx.hasUI` 判断：RPC 模式下 `hasUI` 也是 `true`，区分不了 TUI 和 RPC。
-- **影响**：在 TUI 或 tmux 里跑 pi 当常驻实例的部署不再自动连接，要改成 `--mode rpc`。
+  - 只按运行模式判断：编辑器插件等也用 RPC 模式驱动 pi，区分不了部署的进程；
+  - 开关放进 `config.json`：配置文件是本机所有 pi 进程共用的，同样区分不了；
+  - 开关默认打开（只当关闭手段）：不破坏现有部署，但装到哪台机器上都可能意外连飞书，和「可选能力默认关闭」的约定相反；
+  - 按 `ctx.hasUI` 判断：RPC 模式下 `hasUI` 也是 `true`。
+- **影响**：现有部署升级前要给进程加 `FEISHU_CHANNEL_ENABLED=1`；在 TUI 或 tmux 里跑 pi 当常驻实例的部署要改成 `--mode rpc`。

@@ -5,6 +5,9 @@
 配置文件是 `<home>/feishu-channel/config.json`。`<home>` 是环境变量 `FEISHU_CHANNEL_HOME` 指定的目录，没有设置时是 pi 的 agent 目录（通常是 `~/.pi/agent`）。
 完整示例见仓库根目录的 [config.example.json](../config.example.json)。
 
+**自动启动开关不在配置文件里**：只有设了环境变量 `FEISHU_CHANNEL_ENABLED=1` 且以 `pi --mode rpc` 启动的进程才自动连飞书（默认关闭）。
+配置文件是本机所有 pi 进程共用的，区分不了哪个进程该连，所以用环境变量。其余进程可以用 `/feishu:start` 手动启动。
+
 - **全部字段都是可选的**，没写的取下表的默认值。默认值为「—」的字段表示不设置（对应的功能按说明里的方式处理）。
 - **环境变量优先于配置文件**：设置了表中的环境变量时，以环境变量为准（注意 shell 里残留的同名变量会静默覆盖配置文件）。
 - **启动时校验**：类型或取值不对时拒绝启动，并一次列出全部问题，例如 `配置无效：config.progress.mode：进度档位「quiet」无效（可选 off/new/all/verbose）`。

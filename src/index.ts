@@ -32,6 +32,7 @@ import { stageArtifact, validateLocalArtifact } from "./outbound/artifact.js";
 import { createUsageProvider, type UsageProvider } from "./outbound/usage-provider.js";
 import type { ExtensionAPI, ExtensionUI } from "./pi-types.js";
 import { loadPiAgentDir } from "./runtime/agent-dir.js";
+import { autoStartBlocker } from "./runtime/autostart.js";
 import { assembleBridge } from "./runtime/assemble.js";
 import { BridgeRuntime } from "./runtime/bridge-runtime.js";
 import { BridgeLifecycle } from "./runtime/lifecycle.js";
@@ -208,16 +209,17 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		rt.homeDir = channelEnv(process.env, "HOME") ?? agentDir;
 		if (!prepareRuntimeDir(rt.homeDir, process.env, log)) return;
 		rt.config = loadConfig(rt.homeDir);
-		if (!rt.config.appId || !rt.config.appSecret) {
-			log.warn("FEISHU_APP_ID/SECRET 未配置，桥未启动。请配置后运行 /feishu:start。");
+		// 只有设了 FEISHU_CHANNEL_ENABLED 的 RPC 进程自动启动，其余进程连上会和部署的实例抢同一个应用的长连接（见 runtime/autostart.ts）。
+		// 配置照样读进来，/feishu:start 手动启动时要用。
+		const blocker = autoStartBlocker(ctx?.mode, process.env);
+		if (blocker) {
+			if (rt.started) return;
+			log.info("feishu.bridge.autostart_skipped", { reason: blocker, mode: ctx?.mode });
+			status.setUi("bridge", "飞书桥未启动（/feishu:start 手动启动）");
 			return;
 		}
-		// 只在 RPC 模式（部署用的 `pi --mode rpc`）自动启动：本地 TUI、print 模式自动连上会和部署的实例
-		// 抢同一个应用的长连接。需要时 /feishu:start 手动启动。老版本 pi 的 ctx 上没有 mode，照旧自动启动。
-		if (ctx?.mode && ctx.mode !== "rpc") {
-			if (rt.started) return;
-			log.info("feishu.bridge.autostart_skipped", { mode: ctx.mode });
-			status.setUi("bridge", "飞书桥未启动（仅 RPC 模式自动启动，/feishu:start 手动启动）");
+		if (!rt.config.appId || !rt.config.appSecret) {
+			log.warn("FEISHU_APP_ID/SECRET 未配置，桥未启动。请配置后运行 /feishu:start。");
 			return;
 		}
 		handleSigterm();

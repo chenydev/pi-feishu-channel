@@ -126,8 +126,10 @@ function collectValues(node: unknown, out: Array<Record<string, unknown>>): void
 export interface HarnessOptions {
 	/** 不设 `FEISHU_CHANNEL_HOME`，改用 `PI_CODING_AGENT_DIR` 指向临时目录：走「状态目录 = pi 的 agent 目录」这条路径。 */
 	homeFromAgentDir?: boolean;
-	/** 事件 ctx 上的运行模式（不设 = 老版本 pi，ctx 上没有 mode）。非 rpc 模式不自动启动，也就不等 `bridge started`。 */
+	/** 事件 ctx 上的运行模式（不设 = 老版本 pi，ctx 上没有 mode）。 */
 	mode?: ExtensionRuntimeContext["mode"];
+	/** 是否设 `FEISHU_CHANNEL_ENABLED=1`（默认设）。不自动启动的组合不等 `bridge started`。 */
+	enabled?: boolean;
 }
 
 /** 启动一个完整的扩展实例。`config` 写入 `<home>/feishu-channel/config.json`。 */
@@ -138,6 +140,7 @@ export async function startHarness(config: Record<string, unknown>, options: Har
 	writeFileSync(configFile, JSON.stringify({ appId: "cli_test", appSecret: "secret", batch: { enabled: false }, ...config }, null, 2));
 	for (const key of Object.keys(process.env)) if (key.startsWith("FEISHU_") || key.startsWith("LARK_")) delete process.env[key];
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	if (options.enabled !== false) process.env.FEISHU_CHANNEL_ENABLED = "1";
 	if (options.homeFromAgentDir) process.env.PI_CODING_AGENT_DIR = home;
 	else process.env.FEISHU_CHANNEL_HOME = home;
 
@@ -180,7 +183,7 @@ export async function startHarness(config: Record<string, unknown>, options: Har
 	const sessions = new HeldSessions();
 	feishuBridgeExtension(pi as unknown as ExtensionAPI, { larkSdk, sessionBackend: sessions.backend });
 	await pi.emit("session_start", { type: "session_start" }, { ui: pi.ctxUi, ...(options.mode ? { mode: options.mode } : {}) });
-	if (!options.mode || options.mode === "rpc") await waitUntil(() => logs.some((line) => line.event === "bridge started"), 3_000, "bridge started");
+	if (options.enabled !== false && (!options.mode || options.mode === "rpc")) await waitUntil(() => logs.some((line) => line.event === "bridge started"), 3_000, "bridge started");
 
 	let seq = 0;
 	const harness: Harness = {
@@ -239,6 +242,7 @@ export async function startHarness(config: Record<string, unknown>, options: Har
 			await pi.emit("session_shutdown");
 			Object.assign(console, original);
 			delete process.env.FEISHU_CHANNEL_HOME;
+			delete process.env.FEISHU_CHANNEL_ENABLED;
 			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 			rmSync(home, { recursive: true, force: true });

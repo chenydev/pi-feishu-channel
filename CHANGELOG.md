@@ -4,6 +4,10 @@
 
 ## 未发布
 
+- **破坏性变更（启动）**：新增环境变量 `FEISHU_CHANNEL_ENABLED`，**默认关闭**。只有设了 `FEISHU_CHANNEL_ENABLED=1`（`true` / `yes` / `on` 也行）
+  并且是 `pi --mode rpc` 启动的进程才自动连飞书；本机其他 pi 进程（包括编辑器插件拉起的 RPC 进程）都不连。
+  **升级前给部署的进程加上这个环境变量**，否则升级后不再连接。没设时日志 `feishu.bridge.autostart_skipped` 的 `reason` 为 `disabled`
+  （不是 RPC 模式时为 `mode`）；`/feishu:start` 手动启动不受开关限制。不放进 `config.json`：配置文件是本机所有 pi 进程共用的。
 - **破坏性变更（启动）**：只在 RPC 模式（`pi --mode rpc`）自动启动飞书桥。本地 TUI、print / json 模式装了本扩展也不再自动连飞书，
   免得和部署的实例抢同一个应用的长连接；需要时在 TUI 里 `/feishu:start` 手动启动。跳过时打日志 `feishu.bridge.autostart_skipped`（带 `mode`），
   状态栏显示「飞书桥未启动」。老版本 pi 的扩展上下文里没有运行模式，照旧自动启动。

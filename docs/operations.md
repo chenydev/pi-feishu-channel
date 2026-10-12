@@ -92,7 +92,7 @@
 |---|---|---|
 | 消息发了完全没反应 | 没有 @；群不在白名单里 | 查 `feishu.pipeline.drop` 的 `reason` |
 | 桥没起来，日志 `extension_error session_start … pi.getAgentDir is not a function` | 扩展版本过旧，调用了 pi 扩展 API 上不存在的方法 | 升级扩展；临时绕过：设置 `FEISHU_CHANNEL_HOME` |
-| 桥没起来，日志 `feishu.bridge.autostart_skipped` | 不是 RPC 模式（`mode` 字段为 `tui` / `print` / `json`），只有 `pi --mode rpc` 自动启动 | 部署用 `pi --mode rpc`；本地 TUI 里要连就 `/feishu:start` |
+| 桥没起来，日志 `feishu.bridge.autostart_skipped` | `reason: disabled`：进程没设 `FEISHU_CHANNEL_ENABLED=1`（默认关闭）；`reason: mode`：不是 `pi --mode rpc` 启动的 | 部署的进程设上 `FEISHU_CHANNEL_ENABLED=1` 并用 `--mode rpc`（容器要重建才拿到新环境变量）；本地 TUI 里要连就 `/feishu:start` |
 | `status.json` 显示已连接，却没反应 | 文件已经过期，进程早就停了 | 看 mtime；`/feishu doctor` 的 `status_heartbeat` |
 | 连接反复断开又连上 | 同一个应用被多个进程同时连接 | 同一个应用只能有一个实例；锁冲突时启动报错 `bridge already running for appId …` |
 | 审批卡没弹，命令直接执行了 | 审批模式是关闭（默认）；或策略里只有允许 / 拒绝，没有需要审批的规则 | `/feishu approvals` 看模式和来源；再查命令分级或 pi-permission-system 的规则 |
@@ -116,7 +116,7 @@
 `npm test` 在开发机和 CI（Node 22、24）上跑，不在部署环境里跑：pi 装扩展时用 `npm install --omit=dev`，
 部署的 checkout 里没有 tsx 等开发依赖，也不要为了跑测试往里补装。部署环境只做下面的真实链路验收。
 
-1. **重启**，日志里出现 `bridge started`（出现的是 `feishu.bridge.autostart_skipped` 说明不是 `pi --mode rpc` 启动的）。
+1. **重启**，日志里出现 `bridge started`（出现的是 `feishu.bridge.autostart_skipped`，按它的 `reason` 查：没设 `FEISHU_CHANNEL_ENABLED=1`，或不是 `pi --mode rpc`）。
 2. **心跳**：`status.json` 的 mtime 在 90 秒以内，`connState` 为 `connected`。
 3. **已启用能力**：日志 `feishu.bridge.features` 和 `status.json` 的 `features` 与预期一致。
 4. **触发一轮带工具调用的对话**：在测试群里 @ 机器人，请它执行一条命令（例如「用 bash 执行 `echo SMOKE-1`，把输出原样告诉我」）。只问知识性问题不会调用工具，测不到审批链路。

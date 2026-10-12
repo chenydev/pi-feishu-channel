@@ -324,8 +324,21 @@ test("入口·启动：TUI 模式不自动连飞书、不接管 SIGTERM，/feish
 test("入口·启动：print 模式不自动启动", T, async () => {
 	const h = await startHarness(baseConfig, { mode: "print" });
 	try {
-		assert.ok(h.hasLog("feishu.bridge.autostart_skipped"));
+		assert.equal((h.logs.find((l) => l.event === "feishu.bridge.autostart_skipped")?.meta as { reason?: string })?.reason, "mode");
 		assert.ok(!h.hasLog("bridge started"));
+	} finally {
+		await h.stop();
+	}
+});
+
+test("入口·启动：没设 FEISHU_CHANNEL_ENABLED 时 RPC 模式也不自动启动，/feishu:start 可手动启动", T, async () => {
+	const h = await startHarness(baseConfig, { mode: "rpc", enabled: false });
+	try {
+		assert.equal((h.logs.find((l) => l.event === "feishu.bridge.autostart_skipped")?.meta as { reason?: string })?.reason, "disabled");
+		assert.ok(!h.hasLog("bridge started"));
+		assert.match(h.pi.statuses.get("feishu-bridge") ?? "", /未启动/);
+		await h.pi.commands.get("feishu:start")?.handler("", undefined as never, []);
+		assert.ok(h.hasLog("bridge started"));
 	} finally {
 		await h.stop();
 	}

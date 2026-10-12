@@ -130,11 +130,12 @@ chmod 600 ~/.pi/agent/feishu-channel/config.json
 ### 4) 启动
 
 ```bash
-pi --mode rpc --provider <provider> --model <model>
+FEISHU_CHANNEL_ENABLED=1 pi --mode rpc --provider <provider> --model <model>
 ```
 
-扩展随 pi 进程启动。**只有 RPC 模式会自动连飞书**：本地用 TUI（或 `pi -p`）时扩展照常加载但不连接，
-不会和部署的实例抢连接；确实要在 TUI 里连，用 `/feishu:start`（`/feishu:stop` 断开）。
+扩展随 pi 进程加载，但**只有设了 `FEISHU_CHANNEL_ENABLED=1` 的 RPC 进程才自动连飞书**（默认关闭）。
+同一个应用只能有一条长连接，这样本机的 TUI、`pi -p`、编辑器插件拉起的 pi 都不会和部署的实例抢连接；
+确实要在 TUI 里连，用 `/feishu:start`（`/feishu:stop` 断开）。容器部署把这个变量写进容器环境。
 审批的几种工作方式见 [docs/approval.md](docs/approval.md)。
 
 依赖：`@larksuiteoapi/node-sdk`

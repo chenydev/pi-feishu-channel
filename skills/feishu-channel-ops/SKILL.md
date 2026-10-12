@@ -17,7 +17,7 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 
 1. **状态目录 `<home>`**：设置了 `FEISHU_CHANNEL_HOME` 就是它，否则是 pi 的 agent 目录（通常 `~/.pi/agent`）。
    配置、状态都在 `<home>/feishu-channel/` 下：`config.json`、`status.json`、`sessions/`。
-2. **在哪运行**：本机进程还是容器。容器里的命令要加 `docker exec <容器名>` 前缀，日志用 `docker logs`。
+2. **在哪运行**：本机进程还是容器。只有设了 `FEISHU_CHANNEL_ENABLED=1` 的 `pi --mode rpc` 进程会自动连飞书，本机其他 pi 进程只是加载了扩展。容器里的命令要加 `docker exec <容器名>` 前缀，日志用 `docker logs`。
 3. **你自己是不是跑在这个扩展里**（即当前对话来自飞书）：是的话，**不要重启、kill 或另起 pi 进程** —— 会中断自己所在的进程或抢占连接。把要执行的命令交给管理员。
 
 ## 1. 改配置
@@ -94,7 +94,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 
 | 症状 | 原因 | 处理 |
 |---|---|---|
-| 桥没起来，日志 `feishu.bridge.autostart_skipped` | 不是 `pi --mode rpc` 启动的，其他模式不自动连 | 部署改用 `--mode rpc`；本地 TUI 要连就 `/feishu:start` |
+| 桥没起来，日志 `feishu.bridge.autostart_skipped` | `reason: disabled` = 没设 `FEISHU_CHANNEL_ENABLED=1`（默认关）；`reason: mode` = 不是 `pi --mode rpc` | 部署进程设上该变量并用 `--mode rpc`（容器要重建）；本地 TUI 要连就 `/feishu:start` |
 | `status.json` 说已连接，却没反应 | 文件过期，进程已停 | 看 mtime，重启 |
 | 桥没起来，日志 `pi.getAgentDir is not a function` | 扩展版本过旧 | 升级扩展；临时设 `FEISHU_CHANNEL_HOME` |
 | 连接反复断开又连上 | 同一应用被多个进程连接 | 一个应用只能有一个实例；锁冲突时启动报 `bridge already running for appId …` |
@@ -116,7 +116,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 
 本地测试通过不等于可用。`npm test` 不在部署环境跑（pi 装扩展不带开发依赖，没有 tsx，不要补装）。依次确认：
 
-1. 重启后日志出现 `bridge started`（出现 `feishu.bridge.autostart_skipped` = 不是 `pi --mode rpc` 启动的）；
+1. 重启后日志出现 `bridge started`（出现 `feishu.bridge.autostart_skipped` 就按 `reason` 查：没设 `FEISHU_CHANNEL_ENABLED=1` 或不是 `--mode rpc`）；
 2. `status.json` mtime 在 90 秒内，`connState` 为 `connected`；
 3. `feishu.bridge.features` 与预期一致；
 4. 在测试群 @ 机器人，发**会调用工具**的消息，例如「用 bash 执行 `echo SMOKE-1`，把输出原样告诉我」（知识问答不会触发工具，测不到审批）；
