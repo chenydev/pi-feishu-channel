@@ -5,6 +5,7 @@
  *
  * 两者都是幂等的，启动、停止与配置变更后各调用一次即可。
  */
+import { globalApprovalMode } from "./mode.js";
 import { effectiveAdmins } from "../inbound/admit.js";
 import { resolvePaths } from "../config.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
@@ -39,8 +40,9 @@ export class PsForwardingSync {
 	}
 
 	/** 配置视图（父会话 id 缺省时用固定值；引擎不是 PS 时视为关闭）。 */
-	configured(): { enabled: boolean; parentSessionId: string; blockedBy?: "policyEngine" } {
-		return resolvePsForwardingConfig(this.deps.rt.config.approval);
+	configured(): { enabled: boolean; parentSessionId: string; blockedBy?: "mode" } {
+		const { rt } = this.deps;
+		return resolvePsForwardingConfig(rt.config.approval.forwarding, globalApprovalMode(rt.config).mode);
 	}
 
 	/**
@@ -57,16 +59,16 @@ export class PsForwardingSync {
 		const { rt, log } = this.deps;
 		const { enabled, parentSessionId, blockedBy } = this.configured();
 		if (blockedBy) {
-			// 开关开了但引擎不是 PS：开启转发只会让同一次调用弹两张卡，这里明确说明。
+			// 开关开了但全局模式不是 plugin：这里明确说明转发为什么没生效。
 			log.warn("feishu.approval.ps_forwarding_inactive", {
-				reason: "approval.forwarding 仅在 approval.policyEngine=pi-permission-system 时生效",
-				policyEngine: rt.config.approval?.policyEngine ?? "bridge",
+				reason: "approval.forwarding 仅在全局审批模式为 plugin 时生效",
+				mode: globalApprovalMode(rt.config).mode,
 			});
 		}
 		const installed = this.psInstalled();
 		const active = enabled && installed;
 		if (enabled && !installed) {
-			// 与 policyEngine 同一套默认拒绝语义：没装成就不做父子声明。
+			// 与 plugin 模式同一套默认拒绝语义：没装成就不做父子声明。
 			log.error("feishu.approval.ps_forwarding_unavailable", { expected: "@gotgenes/pi-permission-system" });
 		}
 		const before = rt.psForwardingOwnEnvId;

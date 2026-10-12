@@ -88,12 +88,12 @@ export const fileConfigSchema = z.object({
 		autoApprove: m(strList, "不需要审批的工具名"),
 		timeoutMs: m(nonNegative, "审批卡的有效期（毫秒），超时视为拒绝"),
 		adminSkipApproval: m(bool, "管理员与应用归属人发起的工具调用不用审批"),
-		policyEngine: m(choice(["bridge", "pi-permission-system"], "审批策略引擎"), "由谁判定工具调用：`bridge` 用内置规则 + 飞书审批卡；`pi-permission-system` 交给 pi-permission-system 扩展（扩展没装上时自动退回 `bridge`）。详见 [approval.md](approval.md)", { default: '"bridge"', env: "FEISHU_CHANNEL_POLICY_ENGINE" }),
+		mode: m(choice(["off", "builtin", "plugin"], "审批模式"), "工具调用要不要审批：`off` 不审批，直接放行；`builtin` 内置审批（命令分级 + 免审工具 + 飞书审批卡）；`plugin` 交给 pi-permission-system 插件（插件没装上时退回 `builtin`）。管理员可用 `/feishu approvals <模式>` 只改当前会话，加 `-g` 写回这里。详见 [approval.md](approval.md)", { default: '"off"', env: "FEISHU_CHANNEL_APPROVAL_MODE" }),
 		commandPolicy: m(z.object({
 			enabled: m(bool, "按 bash 命令分级：只读命令免审批，危险命令直接拒绝，其余弹审批卡"),
 			extraReadOnly: m(strList, "额外当作只读的命令名（按命令名匹配，如 `jq`）"),
 			extraDangerous: m(strList, "额外当作危险的命令名（直接拒绝）"),
-		}).partial(), "bash 命令分级（`policyEngine` 为 `bridge` 时生效）"),
+		}).partial(), "bash 命令分级（审批模式为 `builtin` 时生效）"),
 		forwarding: m(z.object({
 			enabled: m(bool, "父会话转发：把 pi-permission-system 的「询问」变成飞书审批卡（实验性）", { env: "FEISHU_PS_FORWARDING" }),
 			parentSessionId: m(str, "转发用的父会话 id；必须稳定，且不能和任何真实会话 id 相同", { default: "\"feishu-channel-parent\"" }),

@@ -3,6 +3,7 @@ import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { globalApprovalMode } from "../src/approval/mode.js";
 import { loadConfig, resolvePaths } from "../src/config.js";
 import { channelEnv, deprecatedEnvNames, migrateRuntimeDir, prepareRuntimeDir } from "../src/runtime/identity.js";
 import type { BridgeLogger } from "../src/runtime/logger.js";
@@ -92,19 +93,20 @@ test("环境变量：FEISHU_CHANNEL_* 优先，旧名 FEISHU_BRIDGE_* 仍识别�
 	assert.equal(channelEnv({ FEISHU_BRIDGE_HOME: "/old" }, "HOME"), "/old");
 	assert.equal(channelEnv({}, "HOME"), undefined);
 
-	const env = { FEISHU_BRIDGE_POLICY_ENGINE: "pi-permission-system", FEISHU_BRIDGE_HOME: "/old", FEISHU_APP_ID: "x" };
+	const env = { FEISHU_BRIDGE_APPROVAL_MODE: "plugin", FEISHU_BRIDGE_HOME: "/old", FEISHU_APP_ID: "x" };
 	assert.deepEqual(deprecatedEnvNames(env), [
+		{ name: "FEISHU_BRIDGE_APPROVAL_MODE", replacement: "FEISHU_CHANNEL_APPROVAL_MODE" },
 		{ name: "FEISHU_BRIDGE_HOME", replacement: "FEISHU_CHANNEL_HOME" },
-		{ name: "FEISHU_BRIDGE_POLICY_ENGINE", replacement: "FEISHU_CHANNEL_POLICY_ENGINE" },
 	]);
 	withHome((home) => {
 		const log = recordingLog();
 		prepareRuntimeDir(home, env, log);
 		assert.deepEqual(log.lines.map((l) => [l.level, l.msg, (l.meta as { name: string }).name]), [
+			["warn", "feishu.config.deprecated_env", "FEISHU_BRIDGE_APPROVAL_MODE"],
 			["warn", "feishu.config.deprecated_env", "FEISHU_BRIDGE_HOME"],
-			["warn", "feishu.config.deprecated_env", "FEISHU_BRIDGE_POLICY_ENGINE"],
 		]);
-		assert.equal(loadConfig(home, env).approval.policyEngine, "pi-permission-system", "旧名仍然生效");
-		assert.equal(loadConfig(home, { ...env, FEISHU_CHANNEL_POLICY_ENGINE: "bridge" }).approval.policyEngine, "bridge", "新名优先");
+		assert.equal(globalApprovalMode(loadConfig(home, env), env).mode, "plugin", "旧名仍然生效");
+		assert.equal(globalApprovalMode(loadConfig(home, env), { ...env, FEISHU_CHANNEL_APPROVAL_MODE: "off" }).mode, "off", "新名优先");
+		assert.throws(() => loadConfig(home, { FEISHU_CHANNEL_APPROVAL_MODE: "bridge" }), /FEISHU_CHANNEL_APPROVAL_MODE「bridge」无效/, "取值不对时启动失败");
 	});
 });

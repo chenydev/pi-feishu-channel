@@ -48,6 +48,9 @@ export interface BatchConfig {
 	maxChars: number;
 }
 
+/** 审批模式：关闭 / 内置 / 插件（pi-permission-system）。 */
+export type ApprovalMode = "off" | "builtin" | "plugin";
+
 export interface BridgeConfig {
 	appId: string;
 	appSecret: string;
@@ -146,15 +149,16 @@ export interface BridgeConfig {
 		 * 判定不确定时一律归为「询问」，宁可多问不可误放。
 		 */
 		/**
-		 * 策略引擎归属：
-		 * - "bridge"（默认）：用桥自研的 command-policy + 飞书审批卡
-		 * - "pi-permission-system"：策略完全交给 @gotgenes/pi-permission-system
-		 *   （它在 pi 的子会话里先于桥的拦截执行，deny 时桥根本收不到调用），
-		 *   桥不再弹审批卡 —— 用户用该扩展的配置文件维护放行/黑名单规则。
+		 * 审批模式（未设 = `off`，见 approval/mode.ts）：
+		 * - "off"：不审批，工具调用直接放行
+		 * - "builtin"：内置审批（command-policy + 免审工具 + 飞书审批卡）
+		 * - "plugin"：交给 @gotgenes/pi-permission-system
+		 *   （它在 pi 的子会话里先于桥的拦截执行，deny 时桥根本收不到调用），桥不再弹审批卡。
+		 *   **默认拒绝**：若该插件实际上没装成，退回 `builtin` 而非静默放行。
 		 *
-		 * **默认拒绝**：若该扩展实际上没装成，桥会退回到自己的审批而非静默放行。
+		 * 这里只放配置文件里的值；环境变量与会话覆盖在判定时叠加。
 		 */
-		policyEngine?: "bridge" | "pi-permission-system";
+		mode?: ApprovalMode;
 		commandPolicy?: {
 			enabled: boolean;
 			extraReadOnly?: string[];

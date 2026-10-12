@@ -40,6 +40,7 @@
 | `permissions`、`access_approvers` | 有效管理员（显式配置 + 应用归属人 / 协作者）、谁能批准开通 |
 | `config_fields` | 配置里无法识别的字段（通常是拼错了）；不报错，只提示 |
 | `backlog`、`pending_work`、`rate_budget`、`error_state` | 积压、未完成任务、限流冷却、最近错误类别 |
+| `approval_mode` | 全局审批模式（关闭 / 内置 / 插件）及来源；会话里的临时设置看 `/feishu approvals` |
 | `ps_forwarding`、`ps_always_approved` | pi-permission-system 转发状态与「始终批准」规则 |
 | `session_dir`、`outbox_dir`、`runtime` | 目录可写、运行环境 |
 
@@ -55,7 +56,7 @@
 | 准入 | —— | **`feishu.pipeline.drop`**（见 §3） |
 | 命令 | `feishu.command` | `feishu.card.command_failed` |
 | 执行 | `feishu.session.resource_loader_ready`（`strippedGateways` 正常为 1）、`feishu.session.created`、`feishu.conv.send_reply_start` | `feishu.conv.run_error`、`run_idle_timeout`、`budget_exceeded` |
-| 审批 | `feishu.approval.audit`、`command_allow` / `command_ask` / `command_deny` | `feishu.approval.invalidated`、`card_terminal_failed` |
+| 审批 | `feishu.approval.mode`（启动时的全局模式）、`mode_changed`、`audit`、`command_allow` / `command_ask` / `command_deny` | `feishu.approval.invalidated`、`card_terminal_failed`、`plugin_unavailable` |
 | 回复 | `feishu.conv.reply_sent`、`feishu.outbox.delivered` | `feishu.outbox.failed`、`feishu.sender.*_fallback` |
 
 **以最终效果为准**：看到 `tool_execution_*` 只说明过程发生了；要确认功能可用，得看 agent 的回复里有没有命令的真实输出。
@@ -93,7 +94,8 @@
 | 桥没起来，日志 `extension_error session_start … pi.getAgentDir is not a function` | 扩展版本过旧，调用了 pi 扩展 API 上不存在的方法 | 升级扩展；临时绕过：设置 `FEISHU_CHANNEL_HOME` |
 | `status.json` 显示已连接，却没反应 | 文件已经过期，进程早就停了 | 看 mtime；`/feishu doctor` 的 `status_heartbeat` |
 | 连接反复断开又连上 | 同一个应用被多个进程同时连接 | 同一个应用只能有一个实例；锁冲突时启动报错 `bridge already running for appId …` |
-| 审批卡没弹，命令直接执行了 | 策略里只有允许 / 拒绝，没有需要审批的规则 | 检查命令分级或 pi-permission-system 的规则 |
+| 审批卡没弹，命令直接执行了 | 审批模式是关闭（默认）；或策略里只有允许 / 拒绝，没有需要审批的规则 | `/feishu approvals` 看模式和来源；再查命令分级或 pi-permission-system 的规则 |
+| 审批模式已关闭，仍有调用被拒绝 | 装了 pi-permission-system，它的拦截不受本扩展的模式影响 | 卸掉插件或在它的配置里放行 |
 | 点审批卡提示「已失效」 | 超时（默认 5 分钟），或这一轮已经结束 | 尽快点；或调大 `approval.timeoutMs` |
 | 回复半截，或提示「回复发送失败」 | 编辑次数用尽、没有发言权限、接口持续报错 | 看 `feishu.outbox.failed` 的 `lastError` |
 | 页脚费用一直显示「未知」 | 模型配置里没有费率 | 在 pi 的模型配置里补上 `cost` |

@@ -2,6 +2,7 @@
  * 桥的状态输出：`status.json`（外部探活与排障的依据）、pi 状态栏、`/feishu status` 的正文
  * 与诊断上下文（供 `/feishu doctor` 和诊断包复用）。
  */
+import { describeApprovalMode, globalApprovalMode } from "../approval/mode.js";
 import { formatTimeInZone, resolvePaths } from "../config.js";
 import { enabledFeatures } from "../features/switches.js";
 import type { BridgeRuntime } from "./bridge-runtime.js";
@@ -110,7 +111,7 @@ export class StatusReporter {
 			`bot: ${rt.status.botName ?? "?"} (${rt.status.botOpenId ?? "?"})`,
 			`会话数: ${rt.status.conversations}`,
 			`会话队列: queued ${rt.status.sessionQueues?.queued ?? 0} / active ${rt.status.sessionQueues?.active ?? 0} / waiting ${rt.status.sessionQueues?.waiting ?? 0}`,
-			`待审批: ${rt.status.pendingApprovals ?? 0}`,
+			`审批: ${describeApprovalMode(globalApprovalMode(rt.config))}；待审批 ${rt.status.pendingApprovals ?? 0}`,
 			`outbox: pending ${rt.status.outbox.pending} / sending ${rt.status.outbox.sending} / sent ${rt.status.outbox.sent} / failed ${rt.status.outbox.failed} / lanes ${rt.status.outbox.lanes} / oldest ${Math.round(rt.status.outbox.oldestAgeMs / 1000)}s`,
 			`消息: 总 ${rt.status.messageTotal} / 丢弃 ${rt.status.messageDropped}`,
 			`补收: ${rt.status.compensatedMessages} / 错误 ${rt.status.compensationErrors} / 窗口截断 ${rt.status.compensationTruncated}`,

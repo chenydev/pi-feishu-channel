@@ -1,5 +1,5 @@
 /**
- * `/feishu approvals` —— 汇总"哪些操作要审批"。
+ * `/feishu approvals` —— 汇总"哪些操作要审批"（当前会话实际生效的审批模式）。
  * 直接执行命令的放行判定也用这里的 PS 规则匹配（executeBash 不经过 tool_call 拦截，桥得自己把关）。
  *
  * 只读 pi-permission-system 的配置文件做**摘要**，不复刻它的完整语义：
@@ -7,6 +7,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import type { BridgeConfig } from "../types.js";
+import { type ApprovalMode, type ApprovalModeSource, describeApprovalMode } from "./mode.js";
 
 type Action = "allow" | "ask" | "deny";
 
@@ -53,16 +54,22 @@ export function psBashVerdict(config: PsPermissionConfig | undefined, command: s
 
 export function summarizeApprovalPolicy(input: {
 	config: BridgeConfig;
+	/** 当前会话实际生效的模式及来源。 */
+	mode: { mode: ApprovalMode; source: ApprovalModeSource };
 	ps?: PsPermissionConfig;
 	psInstalled: boolean;
 	alwaysRules?: Array<{ pattern: string }>;
 	pendingApprovals: number;
 }): string {
 	const { config } = input;
-	const lines: string[] = ["当前审批策略"];
-	const engine = config.approval.policyEngine ?? "bridge";
-	if (engine === "pi-permission-system" && input.psInstalled) {
-		lines.push("", "引擎：pi-permission-system（规则由管理员在 PS 配置文件里维护）");
+	const { mode } = input.mode;
+	const lines: string[] = ["当前审批策略", "", `模式：${describeApprovalMode(input.mode)}`];
+	if (mode === "off") {
+		lines.push("· 工具调用全部直接放行，不弹审批卡，危险命令也不拦截");
+		// 插件的拦截先于本扩展执行，本扩展关不掉它
+		if (input.psInstalled) lines.push("· ⚠️ 已安装 pi-permission-system：它的规则仍会独立生效，被它拒绝的调用照样被拒绝");
+	} else if (mode === "plugin" && input.psInstalled) {
+		lines.push("· 规则由管理员在 pi-permission-system 的配置文件里维护");
 		const ps = input.ps;
 		if (!ps?.permission) {
 			lines.push("· 读不到 PS 配置文件，无法摘要（运行时仍以 PS 为准）");
@@ -86,10 +93,10 @@ export function summarizeApprovalPolicy(input: {
 			if (typeof defaultRule === "string") lines.push(`· 其他工具：${label(defaultRule)}`);
 		}
 	} else {
-		if (engine === "pi-permission-system") lines.push("", "⚠️ 配置为 pi-permission-system，但该扩展未安装 —— 已退回到桥自己的审批。");
-		lines.push("", "引擎：桥内置（bash 命令按语义分级）");
+		if (mode === "plugin") lines.push("· ⚠️ pi-permission-system 未安装 —— 已退回内置审批");
 		const policy = config.approval.commandPolicy;
-		if (policy?.enabled === false) lines.push("· bash：每条命令都弹审批卡（命令分级已关闭）");
+		if (config.approval.autoApprove.includes("bash")) lines.push("· bash：免审（在免审工具里）");
+		else if (policy?.enabled === false) lines.push("· bash：每条命令都弹审批卡（命令分级已关闭）");
 		else {
 			lines.push("· bash：只读命令（ls/cat/git status…）免审；危险命令（rm -rf /、curl|sh、git push --force…）直接拒绝；其余弹审批卡");
 			if (policy?.extraReadOnly?.length) lines.push(`　额外免审：${policy.extraReadOnly.join("、")}`);
@@ -98,12 +105,15 @@ export function summarizeApprovalPolicy(input: {
 		lines.push(`· 其他工具：${config.approval.autoApprove.length ? `免审 ${config.approval.autoApprove.join("、")}；其余弹卡` : "都弹审批卡"}`);
 	}
 	lines.push("");
-	lines.push(`· 管理员免审：${config.approval.adminSkipApproval ? "开（管理员发起的调用直接放行）" : "关"}`);
-	if (input.alwaysRules) {
-		lines.push(`· 「始终批准」规则：${input.alwaysRules.length ? input.alwaysRules.map((rule) => rule.pattern).slice(0, 10).join("、") : "无"}`);
+	if (mode !== "off") {
+		lines.push(`· 管理员免审：${config.approval.adminSkipApproval ? "开（管理员发起的调用直接放行）" : "关"}`);
+		if (input.alwaysRules) {
+			lines.push(`· 「始终批准」规则：${input.alwaysRules.length ? input.alwaysRules.map((rule) => rule.pattern).slice(0, 10).join("、") : "无"}`);
+		}
+		lines.push(`· 审批卡超时：${Math.round(config.approval.timeoutMs / 60_000)} 分钟（超时按拒绝处理）`);
 	}
-	lines.push(`· 审批卡超时：${Math.round(config.approval.timeoutMs / 60_000)} 分钟（超时按拒绝处理）`);
 	lines.push(`· 当前待审批：${input.pendingApprovals} 条`);
+	lines.push("", "切换（管理员）：/feishu approvals off|builtin|plugin 只改本会话；加 -g 写入配置；/feishu approvals reset 恢复全局设置");
 	return lines.join("\n");
 }
 

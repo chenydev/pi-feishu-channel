@@ -23,7 +23,7 @@ async function holdApproval(h: Harness): Promise<void> {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test("告警·关：审批积压也不告警，不出现在已启用能力里", T, async () => {
-	await withHarness({ allowUsers: [USER, "ou_admin"], statusHeartbeatMs: 30, alerts: { enabled: false, pendingApprovals: 1 } }, async (h) => {
+	await withHarness({ allowUsers: [USER, "ou_admin"], statusHeartbeatMs: 30, approval: { mode: "builtin" }, alerts: { enabled: false, pendingApprovals: 1 } }, async (h) => {
 		await holdApproval(h);
 		await sleep(150);
 		assert.ok(!hasLogPrefix(h, "feishu.alert"));
@@ -32,7 +32,7 @@ test("告警·关：审批积压也不告警，不出现在已启用能力里", 
 });
 
 test("告警·开：审批积压越过阈值后在心跳里告警", T, async () => {
-	await withHarness({ allowUsers: [USER, "ou_admin"], statusHeartbeatMs: 30, alerts: { enabled: true, pendingApprovals: 1 } }, async (h) => {
+	await withHarness({ allowUsers: [USER, "ou_admin"], statusHeartbeatMs: 30, approval: { mode: "builtin" }, alerts: { enabled: true, pendingApprovals: 1 } }, async (h) => {
 		assert.ok(enabledIn(h).status.includes("alerts"));
 		await holdApproval(h);
 		const deadline = Date.now() + 3_000;

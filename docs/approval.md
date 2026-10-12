@@ -1,13 +1,34 @@
 # 工具审批
 
 agent 调用工具（执行命令、写文件等）之前，本扩展可以先征得管理员同意：在群里发一张审批卡，管理员点了才执行。
-本文说明三种工作方式、每种方式下谁来判定，以及怎么验证它真的在工作。相关字段见 [configuration.md](configuration.md) 的 `approval` 一节。
+**审批默认关闭**，工具调用直接放行。本文说明几种审批模式、每种模式下谁来判定、怎么切换，以及怎么验证它真的在工作。
+相关字段见 [configuration.md](configuration.md) 的 `approval` 一节。
 
-| 方式 | 配置 | 谁判定 | 审批卡由谁发 |
+| 模式 | 配置 | 谁判定 | 审批卡由谁发 |
 |---|---|---|---|
-| 内置策略（默认） | `approval.policyEngine: "bridge"` | 本扩展（命令分级 + 免审工具） | 本扩展 |
-| 交给 pi-permission-system | `approval.policyEngine: "pi-permission-system"` | pi-permission-system | 无（它的「询问」没人应答 → 拒绝） |
-| 交给 pi-permission-system + 父会话转发 | 上一行 + `approval.forwarding.enabled: true` | pi-permission-system | 本扩展（把它的「询问」变成审批卡） |
+| 关闭（默认） | 不配置，或 `approval.mode: "off"` | 不判定，直接放行 | 无 |
+| 内置 | `approval.mode: "builtin"` | 本扩展（命令分级 + 免审工具） | 本扩展 |
+| 插件 | `approval.mode: "plugin"` | pi-permission-system | 无（它的「询问」没人应答 → 拒绝） |
+| 插件 + 父会话转发 | 上一行 + `approval.forwarding.enabled: true` | pi-permission-system | 本扩展（把它的「询问」变成审批卡） |
+
+**关闭模式关不掉插件**：只要装了 pi-permission-system，它的拦截就先于本扩展执行，被它拒绝的调用照样被拒绝。
+要完全不审批，还得卸掉插件或在它的配置里放行。
+
+## 0. 切换模式
+
+生效顺序：会话里的临时设置 > 环境变量 `FEISHU_CHANNEL_APPROVAL_MODE` > 配置文件 `approval.mode` > 默认 `off`。
+
+| 命令 | 作用 | 谁能用 |
+|---|---|---|
+| `/feishu approvals` | 查看当前会话生效的模式、来源和规则摘要 | 任何人 |
+| `/feishu approvals off\|builtin\|plugin` | 只改当前会话（也接受 `关闭` / `内置` / `插件`）；只在内存里，重启后失效 | 管理员 |
+| `/feishu approvals <模式> -g` | 写进 `config.json` 的 `approval.mode`，所有会话立即生效，并清掉当前会话的临时设置（`--global` 同义） | 管理员 |
+| `/feishu approvals reset` | 清掉当前会话的临时设置，回到全局 | 管理员 |
+
+- 「当前会话」按会话键算：私聊是这个私聊，群里默认是发命令的人在这个群里的会话，话题是这个话题。`/new` 之后仍然有效。
+- 设了环境变量时，`-g` 照样写文件，但环境变量优先，回复里会提示。
+- 父会话转发是整个进程的设置，只跟全局模式走：在会话里临时切到 `plugin` 不会为它打开转发；`-g` 改全局模式后，转发要重启才跟着变。
+- 日志：启动时 `feishu.approval.mode`（全局模式与来源），切换时 `feishu.approval.mode_changed`（`scope: session / global`）。
 
 ## 1. 审批卡
 
@@ -22,7 +43,7 @@ agent 调用工具（执行命令、写文件等）之前，本扩展可以先�
 - **合并**：同一轮里对同一个工具的并发请求合并到一张卡，点一次全部生效。
 - **卡片内容**：工具名、参数（命令原文，凭据类字段打码）、为什么需要审批、触发这一轮的消息。
 
-## 2. 内置策略（默认）
+## 2. 内置审批
 
 判定顺序：
 
@@ -40,14 +61,14 @@ agent 调用工具（执行命令、写文件等）之前，本扩展可以先�
 写入时以文件里当前的名单为底再加上这个工具，进程运行期间手工加进文件的项会保留，并且立即生效。
 要撤销，从 `approval.autoApprove` 里删掉它再重启。
 
-## 3. 交给 pi-permission-system
+## 3. 插件：交给 pi-permission-system
 
 [pi-permission-system](https://www.npmjs.com/package/@gotgenes/pi-permission-system) 是一个 pi 扩展，用规则文件决定每个工具调用是允许、拒绝还是询问。
-设置 `approval.policyEngine: "pi-permission-system"`（或环境变量 `FEISHU_CHANNEL_POLICY_ENGINE=pi-permission-system`）后：
+设置 `approval.mode: "plugin"`（或环境变量 `FEISHU_CHANNEL_APPROVAL_MODE=plugin`）后：
 
 - 本扩展不再做判定，也不弹卡。pi-permission-system 的拦截先于本扩展执行，它拒绝的调用本扩展根本看不到；
 - **它的「询问」规则需要一个能应答的界面**。飞书会话里没有，所以不开转发时，命中「询问」的调用一律被拒绝；
-- **扩展没装上时自动退回内置策略**（日志 `feishu.approval.policy_engine_unavailable`），不会因此变成全部放行。
+- **插件没装上时自动退回内置审批**（日志 `feishu.approval.plugin_unavailable`），不会因此变成全部放行。
 
 ## 4. 父会话转发
 
@@ -59,7 +80,7 @@ pi-permission-system 支持把「询问」转发给一个「父会话」来应�
 2. 在 `<pi 的 agent 目录>/sessions/permission-forwarding/` 下写心跳文件，表明「有人在应答」；
 3. 读到请求文件后弹审批卡，管理员点完写回响应，pi-permission-system 随即放行或拒绝。
 
-**两个开关要一起开**：转发只在 `policyEngine` 为 `pi-permission-system` 时生效，否则同一次调用会被判定两次，日志 `feishu.approval.ps_forwarding_inactive` 会提示。
+**两个开关要一起开**：转发只在全局审批模式为 `plugin` 时生效，否则同一次调用会被判定两次，日志 `feishu.approval.ps_forwarding_inactive` 会提示。
 
 **卡片显示完整命令**：pi-permission-system 的规则可能只匹配命令的一部分（例如规则 `echo *` 匹配 `echo x > ~/.bashrc` 里的 `echo x`）。
 卡片正文显示实际要执行的完整命令，理由里注明规则匹配的部分。

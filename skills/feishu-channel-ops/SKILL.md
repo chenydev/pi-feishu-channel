@@ -28,7 +28,7 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 - 凭据（`appId` / `appSecret`）建议走环境变量 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，不要写进文件，也**不要在回复或日志里输出 secret**。
 - 运行中的进程会把部分字段写回文件：`/feishu policy`、`/feishu footer`、群开通审批（`allowChats`）、「始终批准」（`approval.autoApprove`）等。
   进程会用内存里的值覆盖这些字段，所以**手改同名字段后要立即重启**，别和运行中的命令交叉修改。
-- 能用飞书命令改的优先用命令（即时生效，自动写回）：`/feishu policy <策略>`、`/feishu footer on|off`、`/feishu prompt set <内容>`、`/feishu budget <美元>|off`、`/feishu always revoke <规则名>`。多数只有管理员能用。
+- 能用飞书命令改的优先用命令（即时生效，自动写回）：`/feishu policy <策略>`、`/feishu footer on|off`、`/feishu approvals <模式> -g`、`/feishu prompt set <内容>`、`/feishu budget <美元>|off`、`/feishu always revoke <规则名>`。多数只有管理员能用。
 
 ### 准入是默认拒绝的
 
@@ -46,7 +46,11 @@ open_id 是**按应用生成**的：换了飞书应用，`admins`、`allowUsers`
 
 ### 可选能力默认关闭
 
-`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest`、`approval.forwarding` 都需要显式开启。
+`approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest`、`approval.forwarding` 都需要显式开启。
+
+工具审批：`approval.mode` 取 `off`（默认，直接放行）/ `builtin`（内置分级 + 审批卡）/ `plugin`（pi-permission-system）。
+管理员在飞书里 `/feishu approvals <模式>` 只改当前会话（重启失效），加 `-g` 写入配置，`reset` 回到全局。
+`off` 关不掉 pi-permission-system：装了它，它的拒绝照样生效。详见 [approval.md](../../docs/approval.md) §0。
 当前开了哪些：启动日志 `feishu.bridge.features`、`status.json` 的 `features` 字段、`/feishu doctor`。
 
 ## 2. 健康检查
@@ -92,10 +96,11 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 桥没起来，日志 `pi.getAgentDir is not a function` | 扩展版本过旧 | 升级扩展；临时设 `FEISHU_CHANNEL_HOME` |
 | 连接反复断开又连上 | 同一应用被多个进程连接 | 一个应用只能有一个实例；锁冲突时启动报 `bridge already running for appId …` |
 | 每开一个会话多一条 `ws_ready` | 子会话没剔除本扩展 | `feishu.session.resource_loader_ready` 的 `strippedGateways` 应为 1 |
-| 审批卡没弹，命令直接执行 | 用 pi-permission-system 时没配「询问」规则；或内置分级判为只读 | 查 `/feishu approvals`、PS 规则 |
+| 审批卡没弹，命令直接执行 | 审批模式是关闭（默认）；用 pi-permission-system 时没配「询问」规则；或内置分级判为只读 | 查 `/feishu approvals` 的模式和来源、PS 规则 |
+| 审批已关闭，仍有调用被拒 | 装了 pi-permission-system，不受本扩展模式影响 | 卸插件或在它的配置里放行 |
 | 审批卡点不动 | 点的人不是管理员 | 加进 `admins`，或由归属人点 |
 | 点卡片提示「已失效」 | 超时（默认 5 分钟）或这一轮已结束 | 尽快点；或调大 `approval.timeoutMs` |
-| PS 的「询问」全被拒绝 | 没开转发 | `approval.policyEngine: "pi-permission-system"` 与 `approval.forwarding.enabled: true` **一起开** |
+| PS 的「询问」全被拒绝 | 没开转发 | `approval.mode: "plugin"` 与 `approval.forwarding.enabled: true` **一起开** |
 | 回复半截 / 「回复发送失败」 | 编辑次数用尽、无发言权限、接口报错 | `feishu.outbox.failed` 的 `lastError` |
 | 页脚费用「未知」 | 模型配置没有费率 | 在 pi 模型配置里补 `cost` |
 | 日志 `feishu.config.deprecated_env` | 用了旧环境变量 `FEISHU_BRIDGE_*` | 改成日志里的 `replacement` |

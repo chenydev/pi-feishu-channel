@@ -8,6 +8,7 @@ import { effectiveAdmins } from "../inbound/admit.js";
 import { existsSync as fileExists, readFileSync, statSync } from "node:fs";
 import { unknownConfigFields } from "../config/schema.js";
 import { enabledFeatures } from "../features/switches.js";
+import { describeApprovalMode, globalApprovalMode } from "../approval/mode.js";
 
 export interface DoctorCheck { name: string; ok: boolean; detail: string }
 
@@ -184,6 +185,11 @@ export function runDoctor(input: {
 		(() => {
 			const features = enabledFeatures(input.config);
 			return { name: "features", ok: true, detail: features.length ? `已启用：${features.join("、")}` : "无（全部为默认关闭）" };
+		})(),
+		// 信息项：全局审批模式（会话里的临时设置看 /feishu approvals）
+		(() => {
+			const approval = globalApprovalMode(input.config);
+			return { name: "approval_mode", ok: true, detail: `全局：${describeApprovalMode(approval)}${approval.mode === "off" ? "，工具调用全部直接放行" : ""}` };
 		})(),
 		{ name: "runtime", ok: true, detail: input.diagnostics?.piVersion ? `Pi ${input.diagnostics.piVersion}` : "Pi 版本未提供" },
 		...backlogLines,

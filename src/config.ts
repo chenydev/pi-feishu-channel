@@ -7,7 +7,8 @@ import { dirname, join } from "node:path";
 import type { BridgeConfig, GroupPolicy, ProgressMode } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { validateFileConfig } from "./config/schema.js";
-import { channelEnv, RUNTIME_DIR_NAME } from "./runtime/identity.js";
+import { APPROVAL_MODES, approvalModeEnv, parseApprovalMode } from "./approval/mode.js";
+import { RUNTIME_DIR_NAME } from "./runtime/identity.js";
 
 export interface ConfigPaths {
 	configFile: string;
@@ -190,6 +191,10 @@ export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env
 	const fileCfg = loadJson<Partial<BridgeConfig>>(paths.configFile) ?? {};
 	// 先按 schema 校验整份文件：类型或取值不对就报出完整字段路径，不带着错配置启动
 	validateFileConfig(fileCfg);
+	const envMode = approvalModeEnv(env);
+	if (envMode !== undefined && !parseApprovalMode(envMode)) {
+		throw new Error(`配置无效：环境变量 FEISHU_CHANNEL_APPROVAL_MODE「${envMode}」无效（可选 ${APPROVAL_MODES.join("/")}）`);
+	}
 	const merged: BridgeConfig = {
 		...DEFAULT_CONFIG,
 		...fileCfg,
@@ -200,10 +205,6 @@ export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env
 		forwarding: { ...DEFAULT_CONFIG.forwarding, ...fileCfg.forwarding },
 		approval: {
 			...DEFAULT_CONFIG.approval,
-			// env 优先：便于在 compose 里声明，不必改仓库配置
-			policyEngine: (channelEnv(env, "POLICY_ENGINE") as "bridge" | "pi-permission-system" | undefined)
-				?? fileCfg.approval?.policyEngine
-				?? DEFAULT_CONFIG.approval.policyEngine,
 			...fileCfg.approval,
 			commandPolicy: {
 				enabled: fileCfg.approval?.commandPolicy?.enabled ?? DEFAULT_CONFIG.approval.commandPolicy?.enabled ?? true,

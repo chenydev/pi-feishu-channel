@@ -16,7 +16,7 @@ import type { Outbox } from "../outbound/outbox.js";
 import type { Sender } from "../outbound/sender.js";
 import type { UsageProvider } from "../outbound/usage-provider.js";
 import type { ConversationManager } from "../session/conversation-manager.js";
-import type { BridgeConfig, BridgeStatus } from "../types.js";
+import type { ApprovalMode, BridgeConfig, BridgeStatus } from "../types.js";
 import { DEFAULT_CONFIG } from "../types.js";
 import type { AccessRequestTracker } from "./access-request.js";
 import type { AppLock } from "./app-lock.js";
@@ -62,6 +62,8 @@ export class BridgeRuntime {
 
 	// ── 审批 ──
 	permissionBridge: PermissionBridge | undefined;
+	/** 会话级审批模式覆盖（`/feishu approvals <模式>`，按会话键）；只在内存里，重启即失效。 */
+	readonly approvalModeOverrides = new Map<string, ApprovalMode>();
 	/** pi-permission-system 父会话转发（默认关）：桥充当应答方，把 PS 的 ask 变成审批卡。 */
 	psForwarding: PsForwardingServer | undefined;
 	/** 「始终批准」规则表（转发路径）；未启用时为 undefined。 */

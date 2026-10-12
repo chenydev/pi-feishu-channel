@@ -30,6 +30,7 @@
     "acceptMergeForward": true
   },
   "approval": {
+    "mode": "off",
     "autoApprove": [],
     "timeoutMs": 300000,
     "forwarding": {

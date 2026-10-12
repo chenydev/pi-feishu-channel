@@ -35,6 +35,7 @@
   },
   "approval": {
     "autoApprove": [],
+    "mode": "off",
     "timeoutMs": 300000,
     "adminSkipApproval": false,
     "commandPolicy": {

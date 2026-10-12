@@ -4,6 +4,16 @@
 
 ## 未发布
 
+- **破坏性变更（审批）**：审批改为默认关闭。字段 `approval.policyEngine` 改为 `approval.mode`，取值
+  `off`（默认，工具调用直接放行）/ `builtin`（内置：命令分级 + 审批卡，即原 `bridge`）/ `plugin`（交给 pi-permission-system，即原 `pi-permission-system`）；
+  环境变量 `FEISHU_CHANNEL_POLICY_ENGINE` 改为 `FEISHU_CHANNEL_APPROVAL_MODE`，取值不对时拒绝启动。旧字段、旧值不再识别。
+  **要保留审批，在配置里写 `"approval": { "mode": "builtin" }`。**
+  - `/feishu approvals off|builtin|plugin`：管理员只改当前会话（内存，重启失效）；加 `-g` 写入配置并立即生效；`reset` 回到全局。
+  - 关闭模式下 `!<命令>`（`directBash`）也不再做命令分级。
+  - 可观测：启动日志 `feishu.approval.mode`、切换日志 `feishu.approval.mode_changed`；`/feishu doctor` 新增 `approval_mode`；
+    `/feishu status` 显示审批模式；全局模式不是 `off` 时 `features` 里列出 `approval`。
+    插件没装上的日志由 `feishu.approval.policy_engine_unavailable` 改名为 `feishu.approval.plugin_unavailable`。
+  - `/feishu approvals` 在 `bash` 位于免审名单时显示「免审」，不再误报「每条命令都弹审批卡」。
 - 修复（审批）：点「始终批准」会用内存里的免审名单整个覆盖 `approval.autoApprove`，进程运行期间手工加进
   配置文件的工具被冲掉。现在写入前先合并文件里当前的名单，合并结果同时在内存里生效。
 - 修复：没设 `FEISHU_CHANNEL_HOME` 时桥起不来，日志 `extension_error session_start "pi.getAgentDir is not a function"`。

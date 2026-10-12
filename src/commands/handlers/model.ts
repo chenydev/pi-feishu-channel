@@ -48,7 +48,7 @@ export function modelCommands(svc: CommandServices): Record<string, CommandHandl
 }
 
 /** `--global`/`-g` 在任意位置都算（对齐 hermes 的 /reasoning 解析）；去掉它之后剩下的才是值。 */
-function splitGlobalFlag(raw: string): { wantsGlobal: boolean; value: string } {
+export function splitGlobalFlag(raw: string): { wantsGlobal: boolean; value: string } {
 	const pattern = /(^|\s)(--global|-g)(\s|$)/;
 	return { wantsGlobal: pattern.test(raw), value: raw.replace(/(^|\s)(--global|-g)(\s|$)/g, " ").trim() };
 }

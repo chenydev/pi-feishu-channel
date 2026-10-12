@@ -56,7 +56,7 @@
 | `/cron add "<表达式>" <任务>` `list` `rm` `pause` `resume` | 定时任务（管理员，需 `cron.enabled`） |
 | `!<命令>` | 管理员直接执行 shell 命令（需 `directBash.enabled`） |
 | `/feishu status` `/feishu doctor` `/feishu export` | 状态、可解释诊断、脱敏诊断包导出 |
-| `/feishu approvals` | 当前生效的审批策略摘要 |
+| `/feishu approvals [off\|builtin\|plugin\|reset] [-g]` | 查看审批策略；管理员可切换审批模式（只改本会话，`-g` 写入配置） |
 | `/feishu usage [week]` | 本会话用量 + 账户余额（`usage.provider`）；`week` = 近 7 天按天/按人汇总 |
 | `/feishu budget [<美元>\|off]` | 本群每日费用上限（管理员；超限后拒绝新任务） |
 | `/feishu prompt [show\|set <内容>\|clear]` | 本群提示词；私聊里设置的是个人提示词 |
@@ -166,6 +166,7 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 
 | 能力 | 打开方式 |
 |---|---|
+| 工具审批：工具调用前弹审批卡，或交给 pi-permission-system 判定 | `approval.mode`（见下文「工具审批」） |
 | 超长回答转文件：只发开头，全文作为 .md 附件 | `longReply.asFile` |
 | 直接执行命令：管理员发 `!<命令>`，不经过模型，全部写审计日志 | `directBash.enabled` |
 | 定时任务 | `cron.enabled` |
@@ -184,8 +185,9 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 
 ### 工具审批
 
-默认由本扩展判定（bash 命令分级 + 审批卡）；也可以把判定交给 pi-permission-system，并由本扩展把它的「询问」转成审批卡。
-详见 [docs/approval.md](docs/approval.md)。
+默认关闭，工具调用直接放行。`approval.mode` 可选：`off`（关闭）、`builtin`（内置：bash 命令分级 + 审批卡）、
+`plugin`（交给 pi-permission-system，可由本扩展把它的「询问」转成审批卡）。
+管理员可以在会话里用 `/feishu approvals <模式>` 临时切换当前会话，加 `-g` 写入配置。详见 [docs/approval.md](docs/approval.md)。
 
 ---
 

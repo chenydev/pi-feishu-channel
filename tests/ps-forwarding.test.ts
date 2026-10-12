@@ -383,26 +383,21 @@ test("展示：规则只匹配命令的一部分时，卡片显示完整命令�
 	assert.ok(!secret.paramsText.includes("abc123"));
 });
 
-test("开关语义：打开转发仍需把策略交给 PS，否则不生效（否则同一次调用会弹两张卡）", () => {
-	type ForwardingConfig = { forwarding?: { enabled?: boolean; parentSessionId?: string }; policyEngine?: "bridge" | "pi-permission-system" };
-	const base: ForwardingConfig = { policyEngine: "bridge" };
+test("开关语义：打开转发还要全局审批模式为 plugin，否则不生效（否则同一次调用会弹两张卡）", () => {
 	assert.deepEqual(
-		resolvePsForwardingConfig(base),
+		resolvePsForwardingConfig(undefined, "plugin"),
 		{ enabled: false, parentSessionId: DEFAULT_PS_FORWARDING_PARENT_ID, blockedBy: undefined },
 		"没开开关 = 关",
 	);
-	assert.equal(
-		resolvePsForwardingConfig({ policyEngine: "bridge", forwarding: { enabled: true } }).blockedBy,
-		"policyEngine",
-		"引擎仍是桥自研时不生效（桥自己已经会弹卡）",
-	);
+	assert.equal(resolvePsForwardingConfig({ enabled: true }, "builtin").blockedBy, "mode", "内置审批时不生效（自己已经会弹卡）");
+	assert.equal(resolvePsForwardingConfig({ enabled: true }, "off").blockedBy, "mode", "审批关闭时不生效");
 	assert.deepEqual(
-		resolvePsForwardingConfig({ policyEngine: "pi-permission-system", forwarding: { enabled: true } }),
+		resolvePsForwardingConfig({ enabled: true }, "plugin"),
 		{ enabled: true, parentSessionId: DEFAULT_PS_FORWARDING_PARENT_ID, blockedBy: undefined },
-		"把策略交给 PS + 开关打开 = 生效",
+		"plugin 模式 + 开关打开 = 生效",
 	);
 	assert.equal(
-		resolvePsForwardingConfig({ policyEngine: "pi-permission-system", forwarding: { enabled: true, parentSessionId: "  my-parent  " } }).parentSessionId,
+		resolvePsForwardingConfig({ enabled: true, parentSessionId: "  my-parent  " }, "plugin").parentSessionId,
 		"my-parent",
 		"父会话 id 要去掉空白",
 	);

@@ -5,6 +5,7 @@
  * - 负向校验（token/card/chat/管理员/重复/过期）不得改变授权集合或放行工具。
  */
 import assert from "node:assert/strict";
+import { globalApprovalMode } from "../src/approval/mode.js";
 import { test } from "node:test";
 import { PermissionBridge, redactParams, type PendingApproval } from "../src/approval/permission-bridge.js";
 import { DEFAULT_CONFIG } from "../src/types.js";
@@ -266,14 +267,7 @@ test("两处调用点都必须把 toolName 传下去（否则卡片又变回 JSO
 	assert.ok(redactParams({ command: cmd }).includes('"command"'), "不传则回退 JSON（旧行为，说明漏传会立刻可见）");
 });
 
-test("策略交给 pi-permission-system 时必须默认拒绝（扩展缺席时不能静默放行）", () => {
-	// 设计约定：policyEngine=pi-permission-system 时桥不再弹卡，
-	// 但仅当扩展确实装在 agent 目录里；否则桥的审批是唯一防线，必须退回到自研策略。
-	const cfg = JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as { approval: { policyEngine?: string } };
-	// 默认必须是 bridge（不能让"交给它判定"成为默认行为）
-	assert.equal(cfg.approval.policyEngine ?? "bridge", "bridge", "默认不能自动交给它判定");
-
-	// env 覆盖优先于文件配置（便于 compose 声明）
-	const env = process.env.FEISHU_CHANNEL_POLICY_ENGINE ?? process.env.FEISHU_BRIDGE_POLICY_ENGINE;
-	assert.ok(env === undefined || ["bridge", "pi-permission-system"].includes(env), "env 取值受限于两个合法值");
+test("审批模式默认关闭：默认配置里不写 mode，没有任何来源时按 off 处理", () => {
+	assert.equal(DEFAULT_CONFIG.approval.mode, undefined, "默认值不能写进 DEFAULT_CONFIG，否则 -g 回写时会被冻结进文件");
+	assert.deepEqual(globalApprovalMode(DEFAULT_CONFIG, {}), { mode: "off", source: "default" });
 });

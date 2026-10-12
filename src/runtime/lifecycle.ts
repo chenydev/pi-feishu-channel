@@ -5,10 +5,11 @@
  * 1. 声明 PS 父会话环境变量 → 拿单实例锁；
  * 2. 装配可选能力 → 装配核心组件 → 连上飞书、启动发送队列；
  * 3. 起 PS 转发应答方（失败不阻塞）→ 空闲会话回收 → 收紧会话文件权限 → 状态心跳 → 启动可选能力；
- * 4. 查询应用归属人与协作者 → 日志 `feishu.bridge.features`、`bridge started`。
+ * 4. 查询应用归属人与协作者 → 日志 `feishu.bridge.features`、`feishu.approval.mode`、`bridge started`。
  *
  * 启动与停止串行执行（`/feishu:restart`、SIGTERM 与 session_shutdown 可能同时到达）。
  */
+import { globalApprovalMode } from "../approval/mode.js";
 import type { PsForwardingSync } from "../approval/ps-forwarding-sync.js";
 import { resolveAppLockFile, resolvePaths } from "../config.js";
 import type { FeatureContext, FeatureHost } from "../features/feature.js";
@@ -154,6 +155,7 @@ export class BridgeLifecycle {
 			status.setUi("conn", "飞书桥启动中…");
 			status.setUi("bridge", "飞书桥已启动");
 			log.info("feishu.bridge.features", { enabled: enabledFeatures(rt.config) });
+			log.info("feishu.approval.mode", globalApprovalMode(rt.config));
 			log.info("bridge started", { bot: rt.transport?.getBotIdentity() });
 			status.update();
 			return "started";

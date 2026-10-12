@@ -21,6 +21,8 @@ const baseConfig = {
 	allowChats: [GROUP],
 	groupPolicy: "mention",
 	onboarding: { accessRequest: true, accessApprovers: "all" },
+	// 审批默认关闭；这里锁的是审批链路本身，所以显式打开内置审批
+	approval: { mode: "builtin" },
 };
 
 async function withHarness(config: Record<string, unknown>, body: (h: Harness) => Promise<void>): Promise<void> {
@@ -136,7 +138,7 @@ test("入口·审批检查：「始终批准」写回时保留进程运行期间
 		// 运行期间有人手工改了配置文件
 		const configFile = join(h.home, "feishu-channel", "config.json");
 		const onDisk = h.config();
-		writeFileSync(configFile, JSON.stringify({ ...onDisk, approval: { autoApprove: ["edit"] } }, null, 2));
+		writeFileSync(configFile, JSON.stringify({ ...onDisk, approval: { ...(onDisk.approval as object), autoApprove: ["edit"] } }, null, 2));
 
 		const [always] = h.buttonValues((v) => v.op === "approval" && v.choice === "always");
 		assert.ok(always, "审批卡上有「始终批准」按钮");
@@ -191,7 +193,7 @@ test("入口·审批检查：命令分级看的是完整原始命令，而不是
 });
 
 test("入口·审批检查：开启管理员免审时，管理员自己发起的调用不弹卡", T, async () => {
-	await withHarness({ ...baseConfig, approval: { adminSkipApproval: true } }, async (h) => {
+	await withHarness({ ...baseConfig, approval: { mode: "builtin", adminSkipApproval: true } }, async (h) => {
 		const { sessionId } = await startRun(h, ADMIN);
 		assert.equal(await toolCall(h, sessionId, "write", { path: "a.txt", content: "x" }), undefined);
 		assert.ok(h.hasLog("feishu.approval.admin_skip"));
@@ -267,9 +269,9 @@ test("入口·开通审批：未放行的群里 @ 机器人会发出放行卡；
 test("入口·可观测：启动日志与 status.json 列出已打开的能力", T, async () => {
 	await withHarness({ ...baseConfig, cron: { enabled: true } }, async (h) => {
 		const line = h.logs.find((l) => l.event === "feishu.bridge.features");
-		assert.deepEqual((line?.meta as { enabled?: string[] })?.enabled, ["cron", "accessRequest"]);
+		assert.deepEqual((line?.meta as { enabled?: string[] })?.enabled, ["cron", "accessRequest", "approval"]);
 		const status = JSON.parse(readFileSync(join(h.home, "feishu-channel", "status.json"), "utf8"));
-		assert.deepEqual(status.features, ["cron", "accessRequest"]);
+		assert.deepEqual(status.features, ["cron", "accessRequest", "approval"]);
 	});
 });
 

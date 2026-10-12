@@ -21,7 +21,7 @@ test("直接执行命令·关：`!<命令>` 当普通消息交给模型，没有
 });
 
 test("直接执行命令·开：非管理员被拒；危险命令对管理员也拒绝；每次都有审计日志", T, async () => {
-	await withHarness({ allowUsers: [USER, ADMIN], directBash: { enabled: true } }, async (h) => {
+	await withHarness({ allowUsers: [USER, ADMIN], directBash: { enabled: true }, approval: { mode: "builtin" } }, async (h) => {
 		assert.ok(enabledIn(h).status.includes("directBash"));
 		await h.message({ chatId: "oc_dm", sender: USER, text: "!ls" });
 		await h.waitForMessage("oc_dm", /直接执行命令仅限管理员/);
@@ -30,5 +30,15 @@ test("直接执行命令·开：非管理员被拒；危险命令对管理员也
 		const outcomes = h.logs.filter((l) => l.event === "feishu.direct_bash.audit").map((l) => (l.meta as { outcome: string }).outcome);
 		assert.deepEqual(outcomes, ["rejected_not_admin", "denied"]);
 		assert.equal(h.sessions.prompts.length, 0, "不经过模型");
+	});
+});
+
+test("直接执行命令·开：审批关闭时不做命令分级，需要审批的命令也直接执行", T, async () => {
+	await withHarness({ allowUsers: [USER, ADMIN], directBash: { enabled: true } }, async (h) => {
+		await h.message({ chatId: "oc_dm_admin", sender: ADMIN, text: "!touch a.txt" });
+		// 测试用的假会话没有 executeBash：走到执行这一步就说明没被分级拦下
+		await h.waitForMessage("oc_dm_admin", /不支持直接执行命令/);
+		const outcomes = h.logs.filter((l) => l.event === "feishu.direct_bash.audit").map((l) => (l.meta as { outcome: string }).outcome);
+		assert.deepEqual(outcomes, ["failed"]);
 	});
 });

@@ -1,16 +1,18 @@
 /**
  * 管理员直接执行命令（`directBash.enabled`，默认关）：在聊天里发 `!<命令>`，不经过模型直接执行。
  *
- * 直接执行不经过工具调用的审批检查，所以这里自己把关：仅管理员；桥的命令分级与
- * pi-permission-system 的 bash 规则任一判拒绝就拒绝；需要审批的命令默认也拒绝（请让 agent 执行，走审批卡）；
+ * 直接执行不经过工具调用的审批检查，所以这里自己把关：仅管理员；审批模式不是 `off` 时，桥的命令分级与
+ * pi-permission-system 的 bash 规则（`plugin` 模式）任一判拒绝就拒绝；需要审批的命令默认也拒绝（请让 agent 执行，走审批卡）；
  * 每次执行都写审计日志 `feishu.direct_bash.audit`。关闭时 `!<命令>` 当普通消息交给模型。
  */
 import { classifyCommand } from "../approval/command-policy.js";
+import { effectiveApprovalMode } from "../approval/mode.js";
 import { redactParams } from "../approval/permission-bridge.js";
 import { psConfigFile } from "../approval/pi-permission-system.js";
 import { loadPsConfig, psBashVerdict } from "../approval/policy-summary.js";
 import { DIRECT_BASH_PREFIX } from "../commands/registry.js";
 import { effectiveAdmins } from "../inbound/admit.js";
+import { buildConversationKey } from "../session/conversation-key.js";
 import type { FeishuInboundMessage } from "../types.js";
 import type { BridgeFeature, FeatureContext } from "./feature.js";
 
@@ -43,8 +45,14 @@ async function handleDirectBash(ctx: FeatureContext, msg: FeishuInboundMessage, 
 	if (!command) { reply("用法：!<命令>，例如 !git status"); return; }
 	if (!effectiveAdmins(rt.config).includes(msg.senderId)) { audit("rejected_not_admin"); reply("直接执行命令仅限管理员"); return; }
 	if (rt.config.directBash?.p2pOnly && msg.chatType !== "p2p") { audit("rejected_not_p2p"); reply("直接执行命令只能在私聊里使用"); return; }
+	const { mode } = effectiveApprovalMode(rt.config, rt.approvalModeOverrides, buildConversationKey(msg, rt.config));
+	if (mode === "off") {
+		// 审批已关闭：和 agent 发起的调用一样不做命令分级
+		await runAndReply(ctx, msg, command, audit);
+		return;
+	}
 	const bridgeVerdict = classifyCommand(command, rt.config.approval.commandPolicy);
-	const psVerdict = rt.config.approval.policyEngine === "pi-permission-system" ? psBashVerdict(loadPsConfig(psConfigFile()), command) : undefined;
+	const psVerdict = mode === "plugin" ? psBashVerdict(loadPsConfig(psConfigFile()), command) : undefined;
 	if (bridgeVerdict.verdict === "deny" || psVerdict?.verdict === "deny") {
 		audit("denied", { reason: bridgeVerdict.verdict === "deny" ? bridgeVerdict.reason : `PS 规则 ${psVerdict?.rule}` });
 		reply(`已拒绝：${bridgeVerdict.verdict === "deny" ? bridgeVerdict.reason : `命中禁止规则「${psVerdict?.rule}」`}`);
@@ -56,6 +64,12 @@ async function handleDirectBash(ctx: FeatureContext, msg: FeishuInboundMessage, 
 		reply(`该命令需要审批（${bridgeVerdict.verdict === "ask" ? bridgeVerdict.reason : `PS 规则 ${psVerdict?.rule}`}），直接执行只放行免审命令。\n可以让 agent 执行它（会弹审批卡），例如：用 bash 执行 ${command.slice(0, 80)}`);
 		return;
 	}
+	await runAndReply(ctx, msg, command, audit);
+}
+
+async function runAndReply(ctx: FeatureContext, msg: FeishuInboundMessage, command: string, audit: (outcome: string, extra?: Record<string, unknown>) => void): Promise<void> {
+	const { rt } = ctx;
+	const { reply } = ctx.replier(msg);
 	const result = await rt.convManager?.runDirectBash(msg, command, rt.config.directBash?.timeoutMs ?? 60_000);
 	if (!result) { reply("会话不可用"); return; }
 	if (!result.ok) { audit("failed", { reason: result.reason }); reply(result.reason); return; }

@@ -85,7 +85,7 @@
 | `approval.autoApprove` | string[] | `[]` |  | 不需要审批的工具名 |
 | `approval.timeoutMs` | number | `300000`（5 分钟） |  | 审批卡的有效期（毫秒），超时视为拒绝 |
 | `approval.adminSkipApproval` | boolean | `false` |  | 管理员与应用归属人发起的工具调用不用审批 |
-| `approval.policyEngine` | "bridge" \| "pi-permission-system" | `"bridge"` | `FEISHU_CHANNEL_POLICY_ENGINE` | 由谁判定工具调用：`bridge` 用内置规则 + 飞书审批卡；`pi-permission-system` 交给 pi-permission-system 扩展（扩展没装上时自动退回 `bridge`）。详见 [approval.md](approval.md) |
+| `approval.mode` | "off" \| "builtin" \| "plugin" | `"off"` | `FEISHU_CHANNEL_APPROVAL_MODE` | 工具调用要不要审批：`off` 不审批，直接放行；`builtin` 内置审批（命令分级 + 免审工具 + 飞书审批卡）；`plugin` 交给 pi-permission-system 插件（插件没装上时退回 `builtin`）。管理员可用 `/feishu approvals <模式>` 只改当前会话，加 `-g` 写回这里。详见 [approval.md](approval.md) |
 | `approval.commandPolicy.enabled` | boolean | `true` |  | 按 bash 命令分级：只读命令免审批，危险命令直接拒绝，其余弹审批卡 |
 | `approval.commandPolicy.extraReadOnly` | string[] | — |  | 额外当作只读的命令名（按命令名匹配，如 `jq`） |
 | `approval.commandPolicy.extraDangerous` | string[] | — |  | 额外当作危险的命令名（直接拒绝） |

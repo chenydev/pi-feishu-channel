@@ -1,7 +1,7 @@
 /**
  * pi-permission-system「父会话转发」的桥侧应答方。
  *
- * 背景：桥把策略让给了 @gotgenes/pi-permission-system（approval.policyEngine），
+ * 背景：桥把策略让给了 @gotgenes/pi-permission-system（approval.mode = plugin），
  * 该扩展在子会话里先于桥的拦截执行 —— 它判 deny 时桥收不到调用，判 **ask** 时会做
  * 「父会话转发」：把请求写进文件信箱，等父会话应答。应答方**不必是 pi 进程**，
  * PS 只按心跳文件判断「这个 id 有没有人在收」，不看对方是什么。
@@ -30,6 +30,7 @@
  * 响应字段多一个少一个都会让子会话读不出来 → abandon 判拒绝，因此这里是**精确匹配**，
  * 且不 import 对方包（内部路径未导出；也用不着把桥的测试绑在对方的版本上）。
  */
+import type { ApprovalMode } from "./mode.js";
 import type { AlwaysApprovedStore } from "./always-approved-store.js";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { join } from "node:path";
@@ -315,18 +316,19 @@ function validCwd(value: string | undefined): string | undefined {
  * 配置 → 转发是否真的生效（纯函数，便于单测）：
  *
  * 开关打开还不够 —— 转发存在的唯一目的是把 PS 的 `ask` 送到飞书卡片上。
- * 策略引擎仍是桥自研时，PS 的 ask 和桥自己的命令策略会各自弹一张卡（同一次调用两张），
- * 所以那种组合下转发不生效，并在启动日志里说清原因。
+ * 全局审批模式不是 `plugin` 时转发不生效：`builtin` 下 PS 的 ask 和内置命令分级会各自弹一张卡
+ * （同一次调用两张），`off` 下本来就不该审批。不生效的原因在启动日志里说清。
+ * 转发是进程级的（见 PS_FORWARDING_PARENT_ENV_KEYS），所以只看全局模式，不看会话覆盖。
  */
-export function resolvePsForwardingConfig(approval: {
-	forwarding?: { enabled?: boolean; parentSessionId?: string };
-	policyEngine?: "bridge" | "pi-permission-system";
-} | undefined): { enabled: boolean; parentSessionId: string; blockedBy?: "policyEngine" } {
-	const enabled = Boolean(approval?.forwarding?.enabled);
-	const blockedBy = enabled && approval?.policyEngine !== "pi-permission-system" ? "policyEngine" as const : undefined;
+export function resolvePsForwardingConfig(
+	forwarding: { enabled?: boolean; parentSessionId?: string } | undefined,
+	globalMode: ApprovalMode,
+): { enabled: boolean; parentSessionId: string; blockedBy?: "mode" } {
+	const enabled = Boolean(forwarding?.enabled);
+	const blockedBy = enabled && globalMode !== "plugin" ? "mode" as const : undefined;
 	return {
 		enabled: enabled && !blockedBy,
-		parentSessionId: approval?.forwarding?.parentSessionId?.trim() || DEFAULT_PS_FORWARDING_PARENT_ID,
+		parentSessionId: forwarding?.parentSessionId?.trim() || DEFAULT_PS_FORWARDING_PARENT_ID,
 		blockedBy,
 	};
 }

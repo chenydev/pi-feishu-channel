@@ -71,19 +71,29 @@ test("入群与准入：生命周期事件整理", () => {
 	assert.equal(parseLifecycleEvent("unknown", { chat_id: "oc" }), undefined);
 });
 
-test("审批策略摘要：审批策略摘要（桥内置与 PS 两种引擎）", () => {
-	const bridge = summarizeApprovalPolicy({ config: DEFAULT_CONFIG, psInstalled: false, pendingApprovals: 2 });
-	assert.match(bridge, /引擎：桥内置/);
-	assert.match(bridge, /当前待审批：2 条/);
+test("审批策略摘要：关闭 / 内置 / 插件三种模式", () => {
+	const off = summarizeApprovalPolicy({ config: DEFAULT_CONFIG, mode: { mode: "off", source: "default" }, psInstalled: true, pendingApprovals: 0 });
+	assert.match(off, /模式：关闭（默认）/);
+	assert.match(off, /全部直接放行/);
+	assert.match(off, /pi-permission-system：它的规则仍会独立生效/, "装了插件时提示 off 关不掉它");
+	assert.doesNotMatch(off, /审批卡超时/);
+	const builtin = summarizeApprovalPolicy({ config: DEFAULT_CONFIG, mode: { mode: "builtin", source: "session" }, psInstalled: false, pendingApprovals: 2 });
+	assert.match(builtin, /模式：内置（本会话临时设置）/);
+	assert.match(builtin, /当前待审批：2 条/);
+	const bashFree = summarizeApprovalPolicy({
+		config: { ...DEFAULT_CONFIG, approval: { ...DEFAULT_CONFIG.approval, autoApprove: ["bash"], commandPolicy: { enabled: false } } },
+		mode: { mode: "builtin", source: "config" }, psInstalled: false, pendingApprovals: 0,
+	});
+	assert.match(bashFree, /bash：免审（在免审工具里）/, "bash 在免审名单里时不能说「每条都弹卡」");
 	const ps = summarizeApprovalPolicy({
-		config: { ...DEFAULT_CONFIG, approval: { ...DEFAULT_CONFIG.approval, policyEngine: "pi-permission-system" } },
+		config: DEFAULT_CONFIG, mode: { mode: "plugin", source: "config" },
 		psInstalled: true, pendingApprovals: 0, alwaysRules: [{ pattern: "git push*" }],
 		ps: { permission: { "*": "allow", bash: { "*": "allow", "rm -rf *": "deny", "echo PS-TEST-*": "ask" }, read: "allow" } },
 	});
 	assert.match(ps, /bash：默认放行；需审批 1 条：echo PS-TEST-\*；禁止 1 条：rm -rf \*/);
 	assert.match(ps, /「始终批准」规则：git push\*/);
-	const missing = summarizeApprovalPolicy({ config: { ...DEFAULT_CONFIG, approval: { ...DEFAULT_CONFIG.approval, policyEngine: "pi-permission-system" } }, psInstalled: false, pendingApprovals: 0 });
-	assert.match(missing, /未安装/);
+	const missing = summarizeApprovalPolicy({ config: DEFAULT_CONFIG, mode: { mode: "plugin", source: "env" }, psInstalled: false, pendingApprovals: 0 });
+	assert.match(missing, /未安装 —— 已退回内置审批/);
 });
 
 test("直接执行命令：PS bash 规则的保守判定（任一 deny 优先，其次 ask）", () => {

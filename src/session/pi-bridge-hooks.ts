@@ -340,7 +340,7 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 				chatId: route.chatId,
 				threadId: route.threadId,
 				sourceMessageId: route.sourceMessageId,
-				// 真正执行工具的是子会话，这里不传 senderId，adminSkipApproval 在真实路径上永远不生效
+				// 管理员免审（adminSkipApproval）靠它判定：子会话拿不到发送者，只能从会话路由取
 				senderId: route.senderId,
 				allowedOperatorIds: ctx.allowedOperatorIds(),
 			});

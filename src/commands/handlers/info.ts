@@ -1,10 +1,8 @@
 /**
- * 查看类命令：帮助、状态、诊断、审批策略、用量。
+ * 查看类命令：帮助、状态、诊断、用量。
  */
 import type { CommandHandler } from "../dispatch.js";
 import type { CommandServices } from "./services.js";
-import { loadPsConfig, summarizeApprovalPolicy } from "../../approval/policy-summary.js";
-import { piPermissionSystemInstalled, psConfigFile } from "../../approval/pi-permission-system.js";
 import { formatTimeInZone, resolvePaths } from "../../config.js";
 import { formatUsageWeek } from "../../runtime/usage-ledger.js";
 import { formatDoctor, runDoctor } from "../../runtime/doctor.js";
@@ -24,15 +22,6 @@ export function infoCommands(svc: CommandServices): Record<string, CommandHandle
 		},
 		"/feishu doctor": ({ reply }) => {
 			reply(formatDoctor(runDoctor({ config: svc.rt.config, paths: resolvePaths(svc.rt.homeDir), transport: svc.rt.transport, diagnostics: svc.diagnosticsContext() })));
-		},
-		"/feishu approvals": ({ reply }) => {
-			reply(summarizeApprovalPolicy({
-				config: svc.rt.config,
-				ps: loadPsConfig(psConfigFile()),
-				psInstalled: piPermissionSystemInstalled(),
-				...(svc.rt.alwaysApproved ? { alwaysRules: svc.rt.alwaysApproved.list() } : {}),
-				pendingApprovals: svc.rt.permissionBridge?.pendingCount() ?? 0,
-			}));
 		},
 		"/feishu usage": async ({ msg, args, isAdmin, reply, trySendCard }) => {
 			if (args[0]?.toLowerCase() === "week") {

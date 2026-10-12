@@ -5,6 +5,7 @@
  * 可选能力插件从 FEATURES 派生；这里另外登记不属于插件、但同样默认关闭的实验开关。
  * 名字一旦出现在 status.json 里就是对外契约，不要随意改。
  */
+import { globalApprovalMode } from "../approval/mode.js";
 import { resolvePsForwardingConfig } from "../approval/ps-forwarding.js";
 import type { BridgeConfig } from "../types.js";
 import { FEATURES } from "./index.js";
@@ -19,8 +20,10 @@ export const FEATURE_SWITCHES: readonly FeatureSwitch[] = [
 	...FEATURES,
 	// 实验开关：不属于可选能力插件，但同样默认关闭，线上是否打开同样需要一眼看到
 	{ name: "streamingCard", enabled: (c) => c.streamingCard?.enabled === true },
-	// 与实际生效条件一致：策略没有交给 pi-permission-system 时，转发开关不生效
-	{ name: "psForwarding", enabled: (c) => resolvePsForwardingConfig(c.approval).enabled },
+	// 工具审批（全局模式不是 off；会话里的临时覆盖不算）
+	{ name: "approval", enabled: (c) => globalApprovalMode(c).mode !== "off" },
+	// 与实际生效条件一致：全局审批模式不是 plugin 时，转发开关不生效
+	{ name: "psForwarding", enabled: (c) => resolvePsForwardingConfig(c.approval.forwarding, globalApprovalMode(c).mode).enabled },
 ];
 
 /** 当前打开的能力名（按登记顺序）；默认配置下为空数组。 */

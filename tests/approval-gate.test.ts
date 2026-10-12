@@ -13,7 +13,7 @@ type GateOutcome = { decision: "allow" | "deny" | "ask"; verdict?: "approved" | 
 
 function setup(opts: { approval?: Partial<BridgeConfig["approval"]>; admins?: string[]; outcome?: GateOutcome; psInstalled?: boolean; noBridge?: boolean } = {}) {
 	const rt = new BridgeRuntime();
-	rt.config = { ...DEFAULT_CONFIG, admins: opts.admins ?? ["ou_admin"], approval: { ...DEFAULT_CONFIG.approval, ...opts.approval } };
+	rt.config = { ...DEFAULT_CONFIG, admins: opts.admins ?? ["ou_admin"], approval: { ...DEFAULT_CONFIG.approval, mode: "builtin", ...opts.approval } };
 	const gated: BridgeGateInput[] = [];
 	const outcome = opts.outcome ?? { decision: "ask", verdict: "approved" };
 	if (!opts.noBridge) {
@@ -28,7 +28,7 @@ function setup(opts: { approval?: Partial<BridgeConfig["approval"]>; admins?: st
 	const push = (m: string) => { logs.push(m); };
 	const log = { debug: push, info: push, warn: push, error: push };
 	const gate = createToolGate({ rt, log, psInstalled: () => opts.psInstalled ?? false });
-	return { gate, gated, logs };
+	return { gate, gated, logs, rt };
 }
 
 const input = (over: Partial<BridgeGateInput> = {}): BridgeGateInput => ({
@@ -59,14 +59,45 @@ test("审批检查：管理员免审只看显式传入的 senderId", async () =>
 	assert.deepEqual(await off.gate(input({ senderId: "ou_admin" })), { block: true, reason: "工具调用被策略拒绝" }, "开关关闭时管理员也要审批");
 });
 
-test("审批检查：策略交给 PS 时，PS 已安装则放行，未安装则退回桥的审批并报错", async () => {
-	const installed = setup({ approval: { policyEngine: "pi-permission-system" }, psInstalled: true, outcome: { decision: "deny" } });
+test("审批检查：模式为 off 时一律放行，不进审批卡，危险命令也不拦", async () => {
+	const off = setup({ approval: { mode: "off" }, outcome: { decision: "deny" } });
+	assert.equal(await off.gate(input()), undefined);
+	assert.equal(await off.gate(input({ toolName: "bash", command: "rm -rf /" })), undefined);
+	assert.equal(off.gated.length, 0);
+	const unset = setup({ approval: { mode: undefined }, outcome: { decision: "deny" } });
+	assert.equal(await unset.gate(input()), undefined, "没配置 = off");
+});
+
+test("审批检查：会话覆盖优先于全局模式，只影响该会话", async () => {
+	const s = setup({ approval: { mode: "off" }, outcome: { decision: "deny" } });
+	s.rt.approvalModeOverrides.set("oc_dm", "builtin");
+	assert.deepEqual(await s.gate(input()), { block: true, reason: "工具调用被策略拒绝" });
+	assert.equal(await s.gate(input({ conversationKey: "oc_other" })), undefined, "其他会话仍按全局 off");
+
+	const g = setup({ approval: { mode: "builtin" }, outcome: { decision: "deny" } });
+	g.rt.approvalModeOverrides.set("oc_dm", "off");
+	assert.equal(await g.gate(input()), undefined);
+	assert.deepEqual(await g.gate(input({ conversationKey: "oc_other" })), { block: true, reason: "工具调用被策略拒绝" });
+});
+
+test("审批检查：环境变量 FEISHU_CHANNEL_APPROVAL_MODE 优先于配置文件", async () => {
+	process.env.FEISHU_CHANNEL_APPROVAL_MODE = "off";
+	try {
+		const s = setup({ approval: { mode: "builtin" }, outcome: { decision: "deny" } });
+		assert.equal(await s.gate(input()), undefined);
+	} finally {
+		delete process.env.FEISHU_CHANNEL_APPROVAL_MODE;
+	}
+});
+
+test("审批检查：模式为 plugin 时，PS 已安装则放行，未安装则退回内置审批并报错", async () => {
+	const installed = setup({ approval: { mode: "plugin" }, psInstalled: true, outcome: { decision: "deny" } });
 	assert.equal(await installed.gate(input()), undefined);
 	assert.equal(installed.gated.length, 0);
 
-	const missing = setup({ approval: { policyEngine: "pi-permission-system" }, psInstalled: false, outcome: { decision: "deny" } });
+	const missing = setup({ approval: { mode: "plugin" }, psInstalled: false, outcome: { decision: "deny" } });
 	assert.deepEqual(await missing.gate(input()), { block: true, reason: "工具调用被策略拒绝" });
-	assert.ok(missing.logs.includes("feishu.approval.policy_engine_unavailable"));
+	assert.ok(missing.logs.includes("feishu.approval.plugin_unavailable"));
 });
 
 test("审批检查：bash 命令分级——只读放行、危险拒绝、其余带理由进入审批", async () => {

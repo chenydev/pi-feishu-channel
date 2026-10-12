@@ -4,16 +4,18 @@
  *
  * 判定顺序：
  * 1. 桥未启动（没有 PermissionBridge）→ 不拦截；
- * 2. 管理员免审（`approval.adminSkipApproval`）；
- * 3. 策略交给 PS（`approval.policyEngine=pi-permission-system`）且 PS 已安装 → 放行；PS 缺席则继续用桥的策略；
- * 4. bash 命令分级：只读免审、危险直接拒绝、其余带理由弹卡；
- * 5. PermissionBridge 的自动放行规则 / 审批卡。
+ * 2. 审批模式（mode.ts，会话覆盖优先）为 `off` → 不拦截；
+ * 3. 管理员免审（`approval.adminSkipApproval`）；
+ * 4. 模式为 `plugin` 且 PS 已安装 → 放行（由 PS 判定）；PS 缺席则按 `builtin` 继续；
+ * 5. bash 命令分级：只读免审、危险直接拒绝、其余带理由弹卡；
+ * 6. PermissionBridge 的自动放行规则 / 审批卡。
  */
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
 import type { BridgeLogger } from "../runtime/logger.js";
 import { effectiveAdmins } from "../inbound/admit.js";
 import type { BridgeGateInput } from "../session/pi-bridge-hooks.js";
 import { classifyCommand } from "./command-policy.js";
+import { effectiveApprovalMode } from "./mode.js";
 import { piPermissionSystemInstalled } from "./pi-permission-system.js";
 
 export type ToolGateResult = { block?: boolean; reason?: string } | undefined;
@@ -28,6 +30,8 @@ export interface ToolGateDeps {
 export function createToolGate({ rt, log, psInstalled = piPermissionSystemInstalled }: ToolGateDeps): (input: BridgeGateInput) => Promise<ToolGateResult> {
 	return async (input) => {
 		if (!rt.permissionBridge) return undefined;
+		const { mode } = effectiveApprovalMode(rt.config, rt.approvalModeOverrides, input.conversationKey);
+		if (mode === "off") return undefined;
 		// 管理员/归属人免审批（approval.adminSkipApproval=true 时生效）。
 		// 必须用显式传入的 senderId：conversationKey 只在「群聊+按人隔离」形态下带用户 ID，
 		// 话题（`oc:t:th`）与私聊（裸 `oc`）都取不到。
@@ -45,10 +49,10 @@ export function createToolGate({ rt, log, psInstalled = piPermissionSystemInstal
 		// PS 的 ask **不经过这里** —— 走 approval.forwarding（PS 的父会话转发）：桥当应答方，
 		// 把请求文件变成审批卡（见 ps-forwarding.ts）。所以这里继续直接放行，不能改成落到桥的弹卡逻辑：
 		// PS 放行后本函数会被再调用一次，那时再弹一张卡就是对同一次调用弹两次卡（两次判定还可能不一致）。
-		if (rt.config.approval?.policyEngine === "pi-permission-system") {
+		if (mode === "plugin") {
 			if (psInstalled()) return undefined;
-			// 默认拒绝：扩展没装成 → 桥的审批是唯一防线，绝不能同时关掉
-			log.error("feishu.approval.policy_engine_unavailable", { expected: "@gotgenes/pi-permission-system", fallback: "bridge" });
+			// 默认拒绝：插件没装成 → 内置审批是唯一防线，绝不能同时关掉
+			log.error("feishu.approval.plugin_unavailable", { expected: "@gotgenes/pi-permission-system", fallback: "builtin" });
 		}
 
 		// 命令级策略：只读命令免审、危险命令直接拒绝，其余才弹卡。
