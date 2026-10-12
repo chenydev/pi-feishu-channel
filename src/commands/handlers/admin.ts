@@ -196,7 +196,7 @@ async function sendDiagnosticsToAdmin(svc: CommandServices, openId: string, bund
 }
 
 /**
- * `/feishu approvals [off|builtin|plugin|reset] [-g]`：不带参数查看当前会话生效的审批策略（任何人）；
+ * `/feishu approvals [off|builtin|pi-permission-system|reset] [-g]`：不带参数查看当前会话生效的审批策略（任何人）；
  * 带模式只改本会话（内存，重启失效）；`-g` 写进 config.json 并清掉本会话的临时设置；`reset` 回到全局设置。
  */
 function approvalsCommand(svc: CommandServices, msg: FeishuInboundMessage, rest: string, isAdmin: boolean): string {
@@ -213,7 +213,7 @@ function approvalsCommand(svc: CommandServices, msg: FeishuInboundMessage, rest:
 			pendingApprovals: rt.permissionBridge?.pendingCount() ?? 0,
 		});
 	}
-	const usage = "用法：/feishu approvals [off|builtin|plugin] [-g]；/feishu approvals reset";
+	const usage = "用法：/feishu approvals [off|builtin|pi-permission-system] [-g]；/feishu approvals reset";
 	if (!isAdmin) return "仅管理员或应用归属人可切换审批模式";
 	if (value.toLowerCase() === "reset" && !wantsGlobal) {
 		const had = rt.approvalModeOverrides.delete(key);
@@ -225,13 +225,13 @@ function approvalsCommand(svc: CommandServices, msg: FeishuInboundMessage, rest:
 	if (!mode) return usage;
 	const notes: string[] = [];
 	if (mode !== "off" && !rt.permissionBridge) notes.push("⚠️ 桥未启动，审批暂不生效");
-	if (mode === "plugin" && !piPermissionSystemInstalled()) notes.push("⚠️ pi-permission-system 未安装，实际按内置审批执行");
+	if (mode === "pi-permission-system" && !piPermissionSystemInstalled()) notes.push("⚠️ pi-permission-system 未安装，实际按内置审批执行");
 	if (mode === "off" && piPermissionSystemInstalled()) notes.push("⚠️ 已安装 pi-permission-system：它的规则仍会独立生效，本扩展关不掉");
 	if (!wantsGlobal) {
 		rt.approvalModeOverrides.set(key, mode);
 		log.info("feishu.approval.mode_changed", { scope: "session", mode, conversationKey: key, operator: msg.senderId });
 		// 转发是进程级的，只跟全局模式走
-		if (mode === "plugin" && globalApprovalMode(rt.config).mode !== "plugin") notes.push("父会话转发只跟全局模式走：插件的「询问」在本会话没人应答，会被拒绝");
+		if (mode === "pi-permission-system" && globalApprovalMode(rt.config).mode !== "pi-permission-system") notes.push("父会话转发只跟全局模式走：插件的「询问」在本会话没人应答，会被拒绝");
 		return [`本会话审批模式：${APPROVAL_MODE_LABEL[mode]}（临时，重启后失效；加 -g 写入配置）`, ...notes].join("\n");
 	}
 	const previous = rt.config.approval.mode;
@@ -244,6 +244,6 @@ function approvalsCommand(svc: CommandServices, msg: FeishuInboundMessage, rest:
 	log.info("feishu.approval.mode_changed", { scope: "global", mode, operator: msg.senderId });
 	const effective = globalApprovalMode(rt.config);
 	if (effective.source === "env") notes.push(`⚠️ 环境变量 FEISHU_CHANNEL_APPROVAL_MODE 优先，当前实际仍是：${APPROVAL_MODE_LABEL[effective.mode]}`);
-	if (mode === "plugin" || previous === "plugin") notes.push("父会话转发的开关重启后才跟着变");
+	if (mode === "pi-permission-system" || previous === "pi-permission-system") notes.push("父会话转发的开关重启后才跟着变");
 	return [`已写入配置：审批模式 ${APPROVAL_MODE_LABEL[mode]}（全局，立即生效；其他会话的临时设置不受影响）`, ...notes].join("\n");
 }

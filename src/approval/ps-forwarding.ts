@@ -1,7 +1,7 @@
 /**
  * pi-permission-system「父会话转发」的桥侧应答方。
  *
- * 背景：桥把策略让给了 @gotgenes/pi-permission-system（approval.mode = plugin），
+ * 背景：桥把策略让给了 @gotgenes/pi-permission-system（approval.mode = pi-permission-system），
  * 该扩展在子会话里先于桥的拦截执行 —— 它判 deny 时桥收不到调用，判 **ask** 时会做
  * 「父会话转发」：把请求写进文件信箱，等父会话应答。应答方**不必是 pi 进程**，
  * PS 只按心跳文件判断「这个 id 有没有人在收」，不看对方是什么。
@@ -316,7 +316,7 @@ function validCwd(value: string | undefined): string | undefined {
  * 配置 → 转发是否真的生效（纯函数，便于单测）：
  *
  * 开关打开还不够 —— 转发存在的唯一目的是把 PS 的 `ask` 送到飞书卡片上。
- * 全局审批模式不是 `plugin` 时转发不生效：`builtin` 下 PS 的 ask 和内置命令分级会各自弹一张卡
+ * 全局审批模式不是 `pi-permission-system` 时转发不生效：`builtin` 下 PS 的 ask 和内置命令分级会各自弹一张卡
  * （同一次调用两张），`off` 下本来就不该审批。不生效的原因在启动日志里说清。
  * 转发是进程级的（见 PS_FORWARDING_PARENT_ENV_KEYS），所以只看全局模式，不看会话覆盖。
  */
@@ -325,7 +325,7 @@ export function resolvePsForwardingConfig(
 	globalMode: ApprovalMode,
 ): { enabled: boolean; parentSessionId: string; blockedBy?: "mode" } {
 	const enabled = Boolean(forwarding?.enabled);
-	const blockedBy = enabled && globalMode !== "plugin" ? "mode" as const : undefined;
+	const blockedBy = enabled && globalMode !== "pi-permission-system" ? "mode" as const : undefined;
 	return {
 		enabled: enabled && !blockedBy,
 		parentSessionId: forwarding?.parentSessionId?.trim() || DEFAULT_PS_FORWARDING_PARENT_ID,

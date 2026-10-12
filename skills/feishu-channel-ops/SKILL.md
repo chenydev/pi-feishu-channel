@@ -48,7 +48,7 @@ open_id 是**按应用生成**的：换了飞书应用，`admins`、`allowUsers`
 
 `approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest`、`approval.forwarding` 都需要显式开启。
 
-工具审批：`approval.mode` 取 `off`（默认，直接放行）/ `builtin`（内置分级 + 审批卡）/ `plugin`（pi-permission-system）。
+工具审批：`approval.mode` 取 `off`（默认，直接放行）/ `builtin`（内置分级 + 审批卡）/ `pi-permission-system`（pi-permission-system）。
 管理员在飞书里 `/feishu approvals <模式>` 只改当前会话（重启失效），加 `-g` 写入配置，`reset` 回到全局。
 `off` 关不掉 pi-permission-system：装了它，它的拒绝照样生效。详见 [approval.md](../../docs/approval.md) §0。
 当前开了哪些：启动日志 `feishu.bridge.features`、`status.json` 的 `features` 字段、`/feishu doctor`。
@@ -100,7 +100,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 审批已关闭，仍有调用被拒 | 装了 pi-permission-system，不受本扩展模式影响 | 卸插件或在它的配置里放行 |
 | 审批卡点不动 | 点的人不是管理员 | 加进 `admins`，或由归属人点 |
 | 点卡片提示「已失效」 | 超时（默认 5 分钟）或这一轮已结束 | 尽快点；或调大 `approval.timeoutMs` |
-| PS 的「询问」全被拒绝 | 没开转发 | `approval.mode: "plugin"` 与 `approval.forwarding.enabled: true` **一起开** |
+| PS 的「询问」全被拒绝 | 没开转发 | `approval.mode: "pi-permission-system"` 与 `approval.forwarding.enabled: true` **一起开** |
 | 回复半截 / 「回复发送失败」 | 编辑次数用尽、无发言权限、接口报错 | `feishu.outbox.failed` 的 `lastError` |
 | 页脚费用「未知」 | 模型配置没有费率 | 在 pi 模型配置里补 `cost` |
 | 日志 `feishu.config.deprecated_env` | 用了旧环境变量 `FEISHU_BRIDGE_*` | 改成日志里的 `replacement` |

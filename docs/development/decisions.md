@@ -46,12 +46,13 @@
 - **状态**：已定
 - **背景**：工具审批原先默认开启（`approval.policyEngine: "bridge"`），没有总开关。只想把通道当聊天入口用的部署，要么一个个工具点「始终批准」，要么把几十个工具名抄进 `approval.autoApprove`，新装的工具第一次调用仍会弹卡。
 - **决定**：
-  - 字段改为 `approval.mode`，取 `off` / `builtin` / `plugin`，**不配置 = `off`**，和其它可选能力一样默认关闭；
+  - 字段改为 `approval.mode`，取 `off` / `builtin` / `pi-permission-system`，**不配置 = `off`**，和其它可选能力一样默认关闭；
   - 管理员可以在会话里临时切换（`/feishu approvals <模式>`，只在内存里），`-g` 写回配置文件；
   - 环境变量 `FEISHU_CHANNEL_APPROVAL_MODE` 在判定时读取，不并进配置，`-g` 回写时不会把它冻结进文件；
-  - 不兼容旧字段 `policyEngine` 和旧值 `bridge` / `pi-permission-system`：当时只有一个部署，直接迁移比维护别名划算。
+  - 插件模式的取值直接写插件名 `pi-permission-system`，不用泛称 `plugin`：配置里一眼能看出交给了谁；命令里仍接受中文「插件」；
+  - 不兼容旧字段 `policyEngine` 和旧值 `bridge`：当时只有一个部署，直接迁移比维护别名划算。
 - **否决**：
-  - 保留默认开启、只加一个 `approval.enabled: false`：模式和开关两个字段会出现「关了但模式是 plugin」这种无意义组合。
+  - 保留默认开启、只加一个 `approval.enabled: false`：模式和开关两个字段会出现「关了但模式是 pi-permission-system」这种无意义组合。
   - 从已有配置推断模式（有 `approval` 段就当作想要审批）：规则不直观，删掉一个字段就可能悄悄关掉审批。
   - 会话覆盖落盘：临时设置活过重启，容易忘了它还开着；需要长期生效就用 `-g`。
 - **影响**：升级后没有显式配置的部署不再审批；`off` 管不到 pi-permission-system，装了它，它的拒绝照样生效。

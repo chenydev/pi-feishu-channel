@@ -27,7 +27,7 @@ function setup(approval: Partial<BridgeConfig["approval"]>, psInstalled = true) 
 	return { rt, sync, logs, cleanup };
 }
 
-const PS = { mode: "plugin" as const, forwarding: { enabled: true, parentSessionId: "parent-x" } };
+const PS = { mode: "pi-permission-system" as const, forwarding: { enabled: true, parentSessionId: "parent-x" } };
 
 test("PS 转发：开启时声明父会话环境变量，关闭时只撤回自己声明的值", async () => {
 	const { rt, sync, logs, cleanup } = setup(PS);
@@ -41,7 +41,7 @@ test("PS 转发：开启时声明父会话环境变量，关闭时只撤回自�
 	} finally { cleanup(); }
 });
 
-test("PS 转发：全局审批模式不是 plugin 时不生效并告警；PS 未安装时报错且不声明", () => {
+test("PS 转发：全局审批模式不是 pi-permission-system 时不生效并告警；PS 未安装时报错且不声明", () => {
 	const blocked = setup({ forwarding: { enabled: true } });
 	try {
 		blocked.sync.syncEnv();

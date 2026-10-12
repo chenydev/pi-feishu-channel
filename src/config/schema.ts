@@ -88,7 +88,7 @@ export const fileConfigSchema = z.object({
 		autoApprove: m(strList, "不需要审批的工具名"),
 		timeoutMs: m(nonNegative, "审批卡的有效期（毫秒），超时视为拒绝"),
 		adminSkipApproval: m(bool, "管理员与应用归属人发起的工具调用不用审批"),
-		mode: m(choice(["off", "builtin", "plugin"], "审批模式"), "工具调用要不要审批：`off` 不审批，直接放行；`builtin` 内置审批（命令分级 + 免审工具 + 飞书审批卡）；`plugin` 交给 pi-permission-system 插件（插件没装上时退回 `builtin`）。管理员可用 `/feishu approvals <模式>` 只改当前会话，加 `-g` 写回这里。详见 [approval.md](approval.md)", { default: '"off"', env: "FEISHU_CHANNEL_APPROVAL_MODE" }),
+		mode: m(choice(["off", "builtin", "pi-permission-system"], "审批模式"), "工具调用要不要审批：`off` 不审批，直接放行；`builtin` 内置审批（命令分级 + 免审工具 + 飞书审批卡）；`pi-permission-system` 交给 pi-permission-system 插件（插件没装上时退回 `builtin`）。管理员可用 `/feishu approvals <模式>` 只改当前会话，加 `-g` 写回这里。详见 [approval.md](approval.md)", { default: '"off"', env: "FEISHU_CHANNEL_APPROVAL_MODE" }),
 		commandPolicy: m(z.object({
 			enabled: m(bool, "按 bash 命令分级：只读命令免审批，危险命令直接拒绝，其余弹审批卡"),
 			extraReadOnly: m(strList, "额外当作只读的命令名（按命令名匹配，如 `jq`）"),

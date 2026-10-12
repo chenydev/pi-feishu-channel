@@ -59,16 +59,16 @@ export class PsForwardingSync {
 		const { rt, log } = this.deps;
 		const { enabled, parentSessionId, blockedBy } = this.configured();
 		if (blockedBy) {
-			// 开关开了但全局模式不是 plugin：这里明确说明转发为什么没生效。
+			// 开关开了但全局模式不是 pi-permission-system：这里明确说明转发为什么没生效。
 			log.warn("feishu.approval.ps_forwarding_inactive", {
-				reason: "approval.forwarding 仅在全局审批模式为 plugin 时生效",
+				reason: "approval.forwarding 仅在全局审批模式为 pi-permission-system 时生效",
 				mode: globalApprovalMode(rt.config).mode,
 			});
 		}
 		const installed = this.psInstalled();
 		const active = enabled && installed;
 		if (enabled && !installed) {
-			// 与 plugin 模式同一套默认拒绝语义：没装成就不做父子声明。
+			// 与 pi-permission-system 模式同一套默认拒绝语义：没装成就不做父子声明。
 			log.error("feishu.approval.ps_forwarding_unavailable", { expected: "@gotgenes/pi-permission-system" });
 		}
 		const before = rt.psForwardingOwnEnvId;

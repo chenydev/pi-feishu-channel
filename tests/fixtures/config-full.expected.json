@@ -79,7 +79,7 @@
       "parentSessionId": "example-parent",
       "alwaysApprove": true
     },
-    "mode": "plugin"
+    "mode": "pi-permission-system"
   },
   "reaction": {
     "processingEmoji": "Typing",

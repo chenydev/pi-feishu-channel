@@ -29,7 +29,7 @@
     "autoApprove": ["read"],
     "timeoutMs": 300000,
     "adminSkipApproval": false,
-    "mode": "plugin",
+    "mode": "pi-permission-system",
     "commandPolicy": { "enabled": true, "extraReadOnly": ["kubectl get"], "extraDangerous": ["terraform destroy"] },
     "forwarding": { "enabled": true, "parentSessionId": "example-parent", "alwaysApprove": true }
   },

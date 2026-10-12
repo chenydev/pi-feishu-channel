@@ -3,7 +3,7 @@
  *
  * - `off`（默认）：不审批，工具调用直接放行；
  * - `builtin`：内置审批 —— bash 命令分级 + 免审工具 + 飞书审批卡；
- * - `plugin`：交给 pi-permission-system 插件判定（插件没装上时退回 `builtin`）。
+ * - `pi-permission-system`：交给 pi-permission-system 插件判定（插件没装上时退回 `builtin`）。
  *
  * 生效顺序：会话覆盖（`/feishu approvals <模式>`，只在内存里）> 环境变量 `FEISHU_CHANNEL_APPROVAL_MODE`
  * > 配置文件 `approval.mode` > 默认 `off`。环境变量在判定时读取而不是并进配置：
@@ -13,13 +13,13 @@ import { channelEnv } from "../runtime/identity.js";
 import type { ApprovalMode, BridgeConfig } from "../types.js";
 
 export type { ApprovalMode };
-export const APPROVAL_MODES: readonly ApprovalMode[] = ["off", "builtin", "plugin"];
+export const APPROVAL_MODES: readonly ApprovalMode[] = ["off", "builtin", "pi-permission-system"];
 export type ApprovalModeSource = "session" | "env" | "config" | "default";
 
 export const APPROVAL_MODE_LABEL: Record<ApprovalMode, string> = {
 	off: "关闭",
 	builtin: "内置",
-	plugin: "插件（pi-permission-system）",
+	"pi-permission-system": "插件（pi-permission-system）",
 };
 
 const SOURCE_LABEL: Record<ApprovalModeSource, string> = {
@@ -29,7 +29,7 @@ const SOURCE_LABEL: Record<ApprovalModeSource, string> = {
 	default: "默认",
 };
 
-const ALIASES: Record<string, ApprovalMode> = { 关闭: "off", 内置: "builtin", 插件: "plugin" };
+const ALIASES: Record<string, ApprovalMode> = { 关闭: "off", 内置: "builtin", 插件: "pi-permission-system" };
 
 /** 解析模式名（英文或中文），不认识的返回 undefined。 */
 export function parseApprovalMode(raw: string | undefined): ApprovalMode | undefined {

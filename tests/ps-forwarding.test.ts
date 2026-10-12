@@ -383,21 +383,21 @@ test("展示：规则只匹配命令的一部分时，卡片显示完整命令�
 	assert.ok(!secret.paramsText.includes("abc123"));
 });
 
-test("开关语义：打开转发还要全局审批模式为 plugin，否则不生效（否则同一次调用会弹两张卡）", () => {
+test("开关语义：打开转发还要全局审批模式为 pi-permission-system，否则不生效（否则同一次调用会弹两张卡）", () => {
 	assert.deepEqual(
-		resolvePsForwardingConfig(undefined, "plugin"),
+		resolvePsForwardingConfig(undefined, "pi-permission-system"),
 		{ enabled: false, parentSessionId: DEFAULT_PS_FORWARDING_PARENT_ID, blockedBy: undefined },
 		"没开开关 = 关",
 	);
 	assert.equal(resolvePsForwardingConfig({ enabled: true }, "builtin").blockedBy, "mode", "内置审批时不生效（自己已经会弹卡）");
 	assert.equal(resolvePsForwardingConfig({ enabled: true }, "off").blockedBy, "mode", "审批关闭时不生效");
 	assert.deepEqual(
-		resolvePsForwardingConfig({ enabled: true }, "plugin"),
+		resolvePsForwardingConfig({ enabled: true }, "pi-permission-system"),
 		{ enabled: true, parentSessionId: DEFAULT_PS_FORWARDING_PARENT_ID, blockedBy: undefined },
-		"plugin 模式 + 开关打开 = 生效",
+		"pi-permission-system 模式 + 开关打开 = 生效",
 	);
 	assert.equal(
-		resolvePsForwardingConfig({ enabled: true, parentSessionId: "  my-parent  " }, "plugin").parentSessionId,
+		resolvePsForwardingConfig({ enabled: true, parentSessionId: "  my-parent  " }, "pi-permission-system").parentSessionId,
 		"my-parent",
 		"父会话 id 要去掉空白",
 	);

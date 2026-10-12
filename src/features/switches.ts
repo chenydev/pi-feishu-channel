@@ -22,7 +22,7 @@ export const FEATURE_SWITCHES: readonly FeatureSwitch[] = [
 	{ name: "streamingCard", enabled: (c) => c.streamingCard?.enabled === true },
 	// 工具审批（全局模式不是 off；会话里的临时覆盖不算）
 	{ name: "approval", enabled: (c) => globalApprovalMode(c).mode !== "off" },
-	// 与实际生效条件一致：全局审批模式不是 plugin 时，转发开关不生效
+	// 与实际生效条件一致：全局审批模式不是 pi-permission-system 时，转发开关不生效
 	{ name: "psForwarding", enabled: (c) => resolvePsForwardingConfig(c.approval.forwarding, globalApprovalMode(c).mode).enabled },
 ];
 

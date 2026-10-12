@@ -90,12 +90,12 @@ test("审批检查：环境变量 FEISHU_CHANNEL_APPROVAL_MODE 优先于配置�
 	}
 });
 
-test("审批检查：模式为 plugin 时，PS 已安装则放行，未安装则退回内置审批并报错", async () => {
-	const installed = setup({ approval: { mode: "plugin" }, psInstalled: true, outcome: { decision: "deny" } });
+test("审批检查：模式为 pi-permission-system 时，PS 已安装则放行，未安装则退回内置审批并报错", async () => {
+	const installed = setup({ approval: { mode: "pi-permission-system" }, psInstalled: true, outcome: { decision: "deny" } });
 	assert.equal(await installed.gate(input()), undefined);
 	assert.equal(installed.gated.length, 0);
 
-	const missing = setup({ approval: { mode: "plugin" }, psInstalled: false, outcome: { decision: "deny" } });
+	const missing = setup({ approval: { mode: "pi-permission-system" }, psInstalled: false, outcome: { decision: "deny" } });
 	assert.deepEqual(await missing.gate(input()), { block: true, reason: "工具调用被策略拒绝" });
 	assert.ok(missing.logs.includes("feishu.approval.plugin_unavailable"));
 });

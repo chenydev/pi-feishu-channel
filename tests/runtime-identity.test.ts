@@ -93,7 +93,7 @@ test("环境变量：FEISHU_CHANNEL_* 优先，旧名 FEISHU_BRIDGE_* 仍识别�
 	assert.equal(channelEnv({ FEISHU_BRIDGE_HOME: "/old" }, "HOME"), "/old");
 	assert.equal(channelEnv({}, "HOME"), undefined);
 
-	const env = { FEISHU_BRIDGE_APPROVAL_MODE: "plugin", FEISHU_BRIDGE_HOME: "/old", FEISHU_APP_ID: "x" };
+	const env = { FEISHU_BRIDGE_APPROVAL_MODE: "pi-permission-system", FEISHU_BRIDGE_HOME: "/old", FEISHU_APP_ID: "x" };
 	assert.deepEqual(deprecatedEnvNames(env), [
 		{ name: "FEISHU_BRIDGE_APPROVAL_MODE", replacement: "FEISHU_CHANNEL_APPROVAL_MODE" },
 		{ name: "FEISHU_BRIDGE_HOME", replacement: "FEISHU_CHANNEL_HOME" },
@@ -105,7 +105,7 @@ test("环境变量：FEISHU_CHANNEL_* 优先，旧名 FEISHU_BRIDGE_* 仍识别�
 			["warn", "feishu.config.deprecated_env", "FEISHU_BRIDGE_APPROVAL_MODE"],
 			["warn", "feishu.config.deprecated_env", "FEISHU_BRIDGE_HOME"],
 		]);
-		assert.equal(globalApprovalMode(loadConfig(home, env), env).mode, "plugin", "旧名仍然生效");
+		assert.equal(globalApprovalMode(loadConfig(home, env), env).mode, "pi-permission-system", "旧名仍然生效");
 		assert.equal(globalApprovalMode(loadConfig(home, env), { ...env, FEISHU_CHANNEL_APPROVAL_MODE: "off" }).mode, "off", "新名优先");
 		assert.throws(() => loadConfig(home, { FEISHU_CHANNEL_APPROVAL_MODE: "bridge" }), /FEISHU_CHANNEL_APPROVAL_MODE「bridge」无效/, "取值不对时启动失败");
 	});

@@ -5,12 +5,12 @@
 ## 未发布
 
 - 审批：内置审批下 `feishu_ask`（向会话提选择题）不再弹审批卡 —— 它本身就在等人回答，不产生副作用。
-  `plugin` 模式下仍由 pi-permission-system 的规则决定。
+  `pi-permission-system` 模式下仍由 pi-permission-system 的规则决定。
 - **破坏性变更（审批）**：审批改为默认关闭。字段 `approval.policyEngine` 改为 `approval.mode`，取值
-  `off`（默认，工具调用直接放行）/ `builtin`（内置：命令分级 + 审批卡，即原 `bridge`）/ `plugin`（交给 pi-permission-system，即原 `pi-permission-system`）；
+  `off`（默认，工具调用直接放行）/ `builtin`（内置：命令分级 + 审批卡，即原 `bridge`）/ `pi-permission-system`（交给该插件判定，取值与原来相同）；
   环境变量 `FEISHU_CHANNEL_POLICY_ENGINE` 改为 `FEISHU_CHANNEL_APPROVAL_MODE`，取值不对时拒绝启动。旧字段、旧值不再识别。
   **要保留审批，在配置里写 `"approval": { "mode": "builtin" }`。**
-  - `/feishu approvals off|builtin|plugin`：管理员只改当前会话（内存，重启失效）；加 `-g` 写入配置并立即生效；`reset` 回到全局。
+  - `/feishu approvals off|builtin|pi-permission-system`：管理员只改当前会话（内存，重启失效）；加 `-g` 写入配置并立即生效；`reset` 回到全局。
   - 关闭模式下 `!<命令>`（`directBash`）也不再做命令分级。
   - 可观测：启动日志 `feishu.approval.mode`、切换日志 `feishu.approval.mode_changed`；`/feishu doctor` 新增 `approval_mode`；
     `/feishu status` 显示审批模式；全局模式不是 `off` 时 `features` 里列出 `approval`。

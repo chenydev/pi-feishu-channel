@@ -102,13 +102,13 @@ src/
 
 ## 6. 审批
 
-审批模式（`approval/mode.ts`）决定本扩展审不审、怎么审：`off`（默认，直接放行）、`builtin`（内置）、`plugin`（交给 pi-permission-system）。
+审批模式（`approval/mode.ts`）决定本扩展审不审、怎么审：`off`（默认，直接放行）、`builtin`（内置）、`pi-permission-system`（交给 pi-permission-system）。
 生效顺序：会话覆盖（`/feishu approvals <模式>`，只在内存里）> 环境变量 `FEISHU_CHANNEL_APPROVAL_MODE` > 配置文件 `approval.mode` > 默认 `off`。
 
 工具调用依次经过：
 
-1. **pi-permission-system**（只要安装了就会执行，不受本扩展的模式影响）：它的 `tool_call` 拦截先于本扩展执行。它判定 deny 时直接拦截；判定 ask 时，在全局模式为 `plugin` 并开启**父会话转发**时变成飞书审批卡。
-2. **审批模式**：`off` 直接放行；`plugin` 且插件已安装时放行（已由插件判定），插件没装时按 `builtin` 继续。
+1. **pi-permission-system**（只要安装了就会执行，不受本扩展的模式影响）：它的 `tool_call` 拦截先于本扩展执行。它判定 deny 时直接拦截；判定 ask 时，在全局模式为 `pi-permission-system` 并开启**父会话转发**时变成飞书审批卡。
+2. **审批模式**：`off` 直接放行；`pi-permission-system` 且插件已安装时放行（已由插件判定），插件没装时按 `builtin` 继续。
 3. **命令分级**（`builtin`）：只读命令免审，危险命令直接拒绝，其余需要审批。
 4. **审批卡**：发给会话，只有管理员（显式配置的管理员 + 应用归属人 / 协作者）能点。选项有「批准一次 / 本会话批准 / 始终批准 / 拒绝」；超时按拒绝处理。
 

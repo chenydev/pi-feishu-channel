@@ -86,13 +86,13 @@ test("审批策略摘要：关闭 / 内置 / 插件三种模式", () => {
 	});
 	assert.match(bashFree, /bash：免审（在免审工具里）/, "bash 在免审名单里时不能说「每条都弹卡」");
 	const ps = summarizeApprovalPolicy({
-		config: DEFAULT_CONFIG, mode: { mode: "plugin", source: "config" },
+		config: DEFAULT_CONFIG, mode: { mode: "pi-permission-system", source: "config" },
 		psInstalled: true, pendingApprovals: 0, alwaysRules: [{ pattern: "git push*" }],
 		ps: { permission: { "*": "allow", bash: { "*": "allow", "rm -rf *": "deny", "echo PS-TEST-*": "ask" }, read: "allow" } },
 	});
 	assert.match(ps, /bash：默认放行；需审批 1 条：echo PS-TEST-\*；禁止 1 条：rm -rf \*/);
 	assert.match(ps, /「始终批准」规则：git push\*/);
-	const missing = summarizeApprovalPolicy({ config: DEFAULT_CONFIG, mode: { mode: "plugin", source: "env" }, psInstalled: false, pendingApprovals: 0 });
+	const missing = summarizeApprovalPolicy({ config: DEFAULT_CONFIG, mode: { mode: "pi-permission-system", source: "env" }, psInstalled: false, pendingApprovals: 0 });
 	assert.match(missing, /未安装 —— 已退回内置审批/);
 });
 

@@ -2,7 +2,7 @@
  * 管理员直接执行命令（`directBash.enabled`，默认关）：在聊天里发 `!<命令>`，不经过模型直接执行。
  *
  * 直接执行不经过工具调用的审批检查，所以这里自己把关：仅管理员；审批模式不是 `off` 时，桥的命令分级与
- * pi-permission-system 的 bash 规则（`plugin` 模式）任一判拒绝就拒绝；需要审批的命令默认也拒绝（请让 agent 执行，走审批卡）；
+ * pi-permission-system 的 bash 规则（`pi-permission-system` 模式）任一判拒绝就拒绝；需要审批的命令默认也拒绝（请让 agent 执行，走审批卡）；
  * 每次执行都写审计日志 `feishu.direct_bash.audit`。关闭时 `!<命令>` 当普通消息交给模型。
  */
 import { classifyCommand } from "../approval/command-policy.js";
@@ -52,7 +52,7 @@ async function handleDirectBash(ctx: FeatureContext, msg: FeishuInboundMessage, 
 		return;
 	}
 	const bridgeVerdict = classifyCommand(command, rt.config.approval.commandPolicy);
-	const psVerdict = mode === "plugin" ? psBashVerdict(loadPsConfig(psConfigFile()), command) : undefined;
+	const psVerdict = mode === "pi-permission-system" ? psBashVerdict(loadPsConfig(psConfigFile()), command) : undefined;
 	if (bridgeVerdict.verdict === "deny" || psVerdict?.verdict === "deny") {
 		audit("denied", { reason: bridgeVerdict.verdict === "deny" ? bridgeVerdict.reason : `PS 规则 ${psVerdict?.rule}` });
 		reply(`已拒绝：${bridgeVerdict.verdict === "deny" ? bridgeVerdict.reason : `命中禁止规则「${psVerdict?.rule}」`}`);

@@ -26,7 +26,7 @@ const TURN_ON: Record<string, (c: BridgeConfig) => void> = {
 	streamingCard: (c) => { c.streamingCard = { enabled: true, throttleMs: 1000 }; },
 	approval: (c) => { c.approval = { ...c.approval, mode: "builtin" }; },
 	psForwarding: (c) => {
-		c.approval = { ...c.approval, mode: "plugin", forwarding: { enabled: true } };
+		c.approval = { ...c.approval, mode: "pi-permission-system", forwarding: { enabled: true } };
 	},
 };
 
@@ -43,7 +43,7 @@ test("能力清单：每个开关单独打开时，清单里只多出它自己",
 	for (const [name, turnOn] of Object.entries(TURN_ON)) {
 		const config = base();
 		turnOn(config);
-		// 转发只在 plugin 模式下生效，plugin 模式本身就打开了审批
+		// 转发只在 pi-permission-system 模式下生效，pi-permission-system 模式本身就打开了审批
 		const expected = name === "psForwarding" ? ["approval", name] : [name];
 		assert.deepEqual(enabledFeatures(config), expected, `只打开 ${name}`);
 	}
@@ -54,9 +54,9 @@ test("能力清单：判定与实际生效条件一致", () => {
 	sttWithoutEndpoint.stt = { provider: "openai" };
 	assert.deepEqual(enabledFeatures(sttWithoutEndpoint), [], "没有 endpoint 时转写器不会创建");
 
-	const forwardingWithoutPlugin = base();
-	forwardingWithoutPlugin.approval = { ...forwardingWithoutPlugin.approval, forwarding: { enabled: true } };
-	assert.deepEqual(enabledFeatures(forwardingWithoutPlugin), [], "审批模式不是 plugin 时转发开关不生效");
+	const forwardingWithoutPs = base();
+	forwardingWithoutPs.approval = { ...forwardingWithoutPs.approval, forwarding: { enabled: true } };
+	assert.deepEqual(enabledFeatures(forwardingWithoutPs), [], "审批模式不是 pi-permission-system 时转发开关不生效");
 
 	const retentionZero = base();
 	retentionZero.retention = { sessionDays: 0 };

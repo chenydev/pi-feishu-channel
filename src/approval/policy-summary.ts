@@ -68,7 +68,7 @@ export function summarizeApprovalPolicy(input: {
 		lines.push("· 工具调用全部直接放行，不弹审批卡，危险命令也不拦截");
 		// 插件的拦截先于本扩展执行，本扩展关不掉它
 		if (input.psInstalled) lines.push("· ⚠️ 已安装 pi-permission-system：它的规则仍会独立生效，被它拒绝的调用照样被拒绝");
-	} else if (mode === "plugin" && input.psInstalled) {
+	} else if (mode === "pi-permission-system" && input.psInstalled) {
 		lines.push("· 规则由管理员在 pi-permission-system 的配置文件里维护");
 		const ps = input.ps;
 		if (!ps?.permission) {
@@ -93,7 +93,7 @@ export function summarizeApprovalPolicy(input: {
 			if (typeof defaultRule === "string") lines.push(`· 其他工具：${label(defaultRule)}`);
 		}
 	} else {
-		if (mode === "plugin") lines.push("· ⚠️ pi-permission-system 未安装 —— 已退回内置审批");
+		if (mode === "pi-permission-system") lines.push("· ⚠️ pi-permission-system 未安装 —— 已退回内置审批");
 		const policy = config.approval.commandPolicy;
 		if (config.approval.autoApprove.includes("bash")) lines.push("· bash：免审（在免审工具里）");
 		else if (policy?.enabled === false) lines.push("· bash：每条命令都弹审批卡（命令分级已关闭）");
@@ -113,7 +113,7 @@ export function summarizeApprovalPolicy(input: {
 		lines.push(`· 审批卡超时：${Math.round(config.approval.timeoutMs / 60_000)} 分钟（超时按拒绝处理）`);
 	}
 	lines.push(`· 当前待审批：${input.pendingApprovals} 条`);
-	lines.push("", "切换（管理员）：/feishu approvals off|builtin|plugin 只改本会话；加 -g 写入配置；/feishu approvals reset 恢复全局设置");
+	lines.push("", "切换（管理员）：/feishu approvals off|builtin|pi-permission-system 只改本会话；加 -g 写入配置；/feishu approvals reset 恢复全局设置");
 	return lines.join("\n");
 }
 

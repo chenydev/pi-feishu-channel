@@ -49,7 +49,7 @@ export interface BatchConfig {
 }
 
 /** 审批模式：关闭 / 内置 / 插件（pi-permission-system）。 */
-export type ApprovalMode = "off" | "builtin" | "plugin";
+export type ApprovalMode = "off" | "builtin" | "pi-permission-system";
 
 export interface BridgeConfig {
 	appId: string;
@@ -152,7 +152,7 @@ export interface BridgeConfig {
 		 * 审批模式（未设 = `off`，见 approval/mode.ts）：
 		 * - "off"：不审批，工具调用直接放行
 		 * - "builtin"：内置审批（command-policy + 免审工具 + 飞书审批卡）
-		 * - "plugin"：交给 @gotgenes/pi-permission-system
+		 * - "pi-permission-system"：交给 @gotgenes/pi-permission-system
 		 *   （它在 pi 的子会话里先于桥的拦截执行，deny 时桥根本收不到调用），桥不再弹审批卡。
 		 *   **默认拒绝**：若该插件实际上没装成，退回 `builtin` 而非静默放行。
 		 *
