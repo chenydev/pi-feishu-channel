@@ -28,6 +28,9 @@
   - 端到端脚本 `scripts/e2e/ps-forwarding.ts` 换成 `scripts/e2e/ps-authorizer.ts`。
 - `/help <命令>` 看单个命令的详细用法（命令名可以不带 `/`、用别名或两段式，如 `/help workspace`、`/help feishu approvals`）。
   先给 `/workspace` 写了逐条说明：查看、切换、`add` / `rm` / `default` 各自的权限和注意事项；帮助卡底部提示这个用法。
+- 新增 `/reload`：当前会话重新加载扩展、技能、提示模板和上下文文件，对话历史不变；
+  装完新技能后不用再 `/new`。有任务在跑或排队时拒绝；回执列出数量、新增 / 移除的技能和加载失败的条目，
+  重载后重新套用按群工具档位（日志 `feishu.conv.reloaded`、`feishu.conv.reload_failed`）。
 - 澄清选择卡（`feishu_ask`）：选项超过 14 个字时不再截断成按钮文字，改为正文列出带编号的完整选项、按钮只放「选 1」「选 2」…并排一行；
   选项都短时仍是每项一个整行按钮。工具参数说明提示模型把选项写短、细节放进问题。
 - 修复（审批）：PS 转来的审批卡上点「始终批准」，会把工具名（如 `bash`）写进 `approval.autoApprove`，点「本会话批准」会记成

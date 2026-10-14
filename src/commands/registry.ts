@@ -45,6 +45,16 @@ export const COMMANDS: readonly CommandSpec[] = [
 	{ name: "/fork", usage: "/fork [#N]", description: "从第 N 条用户消息处分叉出新会话", group: "会话" },
 	{ name: "/export", usage: "/export [html|md|summary]", description: "把当前会话导出成文件发到这里", group: "会话" },
 	{
+		name: "/reload", usage: "/reload", description: "重新加载扩展、技能、提示模板（装完新技能后用；对话历史不变）", group: "会话", button: true,
+		details: [
+			"只作用于当前会话；其他会话在下一次新建（/new、切工作区、被回收后再发消息）时才会用上新内容",
+			"扩展、技能、提示模板、AGENTS.md 等上下文文件一起重新读（pi 只能整体重载）",
+			"有任务在跑或在排队时不能重载，先 /stop 或等它结束",
+			"回执里列出新增 / 移除的技能和加载失败的条目",
+			"扩展会收到一次关闭再启动：pi-permission-system 的「本会话批准」会清空",
+		],
+	},
+	{
 		name: "/workspace", usage: "/workspace [别名] | add <别名> <绝对路径> | rm <别名> | default <别名>|reset", description: "查看（任何人）/切换、增删、设默认（管理员）受控工作区", group: "会话",
 		details: [
 			"/workspace：查看当前工作区和登记过的别名（任何人）",

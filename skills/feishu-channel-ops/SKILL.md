@@ -110,6 +110,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 页脚费用「未知」 | 模型配置没有费率 | 在 pi 模型配置里补 `cost` |
 | 日志 `feishu.config.deprecated_env` | 用了旧环境变量 `FEISHU_BRIDGE_*` | 改成日志里的 `replacement` |
 | 日志 `feishu.config.migrate_failed` | 旧目录 `feishu-bridge/` 改名失败 | 按日志 `from` / `to` 手动 `mv` 后重启 |
+| 装了新技能 / 扩展，会话里用不上 | 已建立的会话不自动重载 | 在该会话发 `/reload`（或 `/new`）；看回执的新增技能和加载问题，日志 `feishu.conv.reloaded` |
 | 日志时间差 8 小时 | `docker logs --timestamps` 恒为 UTC | 换算时区 |
 
 ## 5. 改动后的验收

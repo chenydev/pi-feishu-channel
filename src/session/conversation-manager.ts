@@ -4,7 +4,7 @@
  */
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
-import { type BridgeConfig, type DeliveryTarget, EXTERNAL_CHAT_PREFIX, type FeishuInboundMessage, type SessionBackend } from "../types.js";
+import { type BridgeConfig, type DeliveryTarget, EXTERNAL_CHAT_PREFIX, type FeishuInboundMessage, type ReloadSummary, type SessionBackend } from "../types.js";
 import type { Sender } from "../outbound/sender.js";
 import type { Outbox } from "../outbound/outbox.js";
 import { buildConversationKey } from "./conversation-key.js";
@@ -1024,6 +1024,34 @@ export class ConversationManager {
 		return session.agent.compact(instructions);
 	}
 
+	/**
+	 * `/reload`：重新加载当前会话的扩展、技能、提示模板和上下文文件，对话历史不变。
+	 * pi 重建运行时会把扩展工具全部重新启用，所以之后要再套一遍按群工具档位。
+	 */
+	async reloadConversation(msg: FeishuInboundMessage): Promise<string> {
+		const key = buildConversationKey(msg, this.deps.config);
+		const session = this.sessions.get(key);
+		if (!session?.agent) return "当前会话还没有加载，下一条消息会直接用上最新的技能和扩展";
+		const busy = this.busyReason(key);
+		if (busy) return busy;
+		const agent = session.agent;
+		if (!agent.reload) return "当前 Pi 版本不支持重新加载";
+		let summary: ReloadSummary;
+		try {
+			summary = await agent.reload();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			this.deps.log?.("warn", "feishu.conv.reload_failed", { conversationKey: key, error: message });
+			return `重新加载失败：${message}`;
+		}
+		this.applyToolPolicy(session, agent);
+		this.deps.log?.("info", "feishu.conv.reloaded", {
+			conversationKey: key, extensions: summary.extensions, skills: summary.skills.length,
+			prompts: summary.prompts, problems: summary.problems.length,
+		});
+		return formatReloadSummary(summary);
+	}
+
 	/** 审批卡上的上下文（发起人 · 会话名 · 工作区）；拿不到的部分省略。 */
 	async approvalContextLine(conversationKey: string): Promise<string | undefined> {
 		const session = this.sessions.get(conversationKey);
@@ -1520,4 +1548,16 @@ async function boundedWait(task: Promise<unknown>, ms: number): Promise<void> {
 	});
 	try { await Promise.race([task.then(() => undefined, () => undefined), timeout]); }
 	finally { if (timer) clearTimeout(timer); }
+}
+
+/** `/reload` 的回执：数量、技能增减、加载问题（各最多列 10 条）。 */
+function formatReloadSummary(summary: ReloadSummary): string {
+	const list = (names: string[]) => names.length > 10 ? `${names.slice(0, 10).join("、")} 等 ${names.length} 个` : names.join("、");
+	const lines = [`已重新加载：扩展 ${summary.extensions} 个、技能 ${summary.skills.length} 个、提示模板 ${summary.prompts} 个；对话历史不变`];
+	if (summary.addedSkills.length) lines.push(`新增技能：${list(summary.addedSkills)}`);
+	if (summary.removedSkills.length) lines.push(`移除技能：${list(summary.removedSkills)}`);
+	if (summary.problems.length) {
+		lines.push(`有 ${summary.problems.length} 处加载问题：`, ...summary.problems.slice(0, 10).map((problem) => `· ${problem.slice(0, 200)}`));
+	}
+	return lines.join("\n");
 }

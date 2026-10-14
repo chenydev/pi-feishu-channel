@@ -1,5 +1,5 @@
 /**
- * 对话与会话类命令：新会话、停止、排队、插话、重试、撤销、分叉、导出、压缩、历史会话、工作区。
+ * 对话与会话类命令：新会话、停止、排队、插话、重试、撤销、分叉、导出、压缩、重载、历史会话、工作区。
  */
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -83,6 +83,9 @@ export function sessionCommands(svc: CommandServices): Record<string, CommandHan
 		},
 		"/compact": async ({ msg, rest, reply }) => {
 			reply(await svc.rt.convManager?.compactConversation(msg, rest || undefined) ?? "会话不可用");
+		},
+		"/reload": async ({ msg, reply }) => {
+			reply(await svc.rt.convManager?.reloadConversation(msg) ?? "会话不可用");
 		},
 		"/sessions": async ({ msg, args, reply, trySendCard, buttonCtx }) => {
 			const pageIndex = Math.max(1, Number.parseInt(args[0] ?? "1", 10) || 1) - 1;

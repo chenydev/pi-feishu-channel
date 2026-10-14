@@ -91,6 +91,18 @@ test("命令分发：别名解析到规范名并记录 feishu.command", async ()
 	} finally { cleanup(); }
 });
 
+test("命令分发：/reload 由桥处理，重载当前会话", async () => {
+	const calls: string[] = [];
+	const { send, replies, cleanup } = setup({
+		convManager: { reloadConversation: async (msg: FeishuInboundMessage) => { calls.push(msg.text); return "已重新加载"; } } as Partial<ConversationManager>,
+	});
+	try {
+		assert.equal(await send("/reload"), true, "由桥处理，不交给 pi");
+		assert.deepEqual(calls, ["/reload"]);
+		assert.deepEqual(replies, ["已重新加载"]);
+	} finally { cleanup(); }
+});
+
 test("命令分发：拦截器先于命令解析", async () => {
 	const { dispatcher, send, replies, cleanup } = setup();
 	try {

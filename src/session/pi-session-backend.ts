@@ -3,7 +3,7 @@
  * 只使用 pi SDK 官方导出的 API。
  */
 import { join } from "node:path";
-import type { PiImageContent, PiSessionStats, SessionBackend } from "../types.js";
+import type { PiImageContent, PiSessionStats, ReloadSummary, SessionBackend } from "../types.js";
 import { GATEWAY_EXTENSION_MARKERS, stripGatewayExtensions, type ExtensionDiscoveryResult, type InlineBridgeExtension } from "./pi-bridge-hooks.js";
 
 interface PiSdk {
@@ -70,6 +70,12 @@ interface PiAgentSession {
 	exportToHtml?(outputPath?: string): Promise<string>;
 	exportToJsonl?(outputPath?: string): string;
 	getLastAssistantText?(): string | undefined;
+	reload?(): Promise<void>;
+	resourceLoader?: {
+		getExtensions(): { extensions: unknown[]; errors: Array<{ path: string; error: string }> };
+		getSkills(): { skills: Array<{ name: string }>; diagnostics: PiResourceDiagnostic[] };
+		getPrompts(): { prompts: unknown[]; diagnostics: PiResourceDiagnostic[] };
+	};
 	summarizeForBugReport?(options: { hint?: string; signal: AbortSignal }): Promise<string>;
 	sessionManager?: {
 		createBranchedSession?(leafId: string): string | undefined;
@@ -77,6 +83,12 @@ interface PiAgentSession {
 		getLeafId?(): string | null;
 		getEntry?(id: string): { parentId?: string | null } | undefined;
 	};
+}
+
+interface PiResourceDiagnostic {
+	type: string;
+	message: string;
+	path?: string;
 }
 
 export interface PiBashResult {
@@ -309,6 +321,39 @@ export class PiSessionBackend implements SessionBackend {
 			lastAssistantText() {
 				try { return agentSession.getLastAssistantText?.(); } catch { return undefined; }
 			},
+			...(agentSession.reload ? { async reload() { return reloadSession(agentSession); } } : {}),
 		};
 	}
+}
+
+/** 重载会话的扩展、技能、提示模板和上下文文件，和重载前比出技能增减。 */
+export async function reloadSession(session: Pick<PiAgentSession, "reload" | "resourceLoader">): Promise<ReloadSummary> {
+	const before = new Set(summarizeResources(session.resourceLoader).skills);
+	await session.reload?.();
+	const after = summarizeResources(session.resourceLoader);
+	return {
+		...after,
+		addedSkills: after.skills.filter((name) => !before.has(name)),
+		removedSkills: [...before].filter((name) => !after.skills.includes(name)),
+	};
+}
+
+/** 重载后的资源清单；只报加载失败和冲突，warning 不算（pi 自己的 TUI 也只是提示）。 */
+function summarizeResources(loader: PiAgentSession["resourceLoader"]): Omit<ReloadSummary, "addedSkills" | "removedSkills"> {
+	if (!loader) return { extensions: 0, skills: [], prompts: 0, problems: [] };
+	const extensions = loader.getExtensions();
+	const skills = loader.getSkills();
+	const prompts = loader.getPrompts();
+	const problems = [
+		...extensions.errors.map((error) => `扩展 ${error.path}：${error.error}`),
+		...[...skills.diagnostics, ...prompts.diagnostics]
+			.filter((diagnostic) => diagnostic.type !== "warning")
+			.map((diagnostic) => diagnostic.path ? `${diagnostic.path}：${diagnostic.message}` : diagnostic.message),
+	];
+	return {
+		extensions: extensions.extensions.length,
+		skills: skills.skills.map((skill) => skill.name),
+		prompts: prompts.prompts.length,
+		problems,
+	};
 }

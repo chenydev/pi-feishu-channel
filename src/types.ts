@@ -561,7 +561,21 @@ export interface SessionBackend {
 			exportJsonl?(outputPath: string): string;
 			summarizeForBugReport?(hint?: string): Promise<string>;
 			lastAssistantText?(): string | undefined;
+			/** 重新加载扩展、技能、提示模板和上下文文件（pi 只有整体重载），返回重载后的清单。 */
+			reload?(): Promise<ReloadSummary>;
 		}>;
+}
+
+/** `/reload` 之后的资源清单。 */
+export interface ReloadSummary {
+	extensions: number;
+	skills: string[];
+	/** 和重载前相比新增 / 消失的技能名。 */
+	addedSkills: string[];
+	removedSkills: string[];
+	prompts: number;
+	/** 加载失败或冲突的条目（扩展加载错误 + 技能 / 模板诊断里的 error 和 collision）。 */
+	problems: string[];
 }
 
 /**
