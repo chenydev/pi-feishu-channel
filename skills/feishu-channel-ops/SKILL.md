@@ -36,7 +36,7 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 |---|---|
 | 让某个群能用 | 把群 id（`oc_` 开头）加进 `allowChats`。**空数组 = 拒绝所有群** |
 | 让某人能私聊 | 把 open_id（`ou_` 开头）加进 `allowUsers`。**空数组 = 拒绝所有私聊**；管理员和应用归属人始终可以 |
-| 群里不 @ 也响应 | `groupPolicy` / `groupRules.<群id>.policy` 设为 `open` |
+| 群里不 @ 也响应 | `requireMention: false`（全局）或 `groupRules.<群id>.requireMention: false`（单个群）。**只把策略设为 `open` 不够**：`open` / `mention` 只管谁能用，要不要 @ 只看 `requireMention`（默认 true） |
 | 回复机器人的消息不用 @ | `groupAlsoOnReply: true`（默认关）。全实例生效，不分群和人；只认最近 `lastSentCacheSize` 条（默认 64）机器人消息，重启清空 |
 | 让某人在所有群都能用（含没放行的群） | 把 open_id 加进 `allowUsersAllGroups`。不放开私聊；群策略 `disabled` / `admin_only` / `blacklist` 仍然生效 |
 | 只让部分人在某群使用 | `groupRules.<群id>.policy: "allowlist"` + `allowlist` |

@@ -63,7 +63,36 @@
 
 ## 3. 消息被丢了
 
-准入是**默认拒绝**的：白名单为空表示全部拒绝。所以「消息被丢」很常见，而丢弃日志会说明原因：
+准入是**默认拒绝**的：白名单为空表示全部拒绝。所以「消息被丢」很常见，而丢弃日志会说明原因。
+
+### 准入顺序
+
+「管理员」= `admins` + 应用归属人 + 应用管理员（后两者启动时自动识别，协作者里的开发者、运营不算）。
+实现见 `src/inbound/admit.ts`，按下面的顺序判断，第一个不通过的就丢弃：
+
+1. **机器人自己发的消息**：直接丢弃（`feishu.transport.drop_self_echo`），防止自己触发自己。
+2. **同一条消息重投**：只处理一次。
+3. **发送者是机器人或应用**：要在 `allowBots` 里（`app_id`、open_id，或特殊值 `"mentions"`：@ 了本机器人就放行），否则 `bots_disabled`。
+4. **私聊**：在 `allowUsers` 里或是管理员就放行，否则 `dm_policy_rejected`。私聊不看 @。
+5. **群聊**（话题群也算）依次过三层：
+   1. **群白名单**：群在 `allowChats` 里，或发送者在 `allowUsersAllGroups` 里；否则 `not_allowlisted`。管理员**不能**跳过这一层。
+   2. **群策略**（谁能用）：管理员跳过这一层。策略取值优先级 `groupPolicyByChat` > `groupRules.<群>.policy` > `defaultGroupPolicy` > `groupPolicy`。
+      - `disabled`：全部拒绝；`admin_only`：只有管理员；
+      - `allowlist`：只有 `groupRules.<群>.allowlist` 里的人（名单为空 = 不限制；`allowUsersAllGroups` 里的人可以跳过）；
+      - `blacklist`：`blacklist` 里的人拒绝（`allowUsersAllGroups` 不能跳过）；
+      - `open` / `mention`：都通过。**两者在这一层没有区别**，要不要 @ 看下一层。
+   3. **@ 检查**（所有人都要过，包括管理员）：`groupRules.<群>.requireMention` 优先，其次全局 `requireMention`（默认 true）。需要 @ 时，下面任一条成立就放行，否则 `bot_not_mentioned`：
+      - 消息 @ 了本机器人；
+      - `ignoreAtAll: false` 且 @ 了所有人（默认 `ignoreAtAll: true`，@所有人不算）；
+      - `adminBypassMention: true` 且发送者是管理员（默认 false）；
+      - `groupAlsoOnReply: true` 且回复的是机器人发的消息（默认 false）。
+
+斜杠命令也要先过准入，没权限的人发命令一样被丢弃。卡片按钮各自校验：提问卡（`feishu_ask`）= 能在这里 @ 机器人的人；
+审批卡 = 审批人；开通申请卡 = `onboarding.accessApprovers` 范围内的人。
+
+想让群里不 @ 也响应：设 `requireMention: false`（或 `groupRules.<群>.requireMention: false`）。只把策略设为 `open` 不够。
+
+### 丢弃日志
 
 ```
 [feishu-channel] feishu.pipeline.drop {
