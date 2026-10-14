@@ -192,19 +192,36 @@ export class ClarificationStore {
 	}
 }
 
-/** 澄清卡片（纯文本选项回退用同一份选项文案）。 */
+/**
+ * 选项超过这个长度就不放进按钮：飞书按钮只显示一行，长了会被截断，看不出选的是什么。
+ * 手机上整行按钮大约能放 14 个汉字。
+ */
+const BUTTON_LABEL_MAX = 14;
+
+/**
+ * 澄清卡片。选项都短：每个选项一个整行按钮；有长选项：正文列出带编号的完整选项（会换行），
+ * 按钮只放编号、并排一行。点哪种按钮回调里都是完整的选项文本。
+ */
 export function buildClarificationCard(pending: ClarificationPending): unknown {
+	const numbered = pending.options.some((option) => option.length > BUTTON_LABEL_MAX);
 	const buttons = pending.options.map((option, index) => ({
 		tag: "button",
-		text: { tag: "plain_text", content: option.slice(0, 20) },
+		text: { tag: "plain_text", content: numbered ? `选 ${index + 1}` : option },
 		type: index === 0 ? "primary" : "default",
+		width: "fill",
 		value: { op: "clarify", clarificationId: pending.id, token: pending.token, choice: option },
 	}));
+	const question = { tag: "markdown", content: `**需要你确认**\n\n${pending.question}` };
+	if (!numbered) return { schema: "2.0", body: { elements: [question, ...buttons] } };
 	return {
 		schema: "2.0",
 		body: { elements: [
-			{ tag: "markdown", content: `**需要你确认**\n\n${pending.question}` },
-			...buttons,
+			question,
+			{ tag: "markdown", content: pending.options.map((option, index) => `**${index + 1}.** ${option}`).join("\n") },
+			{
+				tag: "column_set", flex_mode: "none", horizontal_spacing: "small",
+				columns: buttons.map((button) => ({ tag: "column", width: "weighted", weight: 1, elements: [button] })),
+			},
 		] },
 	};
 }

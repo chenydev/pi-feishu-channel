@@ -26,6 +26,8 @@
     `/feishu doctor` 的 `ps_forwarding` 换成 `ps_link`；`/feishu approvals` 显示「询问」会弹卡还是被直接拒绝。
     `feishu.approval.ps_forwarding*` 系列日志删除，新增 `ps_link_decision`、`ps_always_approved`、`ps_session_approved`、`ps_always_recorded`。
   - 端到端脚本 `scripts/e2e/ps-forwarding.ts` 换成 `scripts/e2e/ps-authorizer.ts`。
+- 澄清选择卡（`feishu_ask`）：选项超过 14 个字时不再截断成按钮文字，改为正文列出带编号的完整选项、按钮只放「选 1」「选 2」…并排一行；
+  选项都短时仍是每项一个整行按钮。工具参数说明提示模型把选项写短、细节放进问题。
 - 修复（审批）：PS 转来的审批卡上点「始终批准」，会把工具名（如 `bash`）写进 `approval.autoApprove`，点「本会话批准」会记成
   本会话免审该工具；之后切回内置审批，这个工具就全部免审。外部来源的审批卡现在只由外部来源自己记录选择。
 - 工作区：新增 `workspaces.default`，新会话默认在这个工作区里运行（不设仍是 pi 进程的启动目录）。

@@ -147,6 +147,37 @@ test("澄清提问：卡片与文本回退都携带全部选项", () => {
 	assert.ok(fallback.includes("直接回复"), "文本回退必须说明如何回答");
 });
 
+test("澄清提问：选项短时每个选项一个整行按钮；有长选项时正文列完整选项、按钮只放编号", () => {
+	const { store } = makeStore();
+	type Button = { tag: string; text: { content: string }; value: { choice: string } };
+	const buttonsOf = (card: unknown): Button[] => {
+		const found: Button[] = [];
+		const walk = (node: unknown): void => {
+			if (!node || typeof node !== "object") return;
+			if ((node as { tag?: string }).tag === "button") found.push(node as Button);
+			for (const child of Object.values(node)) walk(child);
+		};
+		walk(card);
+		return found;
+	};
+
+	const short = buildClarificationCard(store.create(request({ options: ["保持现状", "装到项目级"] })));
+	assert.deepEqual(buttonsOf(short).map((button) => button.text.content), ["保持现状", "装到项目级"], "短选项原样做按钮，不截断");
+
+	const options = [
+		"保持现状：用户级已装同版本，无需再操作",
+		"额外安装到项目级 ~/projects/demo/.agents/skills",
+		"跳过",
+	];
+	const long = buildClarificationCard(store.create(request({ options })));
+	const json = JSON.stringify(long);
+	for (const [index, option] of options.entries()) assert.ok(json.includes(`**${index + 1}.** ${option}`), `正文必须有完整的第 ${index + 1} 项`);
+	const buttons = buttonsOf(long);
+	assert.deepEqual(buttons.map((button) => button.text.content), ["选 1", "选 2", "选 3"]);
+	assert.deepEqual(buttons.map((button) => button.value.choice), options, "回调里仍是完整选项文本");
+	assert.ok(json.includes("\"column_set\""), "编号按钮并排一行");
+});
+
 test("澄清提问：澄清等待点独立于审批（pending 计数分属两个 store）", async () => {
 	// 关键安全断言：澄清只产生“回答内容”，不产生任何授权记录。
 	const { store } = makeStore();

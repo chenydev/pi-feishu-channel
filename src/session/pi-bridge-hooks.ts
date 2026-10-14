@@ -258,7 +258,7 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 				type: "object",
 				properties: {
 					question: { type: "string", description: "要确认的问题" },
-					options: { type: "array", items: { type: "string" }, description: "2-4 个互斥选项" },
+					options: { type: "array", items: { type: "string" }, description: "2-4 个互斥选项。尽量写成 14 字以内的短语（会直接做成按钮）；理由、路径等细节放进 question" },
 				},
 				required: ["question", "options"],
 			},
