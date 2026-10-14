@@ -84,6 +84,11 @@ export interface BridgeConfig {
 	 */
 	allowUsers: string[];
 	/**
+	 * 在所有群里都能使用机器人的用户 open_id：不受 `allowChats` 和群名单（`groupRules.<id>.allowlist`）限制，
+	 * 群里其他人照旧。不放开私聊（私聊看 `allowUsers`）；群策略 disabled / admin_only / blacklist 仍然生效。
+	 */
+	allowUsersAllGroups: string[];
+	/**
 	 * 管理员与「应用归属人」是否豁免 @ 检查（**默认 false**）。
 	 * 默认关闭时对齐 hermes 两层模型：admin 只豁免策略层，群内仍必须 @ 才触发。
 	 * 归属人由启动时调用开放平台接口查询得到（见 implicitAdmins），无需手工维护 open_id。
@@ -222,12 +227,15 @@ export interface BridgeConfig {
 		welcome?: boolean;
 		notifyAdmins?: boolean;
 		/**
-		 * 开通申请（**默认关闭**）：未放行的群里有人 @ 机器人 → 管理员在群里就在群里弹审批卡并 @ 他们，
-		 * 否则私聊应用归属人；群里回告申请人"已发给谁"。开启后取代"只有管理员 @ 才私聊他"的旧行为。
+		 * 开通申请（**默认关闭**）：未放行的群里有人 @ 机器人、群名单外的人 @ 机器人、未放行的人私聊机器人 →
+		 * 管理员在群里就在群里弹审批卡并 @ 他们，否则私聊应用归属人；回告申请人"已发给谁"。
+		 * 开启后取代"只有管理员 @ 才私聊他"的旧行为。
 		 */
 		accessRequest?: boolean;
-		/** 同一个群两次开通申请的最短间隔（默认 1 小时）。 */
+		/** 同一项申请（同一个群 / 同一个人）两次发出的最短间隔（默认 1 小时）。 */
 		accessRequestCooldownMs?: number;
+		/** 每小时最多发出几次开通申请（所有群和私聊合计，默认 10）。 */
+		accessRequestMaxPerHour?: number;
 		/**
 		 * 谁能审批群开通（点"放行此群 / 暂不放行"，也决定申请发给谁）。默认 `owner`：仅应用归属人。
 		 * `owner_admins` = 归属人 + 应用管理员；`all` = 再加 config.admins。
@@ -357,6 +365,7 @@ export const DEFAULT_CONFIG: BridgeConfig = {
 	groupRules: {},
 	allowChats: [],
 	allowUsers: [],
+	allowUsersAllGroups: [],
 	admins: [],
 	groupAlsoOnReply: false,
 	allowBots: [],

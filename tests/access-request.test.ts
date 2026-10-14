@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { AccessRequestTracker, planAccessRequest } from "../src/runtime/access-request.js";
+import { AccessRequestTracker, accessRequestKey, planAccessRequest } from "../src/runtime/access-request.js";
+import { admissionRequestKind } from "../src/interaction/platform-events.js";
+import type { FeishuInboundMessage } from "../src/types.js";
 import { buildAccessNoticeCard, buildAccessRequestCard } from "../src/commands/cards.js";
 
 const OWNER = "ou_owner";
@@ -68,4 +70,46 @@ test("开通申请卡：群内版 @ 申请人与审批人；私聊版带群名�
 	assert.match(dm, /研发群/);
 	assert.match(dm, /申请人：<at id=ou_x><\/at>/);
 	assert.match(JSON.stringify(buildAccessNoticeCard("hi", "green")), /本群已开通/);
+});
+
+test("开通申请限流：个人申请按人分开记；所有申请合计每小时有上限", () => {
+	let now = 0;
+	const tracker = new AccessRequestTracker({ maxPerHour: 2, now: () => now });
+	const a = accessRequestKey("group_user", "oc_1", "ou_a");
+	const b = accessRequestKey("group_user", "oc_1", "ou_b");
+	const dm = accessRequestKey("dm", "oc_dm", "ou_a");
+	assert.equal(new Set([a, b, dm, accessRequestKey("chat", "oc_1", "ou_a")]).size, 4, "群、群里的人、私聊互不影响");
+	assert.equal(accessRequestKey("chat", "oc_1", "ou_a"), "oc_1", "群申请用群 id（放行群、退群按群 id 清理）");
+	tracker.markRequested(a, "ou_a", { mode: "dm", approvers: [OWNER] });
+	assert.equal(tracker.decide(b, "ou_b").action, "request", "同群另一个人单独申请");
+	tracker.markRequested(b, "ou_b", { mode: "dm", approvers: [OWNER] });
+	assert.deepEqual(tracker.decide(dm, "ou_a"), { action: "silent", reason: "rate_limited" }, "一小时内已发 2 次");
+	assert.equal(tracker.decide(a, "ou_c").action, "remind", "已发出的申请照常提醒，不占总量");
+	now = 3_600_000;
+	assert.equal(tracker.decide(dm, "ou_a").action, "request", "过了一小时恢复");
+	assert.equal(new AccessRequestTracker({ maxPerHour: 0 }).decide(dm, "ou_a").action, "request", "0 = 不限");
+});
+
+test("开通申请类型：群里要 @；群未放行 → chat，群已放行 → group_user；私聊未放行 → dm；群策略拒绝的不申请", () => {
+	const msg = (over: Partial<FeishuInboundMessage>) => ({ chatId: "oc_1", chatType: "group", ...over }) as FeishuInboundMessage;
+	assert.equal(admissionRequestKind([], msg({}), "not_allowlisted", true), "chat");
+	assert.equal(admissionRequestKind(["oc_1"], msg({}), "not_allowlisted", true), "group_user");
+	assert.equal(admissionRequestKind([], msg({}), "not_allowlisted", false), undefined);
+	assert.equal(admissionRequestKind(["oc_1"], msg({}), "group_policy_rejected", true), undefined);
+	assert.equal(admissionRequestKind([], msg({ chatType: "p2p" }), "dm_policy_rejected", false), "dm");
+	assert.equal(admissionRequestKind([], msg({ chatType: "p2p" }), "bots_disabled", false), undefined);
+});
+
+test("开通申请卡：三种申请的按钮；按钮带申请类型", () => {
+	const ops = (card: unknown) => [...JSON.stringify(card).matchAll(/"op":"([^"]+)"/g)].map((m) => m[1]);
+	const chat = buildAccessRequestCard({ mode: "group", chatId: "oc_1", requesterId: "ou_x", approvers: [OWNER] });
+	assert.deepEqual(ops(chat), ["chat.allow", "user.allow_all_groups", "chat.deny"]);
+	assert.match(JSON.stringify(chat), /私聊不放开/);
+	const user = buildAccessRequestCard({ kind: "group_user", mode: "dm", chatId: "oc_1", chatName: "研发群", requesterId: "ou_x", approvers: [OWNER] });
+	assert.deepEqual(ops(user), ["user.allow_chat", "user.allow_all_groups", "user.deny"]);
+	assert.match(JSON.stringify(user), /"kind":"group_user"/);
+	assert.match(JSON.stringify(user), /研发群/);
+	const dm = buildAccessRequestCard({ kind: "dm", mode: "dm", chatId: "oc_dm", requesterId: "ou_x", approvers: [OWNER] });
+	assert.deepEqual(ops(dm), ["user.allow_dm", "user.deny"]);
+	assert.match(JSON.stringify(dm), /私聊开通申请/);
 });

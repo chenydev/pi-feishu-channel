@@ -164,6 +164,7 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 - 环境变量优先于配置文件 —— 注意 shell 里残留的同名变量会静默覆盖配置文件；
 - 启动时校验配置，类型或取值不对时拒绝启动并列出全部问题；拼错的字段不报错，`/feishu doctor` 的 `config_fields` 项会列出来；
 - 必填的只有 `appId` / `appSecret`。准入是默认拒绝的：`allowChats` 为空时不响应任何群，`allowUsers` 为空时只有管理员能私聊。
+  `allowUsersAllGroups` 里的人在所有群都能用（包括没放行的群），不放开私聊。
 
 **时区**：在容器里运行时，基础镜像通常是 UTC，需要给容器设置 `TZ`（例如 `Asia/Shanghai`），或设置 `timezone` / `FEISHU_TIMEZONE`。
 用 compose 时，改环境变量要 `docker compose up -d` 重建容器才生效，`restart` 不行。
@@ -183,7 +184,7 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 | 会话文件按天归档 | `retention.sessionDays` |
 | 云文档评论里 @ 机器人，在评论区回复 | `docComments.enabled` |
 | 会议邀请：在邀请人私聊里开一轮任务 | `meetingInvite.enabled` |
-| 群开通申请：未放行的群里有人 @ 机器人时，把申请发给能审批的人 | `onboarding.accessRequest` |
+| 开通申请：未放行的群里 @、群名单外的人 @、未放行的人私聊时，把申请卡发给能审批的人；审批人可放行此群、加入本群名单、全局放行此人（所有群）或放行私聊 | `onboarding.accessRequest` |
 | 云文档读取工具 `feishu_doc_read` | `docTools.enabled` |
 | 流式卡片展示处理过程 | `streamingCard.enabled` |
 | 群里回复机器人的消息时不用再 @ | `groupAlsoOnReply` |

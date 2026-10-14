@@ -79,10 +79,23 @@
 | reason | 含义 | 对应配置 |
 |---|---|---|
 | `bots_disabled` | 发送者是机器人或应用，但不在 `allowBots` 里 | `allowBots`；也可以用特殊值 `"mentions"`：任何 @ 了本机器人的 bot 都放行，不依赖 ID，换应用也不会失效 |
-| `not_allowlisted` | 群不在 `allowChats` 里，或用户不在该群的 `allowlist` 里 | `allowChats` / `groupRules.<chatId>.allowlist` |
+| `not_allowlisted` | 群不在 `allowChats` 里，或用户不在该群的 `allowlist` 里 | `allowChats` / `groupRules.<chatId>.allowlist`；只放行某个人在所有群使用：`allowUsersAllGroups` |
 | `dm_policy_rejected` | 私聊未放行 | `allowUsers`（管理员始终放行） |
 | `group_policy_rejected` | 群策略拒绝（`disabled` / `admin_only` / `blacklist`） | `groupPolicy` / `groupRules` |
 | `bot_not_mentioned` | 群策略要求 @，但消息没有 @ 本机器人 | 在消息里 @，或修改群策略；想让「回复机器人的消息」免 @，开 `groupAlsoOnReply` |
+
+开了开通申请（`onboarding.accessRequest`）时，下面三种拒绝会给审批人发申请卡，审批结果直接写回 `config.json`：
+
+| 情况 | 卡片上的选项 | 写入 |
+|---|---|---|
+| 群不在 `allowChats` 里，有人 @ 机器人 | 放行此群 / 全局放行此人 / 暂不放行 | `allowChats` / `allowUsersAllGroups` |
+| 群策略是 `allowlist`，名单外的人 @ 机器人 | 加入本群名单 / 全局放行此人 / 暂不放行 | `groupRules.<chatId>.allowlist` / `allowUsersAllGroups` |
+| 不在 `allowUsers` 里的人私聊机器人 | 放行私聊 / 暂不放行 | `allowUsers` |
+
+「全局放行此人」只放开所有群，不放开私聊。群策略 `disabled` / `admin_only` / `blacklist` 拒绝的不发申请。
+频率限制：同一项申请（一个群 / 群里的一个人 / 私聊的一个人）在 `accessRequestCooldownMs`（默认 1 小时）内只发一次；
+「暂不放行」后 24 小时内不再发；所有申请合计每小时最多 `accessRequestMaxPerHour` 次（默认 10）。
+发出记 `feishu.access_request.sent`，放行个人记 `user_allowed`（`scope`：`chat` / `all_groups` / `dm`），没发记 `silent`（`reason`：`ignored` / `reminded` / `rate_limited`）。
 
 另外，机器人自己发出的消息会在更早的环节被过滤（`feishu.transport.drop_self_echo`），以防自我触发的死循环。**所以不能用机器人自己的身份发消息来做测试。**
 
@@ -91,6 +104,7 @@
 | 症状 | 通常的原因 | 怎么确认 / 修复 |
 |---|---|---|
 | 消息发了完全没反应 | 没有 @；群不在白名单里 | 查 `feishu.pipeline.drop` 的 `reason` |
+| 开了开通申请，没权限的人找机器人却没收到申请卡 | 冷却期内已发过（`silent` 的 `reason: reminded`）、被「暂不放行」（`ignored`）、超出每小时上限（`rate_limited`）；或群策略本身拒绝（`group_policy_rejected` 不申请） | 查 `feishu.access_request.*`；急用时直接改 `config.json` 并重启 |
 | 回复机器人发的消息，没 @ 也触发了 | 开了 `groupAlsoOnReply`（默认关闭）：`mention` 策略下回复机器人的消息免 @ | 查 `config.json` 和环境变量 `FEISHU_GROUP_ALSO_ON_REPLY`；不要这个行为就设为 `false` 后重启。它对整个实例生效，不能按群或按人设置 |
 | 开了 `groupAlsoOnReply`，回复机器人有时仍要 @ | 只认进程内存里最近 `lastSentCacheSize` 条（默认 64）机器人消息：重启前发的、或群里机器人发言多时较早的消息都认不出来 | 设计如此，@ 机器人即可；需要时调大 `lastSentCacheSize` |
 | 桥没起来，日志 `extension_error session_start … pi.getAgentDir is not a function` | 扩展版本过旧，调用了 pi 扩展 API 上不存在的方法 | 升级扩展；临时绕过：设置 `FEISHU_CHANNEL_HOME` |

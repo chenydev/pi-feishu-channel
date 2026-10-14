@@ -36,6 +36,9 @@
   "allowUsers": [
     "ou_example_1"
   ],
+  "allowUsersAllGroups": [
+    "ou_example_2"
+  ],
   "admins": [
     "ou_example_admin"
   ],
@@ -156,6 +159,7 @@
     "welcome": true,
     "notifyAdmins": true,
     "accessRequest": true,
+    "accessRequestMaxPerHour": 10,
     "accessApprovers": "owner"
   },
   "feedback": {

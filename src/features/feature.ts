@@ -13,6 +13,7 @@ import type { Transcriber } from "../inbound/stt.js";
 import type { LifecycleEvent } from "../inbound/transport.js";
 import type { CardOps, CardRouter } from "../interaction/card-router.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
+import type { AccessRequestKind } from "../runtime/access-request.js";
 import type { Onboarding } from "../runtime/onboarding.js";
 import type { ConversationManagerDeps } from "../session/conversation-manager.js";
 import type { BridgeHookContext } from "../session/pi-bridge-hooks.js";
@@ -46,8 +47,11 @@ export interface FeatureHooks {
 	stop?(): void | Promise<void>;
 	/** 平台生命周期事件（撤回、入群、评论、会议邀请等），每个能力都会收到。 */
 	onLifecycleEvent?(event: LifecycleEvent): void | Promise<void>;
-	/** 未放行的群里有人 @ 机器人时调用（入口已判定是这种情况）；返回 true 表示已处理。 */
-	onAdmissionDrop?(msg: FeishuInboundMessage): boolean | Promise<boolean>;
+	/**
+	 * 没有权限的人找机器人时调用（入口已判定是哪种申请：未放行的群里 @、群名单外的人 @、未放行的人私聊）；
+	 * 返回 true 表示已处理。
+	 */
+	onAdmissionDrop?(msg: FeishuInboundMessage, kind: AccessRequestKind): boolean | Promise<boolean>;
 	/** 状态心跳（默认每 30 秒，刷新 status.json 之后）。 */
 	onHeartbeat?(): void | Promise<void>;
 	/** 子会话的 `feishu_card` 工具（提供了它，子会话里才注册这个工具）。 */
@@ -124,8 +128,8 @@ export class FeatureHost {
 		for (const { hooks } of this.active) await hooks.onLifecycleEvent?.(event);
 	}
 
-	async onAdmissionDrop(msg: FeishuInboundMessage): Promise<boolean> {
-		for (const { hooks } of this.active) if (await hooks.onAdmissionDrop?.(msg)) return true;
+	async onAdmissionDrop(msg: FeishuInboundMessage, kind: AccessRequestKind): Promise<boolean> {
+		for (const { hooks } of this.active) if (await hooks.onAdmissionDrop?.(msg, kind)) return true;
 		return false;
 	}
 

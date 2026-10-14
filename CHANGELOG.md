@@ -4,6 +4,12 @@
 
 ## 未发布
 
+- 开通申请（`onboarding.accessRequest`，默认关）扩展到个人：除了未放行的群里 @，群名单外的人 @、不在 `allowUsers` 里的人私聊，也会给审批人发申请卡。
+  审批人可选「放行此群」「加入本群名单」「全局放行此人」「放行私聊」或「暂不放行」，结果写回 `config.json`。
+  新增配置 `allowUsersAllGroups`（环境变量 `FEISHU_ALLOW_USERS_ALL_GROUPS`）：「全局放行此人」写到这里，这些人在所有群都能用（包括没放行的群），
+  不放开私聊，群策略 `disabled` / `admin_only` / `blacklist` 照旧。
+  频率：同一项申请 1 小时内只发一次，「暂不放行」后 24 小时不再发，新增 `onboarding.accessRequestMaxPerHour`（默认 10）限制每小时总数，
+  超出记 `feishu.access_request.silent`（`reason: rate_limited`）；放行个人记 `feishu.access_request.user_allowed`。
 - **破坏性变更（准入）**：`groupAlsoOnReply` 默认改为关闭。`mention` 策略下回复机器人发出的消息，现在也要 @ 机器人才会触发；
   要保留原来的行为，在 `config.json` 里写 `"groupAlsoOnReply": true` 或设环境变量 `FEISHU_GROUP_ALSO_ON_REPLY=1`。
   这个开关对整个实例生效，不分群和人；只认进程内存里最近 `lastSentCacheSize` 条机器人消息，重启后清空。`config.example.json` 同步改为 `false`。

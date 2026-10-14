@@ -180,7 +180,7 @@ export function formatTimeInZone(timestamp: number, timeZone?: string): string {
 /**
  * 合并顺序：默认值 < config.json < env。
  * env 键：FEISHU_APP_ID / FEISHU_APP_SECRET / FEISHU_DOMAIN / FEISHU_GROUP_POLICY /
- * FEISHU_GROUP_POLICY_BY_CHAT(JSON) / FEISHU_ALLOW_CHATS(csv) / FEISHU_ALLOW_USERS(csv) /
+ * FEISHU_GROUP_POLICY_BY_CHAT(JSON) / FEISHU_ALLOW_CHATS(csv) / FEISHU_ALLOW_USERS(csv) / FEISHU_ALLOW_USERS_ALL_GROUPS(csv) /
  * FEISHU_ADMINS(csv) / FEISHU_GROUP_ALSO_ON_REPLY / FEISHU_REQUIRE_MENTION / FEISHU_DEBUG。
  */
 export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env): BridgeConfig {
@@ -304,6 +304,7 @@ export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env
 	}
 	if (env.FEISHU_ALLOW_CHATS) merged.allowChats = csv(env.FEISHU_ALLOW_CHATS);
 	if (env.FEISHU_ALLOW_USERS) merged.allowUsers = csv(env.FEISHU_ALLOW_USERS);
+	if (env.FEISHU_ALLOW_USERS_ALL_GROUPS) merged.allowUsersAllGroups = csv(env.FEISHU_ALLOW_USERS_ALL_GROUPS);
 	if (env.FEISHU_ADMINS) merged.admins = csv(env.FEISHU_ADMINS);
 	if (env.FEISHU_GROUP_ALSO_ON_REPLY) merged.groupAlsoOnReply = toBool(env.FEISHU_GROUP_ALSO_ON_REPLY, merged.groupAlsoOnReply);
 	if (env.FEISHU_REQUIRE_MENTION) merged.requireMention = toBool(env.FEISHU_REQUIRE_MENTION, merged.requireMention);

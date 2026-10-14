@@ -126,11 +126,13 @@ export function admit(
 	// 后者答「在允许的群里怎么触发」。原实现把 allowChats 塞在 allowlist 策略
 	// 分支内，导致 groupPolicy 取其它值时白名单形同虚设 —— 任何群 @ 一下就响应。
 	// 安全默认必须是默认拒绝，因此这里无条件检查，且空数组也拒绝。
-	if (!cfg.allowChats.includes(msg.chatId)) {
+	// allowUsersAllGroups 里的人在所有群都能用：免掉群白名单和群名单，其余群策略照旧
+	const allGroupsUser = (cfg.allowUsersAllGroups ?? []).includes(msg.senderId);
+	if (!cfg.allowChats.includes(msg.chatId) && !allGroupsUser) {
 		return withHint(
 			"not_allowlisted",
 			`群准入默认拒绝（allowChats 为空 = 拒绝所有群）。`
-				+ `放行方式：在 config.json 的 allowChats 里加 "${msg.chatId}"。`,
+				+ `放行方式：在 config.json 的 allowChats 里加 "${msg.chatId}"；只放行这个人的话，把 "${msg.senderId}" 加进 allowUsersAllGroups。`,
 		);
 	}
 
@@ -155,11 +157,11 @@ export function admit(
 		} else if (policy === "allowlist") {
 			// 用户白名单（rule.allowlist）；群维度的准入已由上方 allowChats 闸完成
 			const allowlist = rule?.allowlist ?? [];
-			if (allowlist.length > 0 && !allowlist.includes(msg.senderId)) {
+			if (allowlist.length > 0 && !allowlist.includes(msg.senderId) && !allGroupsUser) {
 				return withHint(
 					"not_allowlisted",
 					`本群策略是 allowlist 且该用户不在名单里。`
-						+ `放行方式：在 config.json 的 groupRules["${msg.chatId}"].allowlist 里加 "${msg.senderId}"。`,
+						+ `放行方式：在 config.json 的 groupRules["${msg.chatId}"].allowlist 里加 "${msg.senderId}"，或加进 allowUsersAllGroups（所有群都放行）。`,
 				);
 			}
 		} else if (policy === "blacklist") {

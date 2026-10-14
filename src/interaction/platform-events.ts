@@ -18,6 +18,7 @@ import type { LifecycleEvent } from "../inbound/transport.js";
 import { accessApproverHint, accessApprovers, canApproveAccess } from "../runtime/admin-roles.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
 import type { BridgeLogger } from "../runtime/logger.js";
+import type { AccessRequestKind } from "../runtime/access-request.js";
 import type { Onboarding } from "../runtime/onboarding.js";
 import type { FeishuInboundMessage } from "../types.js";
 import type { CardOps } from "./card-router.js";
@@ -65,11 +66,16 @@ export class PlatformEvents {
 		};
 	}
 
-	/** 群未放行时，有审批权的人 @ 了机器人 → 私聊他一张"放行此群"卡。普通成员 @ 不回复，只记日志。 */
+	/**
+	 * 准入拒绝后看要不要申请开通：
+	 * - 未放行的群里 @、群名单外的人 @、未放行的人私聊 → 开了开通申请时由该能力处理（给审批人发申请卡）；
+	 * - 没开时只保留旧行为：群未放行、有审批权的人 @ 了机器人 → 私聊他一张"放行此群"卡。其余只记日志。
+	 */
 	async onAdmissionDrop(msg: FeishuInboundMessage, reason: string, mentioned: boolean): Promise<void> {
-		if (reason !== "not_allowlisted" || msg.chatType === "p2p" || !mentioned || this.rt.config.allowChats.includes(msg.chatId)) return;
-		// 开了群开通申请：由该能力处理（给审批人发申请卡）
-		if (await this.features.onAdmissionDrop(msg)) return;
+		const kind = admissionRequestKind(this.rt.config.allowChats, msg, reason, mentioned);
+		if (!kind) return;
+		if (await this.features.onAdmissionDrop(msg, kind)) return;
+		if (kind !== "chat") return;
 		if (this.rt.config.onboarding?.notifyAdmins === false) return;
 		// 旧行为（未开开通申请）：有审批权的人 @ 了机器人 → 私聊他放行卡（没审批权就不发一张点不动的卡）
 		if (!canApproveAccess(this.rt.config, msg.senderId, this.onboarding.approverPolicy())) return;
@@ -135,7 +141,9 @@ export class PlatformEvents {
 				const allowed = openId ? this.rt.config.allowUsers.includes(openId) || effectiveAdmins(this.rt.config).includes(openId) : false;
 				this.rt.outbox.enqueue(event.chatId, allowed
 					? "你好！直接发消息给我就行，/help 查看可用命令。"
-					: "你好！私聊功能需要管理员开通（把你加进 allowUsers）。开通后直接发消息给我即可。", {}, {
+					: this.rt.config.onboarding?.accessRequest === true
+						? "你好！私聊功能需要管理员开通。给我发一条消息，我会把开通申请发给管理员，通过后通知你。"
+						: "你好！私聊功能需要管理员开通（把你加进 allowUsers）。开通后直接发消息给我即可。", {}, {
 					dedupeKey: `p2p-welcome:${event.chatId}`, laneKey: event.chatId, kind: "notify",
 				});
 				this.log.info("feishu.onboarding.p2p_entered", { chatId: event.chatId, allowed });
@@ -163,4 +171,14 @@ export class PlatformEvents {
 		} catch { /* 统计失败无所谓 */ }
 		this.log.info("feishu.feedback", { kind: entry.kind, action: entry.action, messageId: entry.messageId });
 	}
+}
+
+/**
+ * 准入拒绝属于哪种开通申请（不属于返回 undefined）。群里必须 @ 了机器人才算：没 @ 的闲聊不该惊动审批人。
+ * 群策略 disabled / admin_only / blacklist 拒绝的（group_policy_rejected）不申请：那是管理员有意设的限制。
+ */
+export function admissionRequestKind(allowChats: readonly string[], msg: FeishuInboundMessage, reason: string, mentioned: boolean): AccessRequestKind | undefined {
+	if (msg.chatType === "p2p") return reason === "dm_policy_rejected" ? "dm" : undefined;
+	if (reason !== "not_allowlisted" || !mentioned) return undefined;
+	return allowChats.includes(msg.chatId) ? "group_user" : "chat";
 }

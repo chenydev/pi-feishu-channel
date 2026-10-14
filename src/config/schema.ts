@@ -63,6 +63,7 @@ export const fileConfigSchema = z.object({
 	defaultGroupPolicy: m(groupPolicy, "没有群规则的群使用的策略；不设时用 `groupPolicy`"),
 	allowChats: m(strList, "允许使用机器人的群 id。**空数组 = 拒绝所有群**", { env: "FEISHU_ALLOW_CHATS" }),
 	allowUsers: m(strList, "允许私聊机器人的用户 open_id。**空数组 = 拒绝所有私聊**；管理员与应用归属人始终可以私聊", { env: "FEISHU_ALLOW_USERS" }),
+	allowUsersAllGroups: m(strList, "在所有群里都能使用机器人的用户 open_id，不受 `allowChats` 和群名单限制，群里其他人照旧。不放开私聊；群策略 `disabled` / `admin_only` / `blacklist` 仍然生效", { env: "FEISHU_ALLOW_USERS_ALL_GROUPS" }),
 	adminBypassMention: m(bool, "管理员与应用归属人在群里是否可以不 @ 机器人直接触发"),
 	admins: m(strList, "管理员 open_id。管理员不受群策略限制（是否仍需 @ 见 `adminBypassMention`），可以审批工具调用、执行管理命令。应用归属人与应用管理员启动时自动识别，不用写进来", { env: "FEISHU_ADMINS" }),
 	allowBots: m(strList, "允许触发机器人的其它机器人或应用：`app_id`（`cli_` 开头，换应用也不变，推荐）、机器人的 open_id（换应用后会变），或特殊值 `\"mentions\"`（任何 @ 了本机器人的机器人都放行）。空数组 = 拒绝所有机器人发的消息"),
@@ -132,9 +133,10 @@ export const fileConfigSchema = z.object({
 	onboarding: m(z.object({
 		welcome: m(bool, "机器人被拉进已放行的群时发欢迎消息", { default: "true" }),
 		notifyAdmins: m(bool, "未放行的群里有人 @ 机器人时提示管理员", { default: "true" }),
-		accessRequest: m(bool, "开通申请：未放行的群里有人 @ 机器人时，把申请发给能审批的人（在群里弹审批卡，或私聊应用归属人），放行后通知申请人（可选能力，默认关闭）", { default: "false" }),
-		accessRequestCooldownMs: m(nonNegative, "同一个群两次开通申请的最短间隔（毫秒）", { default: "3600000" }),
-		accessApprovers: m(choice(["owner", "owner_admins", "all"], "开通审批人范围"), "谁能审批群开通：`owner` 只有应用归属人；`owner_admins` 加上应用管理员；`all` 再加上 `admins`", { default: "\"owner\"" }),
+		accessRequest: m(bool, "开通申请：未放行的群里有人 @ 机器人、群名单外的人 @ 机器人、未放行的人私聊机器人时，把申请发给能审批的人（在群里弹审批卡，或私聊应用归属人），审批后通知申请人（可选能力，默认关闭）", { default: "false" }),
+		accessRequestCooldownMs: m(nonNegative, "同一项申请（同一个群 / 同一个人）两次发出的最短间隔（毫秒）", { default: "3600000" }),
+		accessRequestMaxPerHour: m(nonNegative, "每小时最多发出几次开通申请（所有群和私聊合计；0 = 不限）", { default: "10" }),
+		accessApprovers: m(choice(["owner", "owner_admins", "all"], "开通审批人范围"), "谁能审批开通申请：`owner` 只有应用归属人；`owner_admins` 加上应用管理员；`all` 再加上 `admins`", { default: "\"owner\"" }),
 	}).partial(), "入群与开通"),
 	feedback: m(z.object({
 		enabled: m(bool, "统计用户对回复点的 👍 / 👎（只记计数）", { default: "true" }),

@@ -431,3 +431,20 @@ test("hint：bot_not_mentioned 不带引导（它本身就是「没 @」的结�
 	assert.equal(verdictOf(result), "bot_not_mentioned");
 	assert.equal((result as { hint?: string }).hint, undefined);
 });
+
+test("allowUsersAllGroups：不受群白名单和群名单限制，仍要 @；不放开私聊；群策略的明确限制照旧", () => {
+	const c = cfg({ groupPolicy: "mention", allowUsersAllGroups: ["ou_vip"], groupRules: { oc_group: { policy: "allowlist", allowlist: ["ou_other"] } } });
+	const cache = new LastSentCache(8);
+	assert.equal(admit(c, groupMsg({ chatId: "oc_unlisted", senderId: "ou_vip" }), true, false, cache).ok, true, "未放行的群也能用");
+	assert.equal(admit(c, groupMsg({ chatId: "oc_unlisted", senderId: "ou_someone" }), true, false, cache).ok, false, "同群其他人照旧");
+	assert.equal(admit(c, groupMsg({ senderId: "ou_vip" }), true, false, cache).ok, true, "群名单外也能用");
+	const noMention = admit(c, groupMsg({ chatId: "oc_unlisted", senderId: "ou_vip" }), false, false, cache);
+	assert.ok(!noMention.ok && noMention.reason === "bot_not_mentioned", "仍要 @");
+	const dm = admit(c, groupMsg({ chatType: "p2p", chatId: "oc_dm", senderId: "ou_vip" }), false, false, cache);
+	assert.ok(!dm.ok && dm.reason === "dm_policy_rejected", "私聊不放开");
+	for (const rule of [{ policy: "disabled" as const }, { policy: "admin_only" as const }, { policy: "blacklist" as const, blacklist: ["ou_vip"] }]) {
+		const strict = cfg({ allowUsersAllGroups: ["ou_vip"], groupRules: { oc_unlisted: rule } });
+		const r = admit(strict, groupMsg({ chatId: "oc_unlisted", senderId: "ou_vip" }), true, false, cache);
+		assert.ok(!r.ok && r.reason === "group_policy_rejected", `${rule.policy} 仍然拒绝`);
+	}
+});

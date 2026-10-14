@@ -5,6 +5,7 @@
  * 因此按钮能做的事不会超过"自己打这条命令"能做的事。
  */
 import { COMMANDS, type CommandGroup, type CommandSpec } from "./registry.js";
+import type { AccessRequestKind } from "../runtime/access-request.js";
 
 /** 合成命令消息需要的会话上下文（点击回调里拿不到入站消息）。 */
 export interface CommandButtonContext {
@@ -188,8 +189,11 @@ function at(openId: string): string {
 }
 
 export interface AccessRequestCardInput {
+	/** 申请类型（缺省 chat）：未放行的群 / 群名单外的人 / 私聊。 */
+	kind?: AccessRequestKind;
 	/** group = 发在该群里（回复申请人的消息）；dm = 私聊审批人。 */
 	mode: "group" | "dm";
+	/** 申请发生的会话（私聊申请时是申请人的私聊会话，用来回告他）。 */
 	chatId: string;
 	chatName?: string;
 	requesterId: string;
@@ -200,50 +204,69 @@ export interface AccessRequestCardInput {
 	approverHint?: string;
 }
 
+/** 「全局放行此人」的效果说明（卡片里写清楚，免得审批人以为连私聊也放开了）。 */
+const ALL_GROUPS_NOTE = "「全局放行此人」：他在所有群里 @ 机器人都能用（写入 `allowUsersAllGroups`），群里其他人照旧，私聊不放开。";
+
 /**
- * 开通申请审批卡：@ 申请人与审批人；按钮只有管理员能点（回调里校验）。
- * 按钮带上申请人，放行 / 暂不放行后要在群里回告他。
+ * 开通申请审批卡：@ 申请人与审批人；按钮只有有审批权的人能点（回调里校验）。
+ * 按钮带上申请人和申请类型，审批后要回告他。
  */
 export function buildAccessRequestCard(input: AccessRequestCardInput): unknown {
+	const kind = input.kind ?? "chat";
 	const who = input.approverLabel ?? input.approvers.map(at).join(" ");
-	const content = input.mode === "group"
-		? [
-			`${at(input.requesterId)} @ 了机器人，但本群还没有开通。`,
-			`请 ${who} 审批是否放行本群${input.approverHint ? `（${input.approverHint}可操作）` : ""}。`,
-		]
-		: [
-			`${who}：有人申请在群里使用机器人`,
-			`群：**${input.chatName ?? "未知群"}**（\`${input.chatId}\`）`,
+	const canClick = input.approverHint ? `（${input.approverHint}可操作）` : "";
+	const chatLine = `群：**${input.chatName ?? "未知群"}**（\`${input.chatId}\`）`;
+	let content: string[];
+	if (kind === "dm") {
+		content = [
+			`${who}：有人申请私聊机器人`,
 			`申请人：${at(input.requesterId)}`,
-			"该群不在 `allowChats` 中，放行后群里 @ 机器人即可使用。",
+			"他不在 `allowUsers` 中，放行后可以私聊机器人。",
 		];
-	const value = { chatId: input.chatId, requester: input.requesterId };
+	} else if (input.mode === "group") {
+		content = [
+			kind === "chat" ? `${at(input.requesterId)} @ 了机器人，但本群还没有开通。` : `${at(input.requesterId)} @ 了机器人，但不在本群的使用名单里。`,
+			`请 ${who} 审批${canClick}。`,
+			ALL_GROUPS_NOTE,
+		];
+	} else {
+		content = [
+			`${who}：有人申请在群里使用机器人`,
+			chatLine,
+			`申请人：${at(input.requesterId)}`,
+			kind === "chat" ? "该群不在 `allowChats` 中，放行后群里 @ 机器人即可使用。" : "该群只允许名单里的人使用（`groupRules` 的 `allowlist`）。",
+			ALL_GROUPS_NOTE,
+		];
+	}
+	const value = { chatId: input.chatId, requester: input.requesterId, kind };
 	const button = (label: string, op: string, type: "primary" | "default") => ({
 		tag: "column", width: "weighted", weight: 1,
 		elements: [{ tag: "button", type, size: "medium", text: { tag: "plain_text", content: label }, value: { op, ...value } }],
 	});
+	const buttons = kind === "chat"
+		? [button("放行此群", "chat.allow", "primary"), button("全局放行此人", "user.allow_all_groups", "default"), button("暂不放行", "chat.deny", "default")]
+		: kind === "group_user"
+			? [button("加入本群名单", "user.allow_chat", "primary"), button("全局放行此人", "user.allow_all_groups", "default"), button("暂不放行", "user.deny", "default")]
+			: [button("放行私聊", "user.allow_dm", "primary"), button("暂不放行", "user.deny", "default")];
 	return {
 		schema: "2.0",
 		config: { wide_screen_mode: true },
-		header: { title: { tag: "plain_text", content: "机器人开通申请" }, template: "orange" },
+		header: { title: { tag: "plain_text", content: kind === "dm" ? "私聊开通申请" : "机器人开通申请" }, template: "orange" },
 		body: {
 			elements: [
 				{ tag: "markdown", content: content.join("\n") },
-				{
-					tag: "column_set", flex_mode: "none", horizontal_spacing: "small",
-					columns: [button("放行此群", "chat.allow", "primary"), button("暂不放行", "chat.deny", "default")],
-				},
+				{ tag: "column_set", flex_mode: "none", horizontal_spacing: "small", columns: buttons },
 			],
 		},
 	};
 }
 
-/** 群里给申请人的回告（无按钮；@ 才会有提醒）。 */
-export function buildAccessNoticeCard(text: string, template: "blue" | "green" | "grey" = "blue"): unknown {
+/** 给申请人的回告（无按钮；群里要 @ 才会有提醒）。标题缺省按群开通写。 */
+export function buildAccessNoticeCard(text: string, template: "blue" | "green" | "grey" = "blue", title?: string): unknown {
 	return {
 		schema: "2.0",
 		config: { wide_screen_mode: true },
-		header: { title: { tag: "plain_text", content: template === "green" ? "本群已开通" : "机器人开通申请" }, template },
+		header: { title: { tag: "plain_text", content: title ?? (template === "green" ? "本群已开通" : "机器人开通申请") }, template },
 		body: { elements: [{ tag: "markdown", content: text }] },
 	};
 }

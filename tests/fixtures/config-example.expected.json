@@ -12,6 +12,7 @@
     "oc_test_chat_id"
   ],
   "allowUsers": [],
+  "allowUsersAllGroups": [],
   "admins": [
     "ou_admin_open_id"
   ],
@@ -116,6 +117,7 @@
     "notifyAdmins": true,
     "accessRequest": false,
     "accessRequestCooldownMs": 3600000,
+    "accessRequestMaxPerHour": 10,
     "accessApprovers": "owner"
   },
   "feedback": {
