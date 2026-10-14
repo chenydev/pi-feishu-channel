@@ -30,6 +30,7 @@ test("帮助卡：帮助卡分组、无参命令做成按钮（带发起人）�
 	assert.match(json, /skill:review/);
 	assert.doesNotMatch(json, /feishu:status`/, "扩展自己的 TUI 命令不列");
 	for (const title of ["对话", "模型", "会话", "管理"]) assert.match(json, new RegExp(`\\*\\*${title}\\*\\*`));
+	assert.match(json, /`\/help <命令>`/, "底部提示怎么看单个命令的详细用法");
 	const admin = buttons(buildHelpCard({ ...ctx, isAdmin: true }));
 	assert.ok(admin.length >= user.length);
 });

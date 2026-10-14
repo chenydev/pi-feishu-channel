@@ -77,6 +77,7 @@ export function buildHelpCard(input: HelpCardInput, specs: readonly CommandSpec[
 	elements.push({
 		tag: "markdown", text_size: "notation",
 		content: [
+			"看某个命令的详细用法：`/help <命令>`，如 `/help workspace`。",
 			"忙碌时直接发普通消息 = 并入当前任务；要等当前任务结束再做用 `/queue`。",
 			...(input.directBash ? ["管理员可以用 `!<命令>` 直接执行命令（不经过模型）。"] : []),
 		].join("\n"),

@@ -21,6 +21,8 @@ export interface CommandSpec {
 	adminOnly?: boolean;
 	/** 帮助卡片上做成按钮（点击等同于发送该命令；只适合无参命令）。 */
 	button?: boolean;
+	/** 详细用法，每行一条；`/help <命令>` 时展示。子命令多、一行说不清的命令才写。 */
+	details?: string[];
 }
 
 export const COMMANDS: readonly CommandSpec[] = [
@@ -42,10 +44,20 @@ export const COMMANDS: readonly CommandSpec[] = [
 	{ name: "/name", usage: "/name <名称>", description: "重命名当前会话", group: "会话" },
 	{ name: "/fork", usage: "/fork [#N]", description: "从第 N 条用户消息处分叉出新会话", group: "会话" },
 	{ name: "/export", usage: "/export [html|md|summary]", description: "把当前会话导出成文件发到这里", group: "会话" },
-	{ name: "/workspace", usage: "/workspace [别名] | add <别名> <绝对路径> | rm <别名> | default <别名>|reset", description: "查看（任何人）/切换、增删、设默认（管理员）受控工作区", group: "会话" },
+	{
+		name: "/workspace", usage: "/workspace [别名] | add <别名> <绝对路径> | rm <别名> | default <别名>|reset", description: "查看（任何人）/切换、增删、设默认（管理员）受控工作区", group: "会话",
+		details: [
+			"/workspace：查看当前工作区和登记过的别名（任何人）",
+			"/workspace <别名>：把当前会话切到该工作区，下一条消息在新目录里开新会话，旧会话可 /resume 回去；有任务在跑时先 /stop（管理员）",
+			"/workspace add <别名> <绝对路径>：登记目录，路径可以用 ~/ 开头；别名已存在时先 rm 再 add（管理员）",
+			"/workspace rm <别名>：删除登记，正在用它的会话不受影响；默认工作区要先改掉默认才能删（管理员）",
+			"/workspace default <别名>|reset：设置 / 清除新会话的默认工作区，reset 后用 pi 的启动目录（管理员）",
+			"只能切到登记过的目录；增删和默认值立即写入 config.json，不用重启；pi 进程的 cwd 不会变",
+		],
+	},
 	{ name: "/cron", usage: "/cron add \"<表达式>\" <任务> | list | rm <id> | pause <id> | resume <id>", description: "定时任务（管理员）", group: "会话", adminOnly: true },
 	// ---- 管理 ----
-	{ name: "/help", aliases: ["/h", "/?", "/commands", "/feishu help"], usage: "/help", description: "本帮助", group: "管理" },
+	{ name: "/help", aliases: ["/h", "/?", "/commands", "/feishu help"], usage: "/help [命令]", description: "本帮助；带命令名看该命令的详细用法", group: "管理" },
 	{ name: "/feishu status", usage: "/feishu status", description: "连接、会话、队列、outbox 状态", group: "管理", button: true },
 	{ name: "/feishu usage", usage: "/feishu usage [week]", description: "用量与费用（week = 近 7 天汇总）", group: "管理", button: true },
 	{ name: "/feishu doctor", usage: "/feishu doctor", description: "可解释诊断", group: "管理" },
@@ -163,6 +175,25 @@ export function formatHelpText(specs: readonly CommandSpec[] = COMMANDS, extras:
 		lines.push("", "【技能与模板】");
 		for (const command of extras.piCommands.slice(0, 30)) lines.push(`/${command.name}${command.description ? ` — ${command.description.slice(0, 60)}` : ""}`);
 	}
-	lines.push("", "忙碌时直接发送普通消息 = 注入当前任务；要等当前任务结束再做用 /queue。");
+	lines.push("", "看某个命令的详细用法：/help <命令>，如 /help workspace。", "忙碌时直接发送普通消息 = 注入当前任务；要等当前任务结束再做用 /queue。");
 	return lines.join("\n");
+}
+
+/**
+ * `/help <命令>` 的单条帮助。命令名可以不带 `/`，也可以用别名或两段式（`/help feishu approvals`）。
+ * 不认识的命令给出最接近的建议。
+ */
+export function formatCommandHelp(query: string, specs: readonly CommandSpec[] = COMMANDS): string {
+	const name = `/${query.trim().replace(/^\/+/, "").replace(/\s+/g, " ").toLowerCase()}`;
+	const spec = resolveCommand(name, specs)?.spec;
+	if (!spec) {
+		const suggestion = suggestCommand(name, new Set(), specs);
+		return `没有这个命令：${name}${suggestion ? `，是否想看 /help ${suggestion.slice(1)}？` : "。"}发 /help 查看全部命令`;
+	}
+	const aliases = spec.aliases?.length ? `（别名 ${spec.aliases.join("、")}）` : "";
+	return [
+		`${spec.usage}${aliases}${spec.adminOnly ? " 〔管理员〕" : ""}`,
+		spec.description,
+		...(spec.details?.length ? ["", ...spec.details.map((line) => `· ${line}`)] : []),
+	].join("\n");
 }

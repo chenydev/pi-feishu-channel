@@ -7,12 +7,16 @@ import { formatTimeInZone, resolvePaths } from "../../config.js";
 import { formatUsageWeek } from "../../runtime/usage-ledger.js";
 import { formatDoctor, runDoctor } from "../../runtime/doctor.js";
 import { buildHelpCard } from "../cards.js";
-import { COMMANDS, formatHelpText } from "../registry.js";
+import { COMMANDS, formatCommandHelp, formatHelpText } from "../registry.js";
 import { buildUsageCard, formatUsageReport } from "../usage-card.js";
 
 export function infoCommands(svc: CommandServices): Record<string, CommandHandler> {
 	return {
-		"/help": async ({ isAdmin, reply, trySendCard, buttonCtx }) => {
+		"/help": async ({ rest, isAdmin, reply, trySendCard, buttonCtx }) => {
+			if (rest) {
+				reply(formatCommandHelp(rest));
+				return;
+			}
 			const piCommands = svc.piCommands();
 			if (await trySendCard(buildHelpCard({ ...buttonCtx, isAdmin, piCommands, directBash: Boolean(svc.rt.config.directBash?.enabled) }), "help")) return;
 			reply(formatHelpText(COMMANDS, { piCommands: piCommands.filter((command) => command.source !== "extension") }));

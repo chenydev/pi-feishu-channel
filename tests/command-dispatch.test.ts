@@ -106,6 +106,27 @@ test("查看类命令：/help 卡片发送失败时退回文本", async () => {
 		await send("/help");
 		assert.deepEqual(cards, ["help"]);
 		assert.match(replies[0], /\/new/);
+		assert.match(replies[0], /\/help <命令>/);
+	} finally { cleanup(); }
+});
+
+test("查看类命令：/help <命令> 回复该命令的详细用法；命令名可带 / 、用别名或两段式，打错时给建议", async () => {
+	const { send, replies, cards, cleanup } = setup({ cardOk: true });
+	try {
+		await send("/help workspace");
+		assert.deepEqual(cards, [], "单条帮助发文本，不发卡片");
+		assert.match(replies.at(-1) ?? "", /^\/workspace \[别名\]/);
+		assert.match(replies.at(-1) ?? "", /· \/workspace add <别名> <绝对路径>：登记目录/);
+		assert.match(replies.at(-1) ?? "", /· \/workspace default <别名>\|reset：/);
+		await send("/help /q");
+		assert.match(replies.at(-1) ?? "", /^\/queue <内容> \| list \| clear（别名 \/q）\n排队/);
+		assert.doesNotMatch(replies.at(-1) ?? "", /·/, "没写 details 的命令只有用法和描述");
+		await send("/help feishu approvals");
+		assert.match(replies.at(-1) ?? "", /^\/feishu approvals \[off/);
+		await send("/help workspce");
+		assert.match(replies.at(-1) ?? "", /没有这个命令：\/workspce，是否想看 \/help workspace？/);
+		await send("/help");
+		assert.deepEqual(cards, ["help"]);
 	} finally { cleanup(); }
 });
 
