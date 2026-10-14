@@ -186,6 +186,7 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 | 群开通申请：未放行的群里有人 @ 机器人时，把申请发给能审批的人 | `onboarding.accessRequest` |
 | 云文档读取工具 `feishu_doc_read` | `docTools.enabled` |
 | 流式卡片展示处理过程 | `streamingCard.enabled` |
+| 群里回复机器人的消息时不用再 @ | `groupAlsoOnReply` |
 
 当前打开了哪些，看启动日志 `feishu.bridge.features`、`status.json` 的 `features` 字段或 `/feishu doctor`。变更记录见 `CHANGELOG.md`。
 

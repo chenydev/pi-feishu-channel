@@ -12,7 +12,7 @@
     "ou_admin_open_id"
   ],
   "adminBypassMention": false,
-  "groupAlsoOnReply": true,
+  "groupAlsoOnReply": false,
   "groupSessionsPerUser": true,
   "requireMention": true,
   "ignoreAtAll": true,

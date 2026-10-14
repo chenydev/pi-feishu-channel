@@ -15,7 +15,7 @@
   "admins": [
     "ou_admin_open_id"
   ],
-  "groupAlsoOnReply": true,
+  "groupAlsoOnReply": false,
   "allowBots": [],
   "runIdleTimeoutMs": 600000,
   "runMaxDurationMs": 0,

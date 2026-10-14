@@ -37,6 +37,7 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 | 让某个群能用 | 把群 id（`oc_` 开头）加进 `allowChats`。**空数组 = 拒绝所有群** |
 | 让某人能私聊 | 把 open_id（`ou_` 开头）加进 `allowUsers`。**空数组 = 拒绝所有私聊**；管理员和应用归属人始终可以 |
 | 群里不 @ 也响应 | `groupPolicy` / `groupRules.<群id>.policy` 设为 `open` |
+| 回复机器人的消息不用 @ | `groupAlsoOnReply: true`（默认关）。全实例生效，不分群和人；只认最近 `lastSentCacheSize` 条（默认 64）机器人消息，重启清空 |
 | 只让部分人在某群使用 | `groupRules.<群id>.policy: "allowlist"` + `allowlist` |
 | 让其它机器人 / webhook 触发 | `allowBots` 加 `"mentions"`（任何 @ 了本机器人的 bot 都放行，不依赖 id，换应用不失效）；或加对方 `app_id` |
 | 指定管理员 | `admins`（open_id）。应用归属人和应用管理员启动时自动识别（开发者、运营不算），**不用写** |
@@ -46,7 +47,7 @@ open_id 是**按应用生成**的：换了飞书应用，`admins`、`allowUsers`
 
 ### 可选能力默认关闭
 
-`approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest` 都需要显式开启。
+`approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest`、`groupAlsoOnReply`（回复机器人免 @）都需要显式开启。
 
 工具审批：`approval.mode` 取 `off`（默认，直接放行）/ `builtin`（内置分级 + 审批卡）/ `pi-permission-system`（pi-permission-system）。
 管理员在飞书里 `/feishu approvals <模式>` 只改当前会话（重启失效），加 `-g` 写入配置，`reset` 回到全局。
@@ -96,6 +97,8 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 |---|---|---|
 | 桥没起来，日志 `feishu.bridge.autostart_skipped` | `reason: disabled` = 没设 `FEISHU_CHANNEL_ENABLED=1`（默认关）；`reason: mode` = 不是 `pi --mode rpc` | 部署进程设上该变量并用 `--mode rpc`（容器要重建）；本地 TUI 要连就 `/feishu:start` |
 | `status.json` 说已连接，却没反应 | 文件过期，进程已停 | 看 mtime，重启 |
+| 回复机器人的消息，没 @ 也触发 | 开了 `groupAlsoOnReply`（默认关） | 设为 `false` 或去掉 `FEISHU_GROUP_ALSO_ON_REPLY` 后重启 |
+| 开了 `groupAlsoOnReply`，回复机器人仍要 @ | 被回复的消息不在最近 `lastSentCacheSize` 条里，或发于重启前 | 设计如此；@ 机器人即可 |
 | 桥没起来，日志 `pi.getAgentDir is not a function` | 扩展版本过旧 | 升级扩展；临时设 `FEISHU_CHANNEL_HOME` |
 | 连接反复断开又连上 | 同一应用被多个进程连接 | 一个应用只能有一个实例；锁冲突时启动报 `bridge already running for appId …` |
 | 每开一个会话多一条 `ws_ready` | 子会话没剔除本扩展 | `feishu.session.resource_loader_ready` 的 `strippedGateways` 应为 1 |

@@ -52,6 +52,17 @@ test("mention 策略：未 @ 拒绝", () => {
 	if (!r.ok) assert.equal(r.reason, "bot_not_mentioned");
 });
 
+test("mention 策略：groupAlsoOnReply 默认关闭，回复 bot 消息仍要 @", () => {
+	const c = cfg({ groupPolicy: "mention" });
+	const cache = new LastSentCache(8);
+	cache.record("om_bot_sent");
+	const msg = groupMsg({ replyToMessageId: "om_bot_sent" });
+	const r = admit(c, msg, false, true, cache);
+	assert.equal(r.ok, false);
+	if (!r.ok) assert.equal(r.reason, "bot_not_mentioned");
+	assert.equal(admit(c, msg, true, true, cache).ok, true);
+});
+
 test("mention 策略：回复 bot 消息免 @（groupAlsoOnReply）", () => {
 	const c = cfg({ groupPolicy: "mention", groupAlsoOnReply: true });
 	const cache = new LastSentCache(8);

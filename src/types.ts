@@ -358,7 +358,7 @@ export const DEFAULT_CONFIG: BridgeConfig = {
 	allowChats: [],
 	allowUsers: [],
 	admins: [],
-	groupAlsoOnReply: true,
+	groupAlsoOnReply: false,
 	allowBots: [],
 	// 空闲超时：只在「完全没有事件产出」时中止（对齐 hermes 不设固定总时长的做法）
 	runIdleTimeoutMs: 600_000,

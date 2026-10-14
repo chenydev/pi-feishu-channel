@@ -4,6 +4,9 @@
 
 ## 未发布
 
+- **破坏性变更（准入）**：`groupAlsoOnReply` 默认改为关闭。`mention` 策略下回复机器人发出的消息，现在也要 @ 机器人才会触发；
+  要保留原来的行为，在 `config.json` 里写 `"groupAlsoOnReply": true` 或设环境变量 `FEISHU_GROUP_ALSO_ON_REPLY=1`。
+  这个开关对整个实例生效，不分群和人；只认进程内存里最近 `lastSentCacheSize` 条机器人消息，重启后清空。`config.example.json` 同步改为 `false`。
 - **破坏性变更（启动）**：新增环境变量 `FEISHU_CHANNEL_ENABLED`，**默认关闭**。只有设了 `FEISHU_CHANNEL_ENABLED=1`（`true` / `yes` / `on` 也行）
   并且是 `pi --mode rpc` 启动的进程才自动连飞书；本机其他 pi 进程（包括编辑器插件拉起的 RPC 进程）都不连。
   **升级前给部署的进程加上这个环境变量**，否则升级后不再连接。没设时日志 `feishu.bridge.autostart_skipped` 的 `reason` 为 `disabled`

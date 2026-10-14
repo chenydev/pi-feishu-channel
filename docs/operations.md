@@ -82,7 +82,7 @@
 | `not_allowlisted` | 群不在 `allowChats` 里，或用户不在该群的 `allowlist` 里 | `allowChats` / `groupRules.<chatId>.allowlist` |
 | `dm_policy_rejected` | 私聊未放行 | `allowUsers`（管理员始终放行） |
 | `group_policy_rejected` | 群策略拒绝（`disabled` / `admin_only` / `blacklist`） | `groupPolicy` / `groupRules` |
-| `bot_not_mentioned` | 群策略要求 @，但消息没有 @ 本机器人 | 在消息里 @，或修改群策略 |
+| `bot_not_mentioned` | 群策略要求 @，但消息没有 @ 本机器人 | 在消息里 @，或修改群策略；想让「回复机器人的消息」免 @，开 `groupAlsoOnReply` |
 
 另外，机器人自己发出的消息会在更早的环节被过滤（`feishu.transport.drop_self_echo`），以防自我触发的死循环。**所以不能用机器人自己的身份发消息来做测试。**
 
@@ -91,6 +91,8 @@
 | 症状 | 通常的原因 | 怎么确认 / 修复 |
 |---|---|---|
 | 消息发了完全没反应 | 没有 @；群不在白名单里 | 查 `feishu.pipeline.drop` 的 `reason` |
+| 回复机器人发的消息，没 @ 也触发了 | 开了 `groupAlsoOnReply`（默认关闭）：`mention` 策略下回复机器人的消息免 @ | 查 `config.json` 和环境变量 `FEISHU_GROUP_ALSO_ON_REPLY`；不要这个行为就设为 `false` 后重启。它对整个实例生效，不能按群或按人设置 |
+| 开了 `groupAlsoOnReply`，回复机器人有时仍要 @ | 只认进程内存里最近 `lastSentCacheSize` 条（默认 64）机器人消息：重启前发的、或群里机器人发言多时较早的消息都认不出来 | 设计如此，@ 机器人即可；需要时调大 `lastSentCacheSize` |
 | 桥没起来，日志 `extension_error session_start … pi.getAgentDir is not a function` | 扩展版本过旧，调用了 pi 扩展 API 上不存在的方法 | 升级扩展；临时绕过：设置 `FEISHU_CHANNEL_HOME` |
 | 桥没起来，日志 `feishu.bridge.autostart_skipped` | `reason: disabled`：进程没设 `FEISHU_CHANNEL_ENABLED=1`（默认关闭）；`reason: mode`：不是 `pi --mode rpc` 启动的 | 部署的进程设上 `FEISHU_CHANNEL_ENABLED=1` 并用 `--mode rpc`（容器要重建才拿到新环境变量）；本地 TUI 里要连就 `/feishu:start` |
 | `status.json` 显示已连接，却没反应 | 文件已经过期，进程早就停了 | 看 mtime；`/feishu doctor` 的 `status_heartbeat` |
