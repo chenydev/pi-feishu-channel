@@ -34,6 +34,9 @@ export function sessionCommands(svc: CommandServices): Record<string, CommandHan
 				? "已请求停止当前任务；通过 /queue 排队的后续任务将继续执行"
 				: "当前没有正在执行的任务");
 		},
+		"/progress": async ({ msg, reply }) => {
+			reply(svc.rt.convManager?.progressReport(msg) ?? "会话不可用");
+		},
 		"/queue": async ({ msg, args, rest, reply }) => {
 			const sub = args[0]?.toLowerCase();
 			if (sub === "list" && args.length === 1) {

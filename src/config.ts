@@ -240,6 +240,7 @@ export function loadConfig(homeDir: string, env: NodeJS.ProcessEnv = process.env
 				?? 50,
 		},
 		runIdleTimeoutMs: fileCfg.runIdleTimeoutMs ?? DEFAULT_CONFIG.runIdleTimeoutMs,
+		runToolIdleTimeoutMs: fileCfg.runToolIdleTimeoutMs ?? DEFAULT_CONFIG.runToolIdleTimeoutMs,
 		runMaxDurationMs: fileCfg.runMaxDurationMs ?? DEFAULT_CONFIG.runMaxDurationMs,
 		allowBots: fileCfg.allowBots ?? DEFAULT_CONFIG.allowBots,
 		reaction: { ...DEFAULT_CONFIG.reaction, ...fileCfg.reaction },

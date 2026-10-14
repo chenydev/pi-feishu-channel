@@ -47,6 +47,7 @@
     "mentions"
   ],
   "runIdleTimeoutMs": 600000,
+  "runToolIdleTimeoutMs": 3600000,
   "runMaxDurationMs": 0,
   "groupSessionsPerUser": true,
   "requireMention": true,

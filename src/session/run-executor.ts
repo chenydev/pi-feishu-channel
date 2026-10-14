@@ -17,6 +17,7 @@ import type { DeliveryTarget, PiImageContent } from "../types.js";
 import type { AgentHandle, BridgeSession, ConversationManagerDeps, QueuedMessage } from "./conversation-manager.js";
 import { PROGRESS_HEARTBEAT_MS, type ProgressTracker } from "./progress-tracker.js";
 import { classifyRunError, newErrorId } from "./run-errors.js";
+import { RunActivity, durationLabel } from "./run-activity.js";
 import { extractAssistantText, stripContextPrefix, stripInjectedPrompt } from "./text-utils.js";
 
 type RunMetrics = ReturnType<typeof createRunMetrics>;
@@ -53,6 +54,8 @@ export class RunExecutor {
 		});
 		sess.lastActivityAt = this.host.now();
 		sess.lastItem = item;
+		sess.run = new RunActivity(this.host.now());
+		sess.runIdleInfo = undefined;
 		const st = this.host.progress.state(sess.conversationKey);
 		// 进度消息的回复目标：轮换新消息（编辑配额用尽）时沿用，保持阅读顺序。
 		st.replyTo = item.replyTo;
@@ -184,7 +187,8 @@ export class RunExecutor {
 				}
 			};
 			unsubscribe = activeAgent.subscribe((ev) => {
-				// 任何事件都算「有产出」：重置空闲计时器（长时间工具/长回答不该被误杀）
+				// 任何事件都算「有产出」：先记下在跑什么工具（决定空闲时限），再重置空闲计时器
+				sess.run?.record(ev, this.host.now());
 				this.host.touchRunActivity(sess);
 				// message_update 风暴降噪：只打非 text_delta 的 update（tool 事件等）
 				const evType = (ev as { type?: string })?.type ?? "?";
@@ -303,7 +307,7 @@ export class RunExecutor {
 			// - 总时长上限：仅当显式配置 > 0 时生效（默认不限，避免长任务被硬杀）
 			const timeout = new Promise<never>((_, reject) => {
 				sess.runIdleReject = reject;
-				if (this.host.runIdleTimeoutMs > 0) this.host.touchRunActivity(sess);
+				this.host.touchRunActivity(sess);
 				if (this.host.runMaxDurationMs > 0) {
 					timeoutTimer = setTimeout(() => reject(new Error("run max duration exceeded")), this.host.runMaxDurationMs);
 				}
@@ -396,13 +400,14 @@ export class RunExecutor {
 					conversationKey: sess.conversationKey,
 				}));
 			} else if (isRunTimeout) {
-				// 说明「多久没动静」而不是「总共跑了多久」——两者语义不同，用户需要能区分
-				const idleLabel = this.host.runIdleTimeoutMs >= 60_000
-					? `${Math.round(this.host.runIdleTimeoutMs / 60_000)} 分钟`
-					: `${Math.round(this.host.runIdleTimeoutMs / 1000)} 秒`;
-				const timeoutText = msg === "run idle timeout"
-					? `任务已 ${idleLabel} 没有新进展，已中止（不是总时长限制）。长时间无输出的任务可把 runIdleTimeoutMs 调大。`
-					: "任务超过配置的最长执行时间，已中止。";
+				// 说明「多久没动静」而不是「总共跑了多久」——两者语义不同，用户需要能区分；也说清卡在工具还是模型
+				const info = sess.runIdleInfo as BridgeSession["runIdleInfo"];
+				const idleLabel = durationLabel(info?.idleMs ?? this.host.runIdleTimeoutMs);
+				const timeoutText = msg !== "run idle timeout"
+					? "任务超过配置的最长执行时间，已中止。"
+					: info?.phase === "tool"
+						? `工具 ${info.tool ?? ""} 已 ${idleLabel}没有输出，已中止（不是总时长限制）。确实需要更久的话把 runToolIdleTimeoutMs 调大。`
+						: `已 ${idleLabel}没有收到模型的任何输出，已中止（不是总时长限制）。多半是模型服务卡住了，可以 /retry；需要的话把 runIdleTimeoutMs 调大。`;
 				durableHandled = external ? await this.deliverExternal(external, timeoutText, item) : await this.host.notify(sess.chatId, timeoutText, {
 					replyTo: item.replyTo,
 					threadId: sess.threadId ?? item.threadId,
@@ -431,6 +436,7 @@ export class RunExecutor {
 			if (timeoutTimer) clearTimeout(timeoutTimer);
 			if (sess.runIdleTimer) { clearTimeout(sess.runIdleTimer); sess.runIdleTimer = undefined; }
 			sess.runIdleReject = undefined;
+			sess.run = undefined;
 			if (progressTimer) clearInterval(progressTimer);
 			try { unsubscribe?.(); } catch { /* best effort */ }
 			// 先取快照：下面会把 stopRequested 复位，之后再读它就永远是 false。

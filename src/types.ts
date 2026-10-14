@@ -118,8 +118,10 @@ export interface BridgeConfig {
 	 * 默认空 = 拒绝所有 bot 消息（hermes allow_bots=none 的安全默认）。
 	 */
 	allowBots?: string[];
-	/** run 空闲超时（无任何事件产出才算）；0 = 关闭。默认 10 分钟。 */
+	/** run 空闲超时：等模型时连续多久没有任何事件就中止；0 = 关闭。默认 10 分钟。 */
 	runIdleTimeoutMs?: number;
+	/** 工具执行中的空闲超时：工具连续多久没有输出就中止；0 = 关闭。默认 60 分钟。 */
+	runToolIdleTimeoutMs?: number;
 	/** run 总时长硬上限；0 = 不限制（默认）。 */
 	runMaxDurationMs?: number;
 	/**
@@ -373,6 +375,8 @@ export const DEFAULT_CONFIG: BridgeConfig = {
 	allowBots: [],
 	// 空闲超时：只在「完全没有事件产出」时中止（对齐 hermes 不设固定总时长的做法）
 	runIdleTimeoutMs: 600_000,
+	// 工具执行中另算：构建、跑测试长时间没有输出很正常
+	runToolIdleTimeoutMs: 3_600_000,
 	// 总时长上限：默认 0 = 不限制
 	runMaxDurationMs: 0,
 	groupSessionsPerUser: true,

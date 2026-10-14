@@ -8,8 +8,8 @@ test("斜杠命令帮助完整列出支持的命令和用途", () => {
 		assert.match(help, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 	}
 	assert.match(help, /普通消息 = 注入当前任务/);
-	assert.equal(FEISHU_SLASH_COMMANDS.length, 29, "帮助由命令注册表生成（含 E/F 系列新命令）");
-	for (const command of ["/retry", "/undo", "/fork", "/export", "/cron", "/feishu approvals", "/feishu prompt", "/feishu budget", "/clear", "/reset", "/reload"]) {
+	assert.equal(FEISHU_SLASH_COMMANDS.length, 30, "帮助由命令注册表生成（含 E/F 系列新命令）");
+	for (const command of ["/retry", "/undo", "/fork", "/export", "/cron", "/feishu approvals", "/feishu prompt", "/feishu budget", "/clear", "/reset", "/reload", "/progress"]) {
 		assert.ok(help.includes(command), `帮助应列出 ${command}`);
 	}
 });

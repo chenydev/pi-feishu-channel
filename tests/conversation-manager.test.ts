@@ -166,7 +166,7 @@ test("运行超时会 abort 并 dispose，下一条消息新建 session", async 
 	});
 
 	await manager.route(message("m-timeout"));
-	await waitUntil(() => sent.some((item) => item.text.includes("没有新进展")));
+	await waitUntil(() => sent.some((item) => item.text.includes("没有收到模型的任何输出")));
 	await waitUntil(() => disposed === 1 && unsubscribed === 1);
 	await manager.route(message("m-next"));
 	await waitUntil(() => sent.some((item) => item.text === "recovered"));

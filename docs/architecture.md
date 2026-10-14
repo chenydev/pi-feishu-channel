@@ -21,7 +21,7 @@ src/
   inbound/     飞书长连接、消息解析、准入、去重与合批、入站流水线
   outbound/    错误统一分类、长文分片、发送、流式通道、持久化 outbox、页脚指标
   approval/    审批模式、工具调用审批检查、权限桥、命令分级、审批卡、pi-permission-system 授权链环节
-  session/     pi 会话后端、会话管理器、调度、单轮执行、进度、会话指针
+  session/     pi 会话后端、会话管理器、调度、单轮执行、执行中状态（run-activity）、进度、会话指针
   commands/    命令注册表与分发、按组的命令处理函数、TUI 命令、状态与帮助卡片
   interaction/ 卡片回调路由与核心按钮、平台事件（撤回/入群/欢迎/反馈）、澄清提问
   features/    可选能力插件（默认全部关闭），见下文
@@ -62,10 +62,12 @@ src/
   ▼
 会话管理 session/conversation-manager
   │  conversationKey → 独立 agent 会话 + 队列；同一个 key 同时最多一轮在执行
-  │  忙碌时：新消息并入当前轮（steer）或排队
+  │  忙碌时：新消息并入当前轮（steer）或排队；工具执行超过 1 分钟时先回一句正在做什么
+  │  /progress 直接读执行中这一轮的状态（session/run-activity），不经过模型
   ▼
 单轮执行 session/run-executor
   │  pi agent 执行；工具调用经过审批检查（approval/）
+  │  空闲超时分两段：工具执行中按 runToolIdleTimeoutMs（60 分钟），等模型时按 runIdleTimeoutMs（10 分钟）
   │  进度消息、流式卡片走流式更新通道（outbound/live-channel、streaming-card）
   ▼
 最终回复 outbound/outbox → sender

@@ -19,6 +19,7 @@
   "allowBots": ["mentions"],
   "adminBypassMention": false,
   "runIdleTimeoutMs": 600000,
+  "runToolIdleTimeoutMs": 3600000,
   "runMaxDurationMs": 0,
   "ignoreAtAll": true,
   "groupAlsoOnReply": true,

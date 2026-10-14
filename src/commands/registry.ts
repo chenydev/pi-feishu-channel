@@ -29,6 +29,14 @@ export const COMMANDS: readonly CommandSpec[] = [
 	// ---- 对话 ----
 	{ name: "/new", aliases: ["/clear", "/reset"], usage: "/new [force]", description: "开新会话（旧会话进历史，可 /resume 回去）", group: "对话", button: true },
 	{ name: "/stop", usage: "/stop", description: "中止当前任务；已排队的后续任务保留", group: "对话", button: true },
+	{
+		name: "/progress", usage: "/progress", description: "查看当前任务做到哪了（不打断任务，不经过模型）", group: "对话", button: true,
+		details: [
+			"任务执行中随时可以发，立即回复：已运行多久、正在执行哪个工具及其最近几行输出、待并入和排队的消息数。",
+			"问进度用它，不要直接发「做到哪了」：普通消息在工具执行中要等这一步结束才交给模型，还会被当成新指令插进任务。",
+			"自己的会话空闲时，列出这个群里别人正在执行的任务（只有人和时长）。",
+		],
+	},
 	{ name: "/steer", usage: "/steer <内容>", description: "注入当前任务（空闲时直接开始）", group: "对话" },
 	{ name: "/queue", aliases: ["/q"], usage: "/queue <内容> | list | clear", description: "排队为独立任务；list 查看、clear 清空队列", group: "对话" },
 	{ name: "/retry", usage: "/retry", description: "用同一条消息重新生成上一轮回答（换模型后再试很方便）", group: "对话", button: true },

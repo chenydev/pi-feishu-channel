@@ -33,13 +33,14 @@
 | `adminBypassMention` | boolean | `false` |  | 管理员与应用归属人在群里是否可以不 @ 机器人直接触发 |
 | `admins` | string[] | `[]` | `FEISHU_ADMINS`（逗号分隔） | 管理员 open_id。管理员不受群策略限制（是否仍需 @ 见 `adminBypassMention`），可以审批工具调用、执行管理命令。应用归属人与应用管理员启动时自动识别，不用写进来 |
 | `allowBots` | string[] | `[]` |  | 允许触发机器人的其它机器人或应用：`app_id`（`cli_` 开头，换应用也不变，推荐）、机器人的 open_id（换应用后会变），或特殊值 `"mentions"`（任何 @ 了本机器人的机器人都放行）。空数组 = 拒绝所有机器人发的消息 |
-| `runIdleTimeoutMs` | number | `600000`（10 分钟） |  | 一轮任务连续多久没有任何进展就中止（毫秒；0 = 不限制） |
+| `runIdleTimeoutMs` | number | `600000`（10 分钟） |  | 等模型回复时，连续多久没有任何输出就中止这一轮（毫秒；0 = 不限制）。工具执行中按 `runToolIdleTimeoutMs` |
+| `runToolIdleTimeoutMs` | number | `3600000`（1 小时） |  | 工具执行中（如 bash 跑构建、测试），连续多久没有输出就中止这一轮（毫秒；0 = 不限制） |
 | `runMaxDurationMs` | number | `0` |  | 一轮任务的总时长上限（毫秒；0 = 不限制） |
 | `ignoreAtAll` | boolean | `true` |  | 忽略「@所有人」。设为 false 时，@所有人 等同于 @ 本机器人（仍受群策略和白名单约束） |
 | `groupAlsoOnReply` | boolean | `false` | `FEISHU_GROUP_ALSO_ON_REPLY` | `mention` 策略下，回复机器人发出的消息时不用再 @。只认进程内记住的最近 `lastSentCacheSize` 条机器人消息，重启后清空；对整个实例生效，不分群和人 |
 | `groupSessionsPerUser` | boolean | `true` |  | 群里每个人各用一个独立会话；设为 false 时全群共用一个会话。话题里始终共用该话题的会话 |
 | `requireMention` | boolean | `true` | `FEISHU_REQUIRE_MENTION` | 群里是否必须 @ 机器人才触发 |
-| `queueNotice` | boolean | `true` |  | 忙碌时排队的消息回复一次「已排队」（同一会话 10 秒内只提示一次） |
+| `queueNotice` | boolean | `true` |  | 忙碌时排队的消息回复一次「已排队」（同一会话 10 秒内只提示一次）；工具执行超过 1 分钟时收到的消息回复一次正在做什么（5 分钟内只提示一次） |
 | `userPrompts` | { [id]: string } | — |  | 私聊的个人提示词（open_id → 提示词）；在私聊里用 `/feishu prompt set` 设置 |
 | `statusHeartbeatMs` | number | `30000`（30 秒） |  | `status.json` 的刷新间隔（毫秒；0 = 不定时刷新） |
 | `footerByChat` | { [id]: boolean } | `{}` |  | 按群开关页脚（群 id → 是否显示），优先于 `footer.enabled`；在群里用 `/feishu footer on\|off` 设置 |

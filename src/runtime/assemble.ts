@@ -183,6 +183,7 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 			return rt.transport.rawRequest(opts);
 		},
 		runIdleTimeoutMs: rt.config.runIdleTimeoutMs,
+		runToolIdleTimeoutMs: rt.config.runToolIdleTimeoutMs,
 		runMaxDurationMs: rt.config.runMaxDurationMs,
 		sessionBackend: ctx.sessionBackend ?? new PiSessionBackend({
 			sessionDir: paths.sessionDir,

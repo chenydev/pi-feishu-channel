@@ -30,6 +30,7 @@ import { RunExecutor } from "./run-executor.js";
 import { SessionScheduler } from "./scheduler.js";
 import { ConversationCommands } from "./conversation-commands.js";
 import { sessionUsageStats } from "./model-utils.js";
+import { type RunActivity, busyNoticeText, describeProgress, durationLabel } from "./run-activity.js";
 
 export type AgentHandle = Awaited<ReturnType<SessionBackend["createSession"]>>;
 
@@ -77,8 +78,10 @@ export interface ConversationManagerDeps {
 	log?: (level: "debug" | "info" | "warn" | "error", msg: string, meta?: unknown) => void;
 	/** 流式卡片需要直连飞书 API（复用 transport.rawRequest）。 */
 	rawRequest?: (opts: { url: string; method: string; params?: unknown; data?: unknown }) => Promise<unknown>;
-	/** run 空闲超时：有活动就不计时，停止产出才中止（默认 10 分钟）。0 = 关闭。 */
+	/** run 空闲超时：等模型时连续这么久没有事件才中止（默认 10 分钟）。0 = 关闭。 */
 	runIdleTimeoutMs?: number;
+	/** 工具执行中的空闲超时（默认 60 分钟）。0 = 关闭。 */
+	runToolIdleTimeoutMs?: number;
 	/** run 总时长硬上限（默认 0 = 不限制，只靠空闲超时兜底）。 */
 	runMaxDurationMs?: number;
 	/** 该会话未决审批数；>0 时不回收会话句柄。 */
@@ -144,8 +147,14 @@ export interface BridgeSession {
 
 	/** 工作区别名（诊断/展示用，不泄露绝对路径）。 */
 	workspaceAlias?: string;
+	/** 执行中这一轮的实时状态（在跑什么工具、多久了）；空闲时为空。 */
+	run?: RunActivity;
 	/** run 空闲计时器：收到任意 agent 事件就重置；长时间无产出才中止。 */
 	runIdleTimer?: ReturnType<typeof setTimeout>;
+	/** 空闲超时触发时卡在哪一段（中止提示用）。 */
+	runIdleInfo?: { phase: "tool" | "model"; tool?: string; idleMs: number };
+	/** 上次忙碌提示（"正在执行 bash，消息稍后交给模型"）的时间。 */
+	lastBusyNoticeAt?: number;
 	/** 空闲超时时用来 reject run 的句柄（按会话，避免多会话并发互相覆盖）。 */
 	runIdleReject?: (error: Error) => void;
 	/** 最近一轮 run 的指标快照（`/feishu usage` 展示用）。 */
@@ -244,6 +253,7 @@ export class ConversationManager {
 	 */
 	private readonly recoveryNotes = new Map<string, string>();
 	private runIdleTimeoutMs: number;
+	private runToolIdleTimeoutMs: number;
 	private runMaxDurationMs: number;
 	private now: () => number;
 	/** 进度气泡独立成类，见 progress-tracker.ts。 */
@@ -281,6 +291,7 @@ export class ConversationManager {
 		// 对齐 hermes 的做法：**不设固定总时长**（长时间跑测试是正常的），
 		// 只在「完全没有事件产出」时才判定卡死 —— 空闲超时。
 		this.runIdleTimeoutMs = deps.runIdleTimeoutMs ?? 600_000;
+		this.runToolIdleTimeoutMs = deps.runToolIdleTimeoutMs ?? 3_600_000;
 		this.runMaxDurationMs = deps.runMaxDurationMs ?? 0;
 		this.shutdownTimeoutMs = deps.shutdownTimeoutMs ?? 2_000;
 		this.now = deps.now ?? Date.now;
@@ -601,6 +612,8 @@ export class ConversationManager {
 		}
 		if (options.behavior !== "queue" && await this.trySteer(sess, queued)) {
 			await this.markSteered(sess, queued);
+			// /steer 命令自己有回执；普通消息在工具执行中会被压到这一步结束，先告诉用户
+			if (options.behavior !== "steer") await this.noticeBusy(sess, queued);
 			return "steered";
 		}
 
@@ -735,12 +748,22 @@ export class ConversationManager {
 	 * 只在「完全无产出」时判定卡死。
 	 */
 	touchRunActivity(sess: BridgeSession): void {
-		if (this.runIdleTimeoutMs <= 0 || !sess.runIdleReject) return;
-		if (sess.runIdleTimer) clearTimeout(sess.runIdleTimer);
+		if (!sess.runIdleReject) return;
+		if (sess.runIdleTimer) { clearTimeout(sess.runIdleTimer); sess.runIdleTimer = undefined; }
+		// 分两段：工具执行中（构建、跑测试长时间没输出很正常）用更长的时限，等模型时用短的
+		const tool = sess.run?.current();
+		const limit = tool ? this.runToolIdleTimeoutMs : this.runIdleTimeoutMs;
+		if (limit <= 0) return;
 		sess.runIdleTimer = setTimeout(() => {
-			this.deps.log?.("warn", "feishu.conv.run_idle_timeout", { chatId: sess.chatId, idleMs: this.runIdleTimeoutMs });
+			const now = this.now();
+			sess.runIdleInfo = { phase: tool ? "tool" : "model", ...(tool ? { tool: tool.name } : {}), idleMs: limit };
+			this.deps.log?.("warn", "feishu.conv.run_idle_timeout", {
+				chatId: sess.chatId, conversationKey: sess.conversationKey, idleMs: limit, phase: tool ? "tool" : "model",
+				...(tool ? { tool: tool.name, toolMs: now - tool.startedAt } : {}),
+				...(sess.run ? { runMs: now - sess.run.startedAt, toolCalls: sess.run.toolCalls } : {}),
+			});
 			sess.runIdleReject?.(new Error("run idle timeout"));
-		}, this.runIdleTimeoutMs);
+		}, limit);
 		sess.runIdleTimer.unref?.();
 	}
 
@@ -1117,6 +1140,46 @@ export class ConversationManager {
 		try { await this.deps.reactions.add(item.messageId, emoji); } catch { /* 表情失败不影响注入 */ }
 	}
 
+	/**
+	 * 工具执行了一阵（≥ 1 分钟）时收到普通消息：它要等这一步结束才交给模型，先回一句正在做什么（同一会话 5 分钟内只提示一次）。
+	 * 不提示的情况：在等模型（消息很快就会被处理）、合成消息（卡片点击等）、关了 queueNotice。
+	 */
+	private async noticeBusy(sess: BridgeSession, item: QueuedMessage): Promise<void> {
+		if (this.deps.config.queueNotice === false || item.synthetic || !sess.run) return;
+		const now = this.now();
+		const tool = sess.run.current();
+		if (!tool || now - tool.startedAt < 60_000) return;
+		if (sess.lastBusyNoticeAt && now - sess.lastBusyNoticeAt < 5 * 60_000) return;
+		const text = busyNoticeText(sess.run, now);
+		if (!text) return;
+		sess.lastBusyNoticeAt = now;
+		await this.notify(item.chatId, text, { replyTo: item.replyTo, threadId: item.threadId }, `${item.messageId}:busy`, sess.conversationKey);
+	}
+
+	/**
+	 * `/progress`：不经过模型，直接报告这一轮做到哪了。自己的会话空闲时，列出同一个群里别人正在执行的任务
+	 * （只给人和时长，不给命令内容：群里各人会话独立时那是别人的任务）。
+	 */
+	progressReport(msg: FeishuInboundMessage): string {
+		const key = buildConversationKey(msg, this.deps.config);
+		const own = this.sessions.get(key);
+		const now = this.now();
+		if (own?.run && this.activeItems.has(key)) {
+			return describeProgress({ activity: own.run, now, task: this.activeItems.get(key)?.text, steered: own.steered.length, queued: own.queue.length });
+		}
+		const lines = [own?.queue.length ? `当前没有执行中的任务，排队 ${own.queue.length} 个` : "当前没有执行中的任务"];
+		const others = [...this.sessions.values()].filter((session) => session !== own && session.chatId === msg.chatId && session.run && this.activeItems.has(session.conversationKey));
+		if (others.length > 0) {
+			lines.push(`这个群里另有 ${others.length} 个任务在执行：`);
+			for (const other of others.slice(0, 5)) {
+				const activity = other.run as RunActivity;
+				const who = this.activeItems.get(other.conversationKey)?.senderName ?? "其他成员";
+				lines.push(`· ${who}：已运行 ${durationLabel(now - activity.startedAt)}，${activity.inTool ? "正在执行工具" : "在等模型回复"}`);
+			}
+		}
+		return lines.join("\n");
+	}
+
 	/** 忙碌时排队的消息回复一次"已排队，第 N 个"（同一会话 10 秒内只提示一次）。 */
 	private async noticeQueued(sess: BridgeSession, item: QueuedMessage): Promise<void> {
 		if (this.deps.config.queueNotice === false) return;
@@ -1124,7 +1187,7 @@ export class ConversationManager {
 		if (sess.lastQueueNoticeAt && now - sess.lastQueueNoticeAt < 10_000) return;
 		sess.lastQueueNoticeAt = now;
 		const position = sess.queue.indexOf(item) + 1;
-		await this.notify(item.chatId, `已排队，第 ${position} 个（当前任务结束后执行；/queue list 查看，/queue clear 清空）`, {
+		await this.notify(item.chatId, `已排队，第 ${position} 个（当前任务结束后执行；/progress 看当前进度，/queue list 查看队列，/queue clear 清空）`, {
 			replyTo: item.replyTo, threadId: item.threadId,
 		}, `${item.messageId}:queued`, sess.conversationKey);
 	}

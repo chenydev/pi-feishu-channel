@@ -67,7 +67,8 @@ export const fileConfigSchema = z.object({
 	adminBypassMention: m(bool, "管理员与应用归属人在群里是否可以不 @ 机器人直接触发"),
 	admins: m(strList, "管理员 open_id。管理员不受群策略限制（是否仍需 @ 见 `adminBypassMention`），可以审批工具调用、执行管理命令。应用归属人与应用管理员启动时自动识别，不用写进来", { env: "FEISHU_ADMINS" }),
 	allowBots: m(strList, "允许触发机器人的其它机器人或应用：`app_id`（`cli_` 开头，换应用也不变，推荐）、机器人的 open_id（换应用后会变），或特殊值 `\"mentions\"`（任何 @ 了本机器人的机器人都放行）。空数组 = 拒绝所有机器人发的消息"),
-	runIdleTimeoutMs: m(nonNegative, "一轮任务连续多久没有任何进展就中止（毫秒；0 = 不限制）"),
+	runIdleTimeoutMs: m(nonNegative, "等模型回复时，连续多久没有任何输出就中止这一轮（毫秒；0 = 不限制）。工具执行中按 `runToolIdleTimeoutMs`"),
+	runToolIdleTimeoutMs: m(nonNegative, "工具执行中（如 bash 跑构建、测试），连续多久没有输出就中止这一轮（毫秒；0 = 不限制）"),
 	runMaxDurationMs: m(nonNegative, "一轮任务的总时长上限（毫秒；0 = 不限制）"),
 	ignoreAtAll: m(bool, "忽略「@所有人」。设为 false 时，@所有人 等同于 @ 本机器人（仍受群策略和白名单约束）", { default: "true" }),
 	groupAlsoOnReply: m(bool, "`mention` 策略下，回复机器人发出的消息时不用再 @。只认进程内记住的最近 `lastSentCacheSize` 条机器人消息，重启后清空；对整个实例生效，不分群和人", { env: "FEISHU_GROUP_ALSO_ON_REPLY" }),
@@ -105,7 +106,7 @@ export const fileConfigSchema = z.object({
 		failureEmoji: m(str, "处理失败时加的表情；空字符串 = 不加"),
 		steerEmoji: m(str, "忙碌时被并入当前任务的消息加的表情；空字符串 = 用 `processingEmoji`"),
 	}).partial(), "处理状态表情"),
-	queueNotice: m(bool, "忙碌时排队的消息回复一次「已排队」（同一会话 10 秒内只提示一次）"),
+	queueNotice: m(bool, "忙碌时排队的消息回复一次「已排队」（同一会话 10 秒内只提示一次）；工具执行超过 1 分钟时收到的消息回复一次正在做什么（5 分钟内只提示一次）"),
 	longReply: m(z.object({
 		asFile: m(bool, "超长回答只发开头，全文作为 .md 附件发送", { default: "false" }),
 		thresholdChars: m(nonNegative, "超过多少字算超长", { default: "6000" }),
