@@ -165,6 +165,9 @@
   "feedback": {
     "enabled": true
   },
+  "clarify": {
+    "ttlMs": 86400000
+  },
   "cardTool": {
     "enabled": false
   },

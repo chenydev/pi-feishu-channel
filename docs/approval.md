@@ -53,7 +53,7 @@ agent 调用工具（执行命令、写文件等）之前，本扩展可以先�
    - 其余弹审批卡，卡片上写明分级理由，日志 `feishu.approval.command_ask`。
 
    判断不了的一律归为「弹卡」。可以用 `extraReadOnly` / `extraDangerous` 按命令名补充。
-3. **免审工具**：`read`、`grep`、`find`、`ls`、`feishu_ask`（向会话提选择题，本身就在等人回答）和 `approval.autoApprove` 里的工具直接放行；本会话已批准过的工具直接放行。
+3. **免审工具**：`read`、`grep`、`find`、`ls`、`feishu_ask`（向会话提选择题，只发卡片，不授予任何权限）和 `approval.autoApprove` 里的工具直接放行；本会话已批准过的工具直接放行。
 4. 其余弹审批卡。
 
 在这种方式下，「始终批准」会把工具名写进配置文件的 `approval.autoApprove`，**对这个工具的所有调用永久生效**。

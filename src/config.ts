@@ -31,6 +31,8 @@ export interface ConfigPaths {
 	modelUsageFile: string;
 	/** 导出文件目录（会话导出、诊断包附件）。 */
 	exportsDir: string;
+	/** `feishu_ask` 还能点的提问卡片。 */
+	clarificationsFile: string;
 }
 
 export function resolvePaths(homeDir: string): ConfigPaths {
@@ -48,6 +50,7 @@ export function resolvePaths(homeDir: string): ConfigPaths {
 		cronJobsFile: join(dir, "cron-jobs.json"),
 		feedbackFile: join(dir, "feedback.jsonl"),
 		modelUsageFile: join(dir, "model-usage.json"),
+		clarificationsFile: join(dir, "clarifications.json"),
 		exportsDir: join(dir, "exports"),
 	};
 }

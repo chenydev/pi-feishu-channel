@@ -103,6 +103,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 桥没起来，日志 `feishu.bridge.autostart_skipped` | `reason: disabled` = 没设 `FEISHU_CHANNEL_ENABLED=1`（默认关）；`reason: mode` = 不是 `pi --mode rpc` | 部署进程设上该变量并用 `--mode rpc`（容器要重建）；本地 TUI 要连就 `/feishu:start` |
 | `status.json` 说已连接，却没反应 | 文件过期，进程已停 | 看 mtime，重启 |
 | 回复机器人的消息，没 @ 也触发 | 开了 `groupAlsoOnReply`（默认关） | 设为 `false` 或去掉 `FEISHU_GROUP_ALSO_ON_REPLY` 后重启 |
+| 点提问卡片选项提示没有权限 / 已过期 | 作答权限 = 能在这里 @ 机器人；卡片答过一次、有新提问、`/new` 或超过 `clarify.ttlMs`（24 小时）后失效 | 放行这个人（§3），或直接打字回复；看 `feishu.clarify.audit` |
 | 开了开通申请，没权限的人找机器人没收到申请卡 | 冷却期内已发过、被「暂不放行」（24 小时）、超出每小时上限，或群策略本身拒绝 | 看 `feishu.access_request.silent` 的 `reason`（`reminded` / `ignored` / `rate_limited`）；急用直接改配置 |
 | 开了 `groupAlsoOnReply`，回复机器人仍要 @ | 被回复的消息不在最近 `lastSentCacheSize` 条里，或发于重启前 | 设计如此；@ 机器人即可 |
 | 桥没起来，日志 `pi.getAgentDir is not a function` | 扩展版本过旧 | 升级扩展；临时设 `FEISHU_CHANNEL_HOME` |

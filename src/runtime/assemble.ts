@@ -70,9 +70,10 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 		log: (level, m, meta) => log[level](m, meta),
 	}, ctx.larkSdk);
 	rt.usageLedger = new UsageLedger({ file: paths.usageDailyFile, timeZone: rt.config.timezone });
+	// 谁能作答由卡片按钮按准入判定（能在这里 @ 机器人的人），见 interaction/card-ops.ts
 	rt.clarificationStore = new ClarificationStore({
-		allowedResponderIds: () => effectiveAdmins(rt.config),
-		// 管理员名单为空时不允许任何人作答（默认拒绝，避免任意群成员替用户做决定）
+		file: paths.clarificationsFile,
+		ttlMs: rt.config.clarify?.ttlMs,
 		onAudit: (event) => log.info("feishu.clarify.audit", event),
 	});
 	// 「始终批准」规则表（pi-permission-system 模式下的审批卡用；每次启动按配置重建）
@@ -255,35 +256,33 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 						: { status: "rejected" as const, detail: res?.error ?? "发送失败" };
 				},
 				allowedOperatorIds: () => effectiveAdmins(rt.config),
-			// 澄清提问 —— 卡片优先后退化为文本选项，等待有界超时
+			// 澄清提问：发出卡片就返回，不等待（本轮随即结束）；用户点选项会以新消息进入会话
 			askChoice: async (input) => {
 				if (!rt.clarificationStore) return { status: "unavailable" as const, detail: "澄清存储未初始化" };
 				if (!input.route?.chatId) return { status: "unavailable" as const, detail: "没有活动会话" };
-				const pending = rt.clarificationStore.create({
+				const record = rt.clarificationStore.create({
 					conversationKey: input.route.conversationKey, chatId: input.route.chatId, threadId: input.route.threadId,
-					runId: input.route.runId ?? input.toolCallId, toolCallId: input.toolCallId,
+					chatType: input.route.chatType, askerId: input.route.senderId,
 					question: input.question, options: input.options,
 				});
-				// 卡片优先：发送失败（例如无卡片权限）退化为文本选项，用户回复文本时按普通消息继续
-				let cardSent = false;
 				try {
-					const messageId = await rt.transport?.sendCard(input.route.chatId, buildClarificationCard(pending), {
+					const messageId = await rt.transport?.sendCard(input.route.chatId, buildClarificationCard(record), {
 						replyTo: input.route.sourceMessageId, threadId: input.route.threadId,
 					});
-					rt.clarificationStore.attachCard(pending.id, messageId);
-					cardSent = Boolean(messageId);
+					if (rt.clarificationStore.attachCard(record.id, messageId)) {
+						log.info("feishu.clarify.asked", { conversationKey: record.conversationKey, clarificationId: record.id, options: record.options.length });
+						return { status: "card" as const };
+					}
 				} catch (error) {
 					log.warn("feishu.clarify.card_failed", { error: error instanceof Error ? error.message : String(error) });
 				}
-				if (!cardSent) {
-					const fallback = clarificationTextFallback(pending);
-					if (rt.outbox) {
-						rt.outbox.enqueue(input.route.chatId, fallback, { replyTo: input.route.sourceMessageId, threadId: input.route.threadId }, {
-							dedupeKey: `${input.route.conversationKey}:${input.toolCallId}:clarify`, laneKey: input.route.conversationKey, kind: "notify",
-						});
-					}
-				}
-				return await pending.verdict;
+				// 卡片发不出去（例如无卡片权限）：退化为文字选择题，用户直接回复文字
+				rt.clarificationStore.discard(record.id);
+				if (!rt.outbox) return { status: "unavailable" as const, detail: "卡片和文字都发不出去" };
+				rt.outbox.enqueue(input.route.chatId, clarificationTextFallback(record), { replyTo: input.route.sourceMessageId, threadId: input.route.threadId }, {
+					dedupeKey: `${input.route.conversationKey}:${input.toolCallId}:clarify`, laneKey: input.route.conversationKey, kind: "notify",
+				});
+				return { status: "text" as const };
 			},
 				redactParams,
 				log: (level, msg, meta) => log[level](msg, meta),
@@ -304,18 +303,15 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 		modelUsageFile: paths.modelUsageFile,
 		// run 结束/会话重置时撤销未决审批卡（旧卡不得再授予权限）。
 		// 有未决审批的会话不允许回收句柄（避免审批卡失去响应目标）。
-		pendingApprovalCount: (conversationKey) =>
-			(rt.permissionBridge?.pendingForConversation(conversationKey) ?? 0)
-			+ (rt.clarificationStore?.pendingForConversation(conversationKey) ?? 0),
+		// 澄清提问不算：它不阻塞会话，记录落盘，句柄回收后点击照样进入会话
+		pendingApprovalCount: (conversationKey) => rt.permissionBridge?.pendingForConversation(conversationKey) ?? 0,
 		onApprovalInvalidate: ({ conversationKey, runId, reason }) => {
 			if (!rt.permissionBridge) return;
 			const cancelled = runId
 				? rt.permissionBridge.cancelRun(conversationKey, runId)
 				: rt.permissionBridge.cancelConversation(conversationKey);
-			// 同一 run 的未决提问一并失效（旧卡片不得再影响新状态）
-			const clarifyCancelled = runId
-				? rt.clarificationStore?.cancelRun(conversationKey, runId) ?? 0
-				: rt.clarificationStore?.cancelConversation(conversationKey) ?? 0;
+			// 澄清提问只在会话重置时失效：发出提问后本轮就结束了，run 结束不能带走它
+			const clarifyCancelled = runId ? 0 : rt.clarificationStore?.cancelConversation(conversationKey) ?? 0;
 			if (cancelled > 0 || clarifyCancelled > 0) {
 				log.info("feishu.approval.invalidated", { conversationKey, runId, reason, cancelled, clarifyCancelled });
 			}

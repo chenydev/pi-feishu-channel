@@ -123,6 +123,8 @@
 | 升级后启动失败，日志 `feishu.config.migrate_failed` | 旧目录 `feishu-bridge/` 改名为 `feishu-channel/` 失败（多为目录没有写权限，或两者不在同一个文件系统） | 按日志里的 `from` / `to` 手动 `mv`，再重启 |
 | 日志 `feishu.config.legacy_dir_ignored` | 新旧目录同时存在，只用新目录 | 确认旧目录里没有要保留的东西后删除它 |
 | 日志 `feishu.config.deprecated_env` | 还在用旧环境变量 `FEISHU_BRIDGE_*` | 改成日志里 `replacement` 给出的新名字 |
+| 点提问卡片的选项提示「没有使用机器人的权限」 | 点击人在这个群里不能 @ 机器人（群没放行、不在群名单里等），作答权限和 @ 的准入规则一致 | 按 §3 放行这个人；或由能用机器人的人来点 |
+| 点提问卡片提示「已过期」 | 已经答过、同一会话后来又发了新提问、执行过 `/new`，或超过 `clarify.ttlMs`（默认 24 小时） | 直接打字回复即可；日志 `feishu.clarify.audit` 的 `decision` 记着失效原因 |
 | 装了新技能 / 扩展，飞书会话里用不上 | 已建立的会话不会自动重新加载，只有新建的会话才读到 | 在该会话发 `/reload`（或 `/new`）；回执列出新增技能和加载失败的条目，日志 `feishu.conv.reloaded` / `reload_failed` |
 | 容器日志时间差 8 小时 | `docker logs --timestamps` 始终是 UTC | 对时间时换算时区 |
 

@@ -2,7 +2,7 @@
  * 核心卡片按钮的处理函数（登记到 `CardRouter`）：
  * - `model`：/model 状态卡上的思考等级、模型表格展开/收起、模型切换；
  * - `command`：命令按钮（以点击人身份发送一条命令）；
- * - `clarify`：澄清提问的选项；
+ * - `clarify`：澄清提问的选项（以点击人身份往提问的会话发一条消息）；
  * - `approval`：审批卡。
  *
  * 可选能力的按钮（群开通申请、agent 自定义卡片）由各能力自己登记。
@@ -12,9 +12,10 @@ import type { ApprovalChoice } from "../approval/permission-bridge.js";
 import { buildApprovalCard, type ApprovalCardResolution } from "../approval/cards.js";
 import { buildModelStatusCard } from "../commands/models-card.js";
 import { resolveCommand } from "../commands/registry.js";
+import { LastSentCache, admit } from "../inbound/admit.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
 import type { FeishuInboundMessage } from "../types.js";
-import { buildClarificationResultCard } from "./clarification-store.js";
+import { buildClarificationResultCard, clarificationAnswerText, type ClarificationRecord } from "./clarification-store.js";
 import type { CardOps, CardRouterLog } from "./card-router.js";
 
 export interface CardOpsContext {
@@ -119,21 +120,44 @@ export function commandCardOps({ log, admins, runCommand }: CardOpsContext): Car
 	};
 }
 
-/** 澄清选择：只恢复等待点，不写任何授权。 */
-export function clarifyCardOps({ rt }: CardOpsContext): CardOps {
+/**
+ * 澄清选择：以点击人身份往提问所在的会话发一条「[选择] …」消息（空闲就开新一轮，忙碌就注入或排队），不写任何授权。
+ * 谁能点 = 谁能在这里 @ 机器人：按准入判定，和在群里 @ 的规则一致，不另看管理员名单。
+ */
+export function clarifyCardOps({ rt, log }: CardOpsContext): CardOps {
 	return {
 		clarify: (action, value) => {
 			if (typeof value.clarificationId !== "string" || typeof value.token !== "string" || typeof value.choice !== "string") return undefined;
+			const choice = value.choice;
 			const decided = rt.clarificationStore?.decide({
 				id: value.clarificationId, token: value.token, messageId: action.messageId,
-				chatId: action.chatId ?? "", operatorOpenId: action.operatorOpenId, choice: value.choice,
+				chatId: action.chatId ?? "", operatorOpenId: action.operatorOpenId, choice,
+			}, (record) => {
+				const verdict = admit(rt.config, answerMessage(record, action.messageId, action.operatorOpenId, choice, action.token), true, false, rt.lastSent ?? new LastSentCache(0));
+				return verdict.ok ? undefined : "你在这里没有使用机器人的权限，不能作答";
 			});
-			if (!decided?.ok) return { toast: { type: "warning", content: decided?.reason ?? "该提问已失效" } };
+			if (!decided?.ok || !decided.record) return { toast: { type: "warning", content: decided?.reason ?? "这个提问已过期，直接回复文字即可" } };
+			const record = decided.record;
+			// 后台进入会话：首次可能要建会话（几秒），不占卡片回调的 3 秒时限
+			void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, choice, action.token), { conversationKey: record.conversationKey }))
+				.then((result) => log.info("feishu.clarify.answered", { conversationKey: record.conversationKey, clarificationId: record.id, operator: action.operatorOpenId, result: result ?? "unavailable" }))
+				.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
 			return {
 				toast: { type: "success", content: decided.reason },
-				card: { type: "raw", data: buildClarificationResultCard(value.choice, action.operatorOpenId) },
+				card: { type: "raw", data: buildClarificationResultCard(record.question, choice, action.operatorOpenId) },
 			};
 		},
+	};
+}
+
+/** 点击选项对应的合成消息：发送人是点击人，会话是提问所在的会话。 */
+function answerMessage(record: ClarificationRecord, cardMessageId: string, operatorOpenId: string, choice: string, token: string | undefined): FeishuInboundMessage {
+	const nonce = `#${token ?? randomBytes(6).toString("hex")}`;
+	return {
+		messageId: `${cardMessageId}${nonce}`, dedupeNonce: nonce, replyTarget: cardMessageId, synthetic: true,
+		chatId: record.chatId, chatType: record.chatType, ...(record.threadId ? { threadId: record.threadId } : {}),
+		senderId: operatorOpenId, isBot: false, msgType: "text", text: clarificationAnswerText(record.question, choice),
+		mentions: [], resources: [], raw: undefined, ts: Date.now(),
 	};
 }
 

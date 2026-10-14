@@ -1,27 +1,26 @@
 /**
- * 澄清/选择提问：
- * - 跨群、跨 run、错误用户、重复、过期、stop/重置/关闭后的点击一律拒绝；
- * - 正确选项**只消费一次**；
- * - 选择**不写入**审批 allowlist（澄清 ≠ 工具授权）；
- * - 无卡片权限时退化为文本选项，不阻塞继续对话。
+ * 澄清/选择提问（不阻塞）：
+ * - 跨群、旧卡、伪造值、无效选项、过期、会话重置后的点击一律拒绝；
+ * - 正确选项**只消费一次**；无权作答时不消费（别人还能点）；
+ * - 同一会话的新提问让旧卡失效；记录落盘，重启后仍能点；
+ * - 选择**不写入**审批 allowlist（澄清 ≠ 工具授权）。
  */
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
 	ClarificationStore,
 	buildClarificationCard,
+	clarificationAnswerText,
 	clarificationTextFallback,
-	type ClarificationDecision,
 } from "../src/interaction/clarification-store.js";
 
-const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function makeStore(options: { responders?: string[]; timeoutMs?: number; now?: () => number } = {}) {
+function makeStore(options: { ttlMs?: number; now?: () => number; file?: string } = {}) {
 	const audits: Array<{ decision: string; choice?: string }> = [];
 	const store = new ClarificationStore({
-		allowedResponderIds: () => options.responders ?? ["ou_admin"],
-		timeoutMs: options.timeoutMs ?? 60_000,
-		now: options.now,
+		ttlMs: options.ttlMs, now: options.now, file: options.file,
 		onAudit: (event) => { audits.push({ decision: event.decision, choice: event.choice }); },
 	});
 	return { store, audits };
@@ -29,100 +28,89 @@ function makeStore(options: { responders?: string[]; timeoutMs?: number; now?: (
 
 function request(over: Partial<Parameters<ClarificationStore["create"]>[0]> = {}) {
 	return {
-		conversationKey: "oc_chat#ou_user", chatId: "oc_chat", threadId: "th_1",
-		runId: "run-1", toolCallId: "tc-1",
+		conversationKey: "oc_chat#ou_user", chatId: "oc_chat", threadId: "th_1", chatType: "group" as const, askerId: "ou_user",
 		question: "选哪个方案？", options: ["方案A", "方案B"],
 		...over,
 	};
 }
 
-test("澄清提问：正确选项只消费一次，重复点击被拒", async () => {
+const click = (store: ClarificationStore, record: { id: string; token: string }, over: Partial<Parameters<ClarificationStore["decide"]>[0]> = {}, authorize?: Parameters<ClarificationStore["decide"]>[1]) =>
+	store.decide({ id: record.id, token: record.token, messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_user", choice: "方案A", ...over }, authorize);
+
+test("澄清提问：正确选项只消费一次，重复点击被拒", () => {
 	const { store, audits } = makeStore();
-	const pending = store.create(request());
-	store.attachCard(pending.id, "om_card");
-
-	const first = store.decide({ id: pending.id, token: pending.token, messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_admin", choice: "方案A" });
+	const record = store.create(request());
+	store.attachCard(record.id, "om_card");
+	const first = click(store, record);
 	assert.equal(first.ok, true, first.reason);
-	assert.ok(first.reason.includes("方案A"));
-	const decision = await pending.verdict as ClarificationDecision;
-	assert.deepEqual(decision, { status: "answered", choice: "方案A", operatorOpenId: "ou_admin" });
-
-	const second = store.decide({ id: pending.id, token: pending.token, messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_admin", choice: "方案B" });
-	assert.equal(second.ok, false, "重复点击必须拒绝");
+	assert.equal(first.record?.conversationKey, "oc_chat#ou_user", "返回提问所在的会话，供合成消息路由");
+	assert.equal(click(store, record, { choice: "方案B" }).ok, false, "重复点击必须拒绝");
 	assert.equal(store.pendingCount(), 0);
 	assert.equal(audits.filter((event) => event.decision === "answered").length, 1, "只能审计一次回答");
 });
 
-test("澄清提问：跨群点击被拒（不会串到别的会话）", () => {
+test("澄清提问：跨群、token 或卡片不匹配、无效选项都拒绝", () => {
 	const { store } = makeStore();
-	const pending = store.create(request());
-	store.attachCard(pending.id, "om_card");
-	const foreign = store.decide({ id: pending.id, token: pending.token, messageId: "om_card", chatId: "oc_other", operatorOpenId: "ou_admin", choice: "方案A" });
-	assert.equal(foreign.ok, false);
-	assert.ok(foreign.reason.includes("不属于当前会话"), foreign.reason);
-	assert.equal(store.pendingCount(), 1, "被拒的点击不得消费等待点");
+	const record = store.create(request());
+	store.attachCard(record.id, "om_card");
+	assert.equal(click(store, record, { chatId: "oc_other" }).ok, false, "跨群");
+	assert.equal(click(store, { id: record.id, token: "forged" }).ok, false, "伪造 token");
+	assert.equal(click(store, record, { messageId: "om_other" }).ok, false, "别的卡片");
+	assert.equal(click(store, record, { choice: "方案C" }).ok, false, "无效选项");
+	assert.equal(store.pendingCount(), 1, "以上都不消费");
 });
 
-test("澄清提问：错误用户无权作答", () => {
-	const { store } = makeStore({ responders: ["ou_admin"] });
-	const pending = store.create(request());
-	store.attachCard(pending.id, "om_card");
-	const outsider = store.decide({ id: pending.id, token: pending.token, messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_random", choice: "方案A" });
-	assert.equal(outsider.ok, false);
-	assert.ok(outsider.reason.includes("没有作答权限"), outsider.reason);
-	assert.equal(store.pendingCount(), 1);
-});
-
-test("澄清提问：token 与卡片消息不匹配时拒绝（旧卡/伪造值无效）", () => {
+test("澄清提问：无权作答时不消费，别人仍可以点", () => {
 	const { store } = makeStore();
-	const pending = store.create(request());
-	store.attachCard(pending.id, "om_card");
-	assert.equal(store.decide({ id: pending.id, token: "forged", messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_admin", choice: "方案A" }).ok, false);
-	assert.equal(store.decide({ id: pending.id, token: pending.token, messageId: "om_old_card", chatId: "oc_chat", operatorOpenId: "ou_admin", choice: "方案A" }).ok, false);
-	assert.equal(store.decide({ id: "unknown-id", token: pending.token, messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_admin", choice: "方案A" }).ok, false);
-	assert.equal(store.pendingCount(), 1, "三次非法点击都不得消费等待点");
+	const record = store.create(request());
+	store.attachCard(record.id, "om_card");
+	const refused = click(store, record, { operatorOpenId: "ou_outsider" }, () => "你在这里没有使用机器人的权限，不能作答");
+	assert.deepEqual([refused.ok, refused.reason], [false, "你在这里没有使用机器人的权限，不能作答"]);
+	assert.equal(click(store, record, {}, () => undefined).ok, true);
 });
 
-test("澄清提问：无效选项被拒", () => {
-	const { store } = makeStore();
-	const pending = store.create(request());
-	store.attachCard(pending.id, "om_card");
-	const invalid = store.decide({ id: pending.id, token: pending.token, messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_admin", choice: "方案C" });
-	assert.equal(invalid.ok, false);
-	assert.ok(invalid.reason.includes("无效选项"));
-	assert.equal(store.pendingCount(), 1);
+test("澄清提问：过期后点击被拒，提示直接回复文字；ttl=0 不设上限", () => {
+	let now = 0;
+	const { store } = makeStore({ ttlMs: 1_000, now: () => now });
+	const record = store.create(request());
+	store.attachCard(record.id, "om_card");
+	now = 1_001;
+	const late = click(store, record);
+	assert.equal(late.ok, false);
+	assert.match(late.reason, /直接回复文字/);
+
+	const forever = makeStore({ ttlMs: 0, now: () => now }).store;
+	const kept = forever.create(request());
+	forever.attachCard(kept.id, "om_card");
+	now = 365 * 24 * 3_600_000;
+	assert.equal(click(forever, kept).ok, true);
 });
 
-test("澄清提问：超时后点击被拒，verdict 返回 timeout", async () => {
-	const { store } = makeStore({ timeoutMs: 1_000 });
-	const pending = store.create(request());
-	await tick(1_100);
-	const decision = await pending.verdict;
-	assert.equal(decision.status, "timeout");
-	const late = store.decide({ id: pending.id, token: pending.token, messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_admin", choice: "方案A" });
-	assert.equal(late.ok, false, "超时后点击必须拒绝");
-	assert.ok(late.reason.includes("失效") || late.reason.includes("超时"), late.reason);
+test("澄清提问：同一会话的新提问让旧卡失效；别的会话不受影响；会话重置全部失效", () => {
+	const { store, audits } = makeStore();
+	const old = store.create(request());
+	const other = store.create(request({ conversationKey: "oc_chat#ou_other" }));
+	const latest = store.create(request({ question: "新问题" }));
+	assert.equal(click(store, old, { messageId: "om_any" }).ok, false, "旧卡失效");
+	assert.ok(audits.some((event) => event.decision === "superseded"));
+	assert.equal(store.pendingCount(), 2, "别的会话的提问还在");
+	assert.equal(store.cancelConversation("oc_chat#ou_user"), 1);
+	assert.equal(click(store, latest, { messageId: "om_any" }).ok, false, "/new 后失效");
+	assert.equal(click(store, other, { messageId: "om_any" }).ok, true);
 });
 
-test("澄清提问：run 结束 / 会话重置 / 进程关闭都会撤销等待点", async () => {
-	const { store } = makeStore();
-	const a = store.create(request({ runId: "run-1" }));
-	const b = store.create(request({ runId: "run-2", conversationKey: "oc_chat#ou_other" }));
-	assert.equal(store.pendingCount(), 2);
+test("澄清提问：记录落盘，重启后卡片仍能点；卡片发送失败的记录不保留", () => {
+	const file = join(mkdtempSync(join(tmpdir(), "clarify-")), "clarifications.json");
+	const first = makeStore({ file }).store;
+	const record = first.create(request());
+	first.attachCard(record.id, "om_card");
+	const failed = first.create(request({ conversationKey: "oc_chat#ou_other" }));
+	first.discard(failed.id);
 
-	assert.equal(store.cancelRun("oc_chat#ou_user", "run-1"), 1, "run 结束只撤销该 run");
-	assert.equal((await a.verdict as ClarificationDecision).status, "cancelled");
-	assert.equal(store.pendingCount(), 1, "其他会话的等待点不受影响");
-
-	assert.equal(store.cancelConversation("oc_chat#ou_other"), 1);
-	assert.equal((await b.verdict as ClarificationDecision).status, "cancelled");
-
-	const c = store.create(request({ runId: "run-3" }));
-	assert.equal(store.shutdown(), 1, "关闭必须撤销全部等待点");
-	assert.equal((await c.verdict as ClarificationDecision).status, "cancelled");
-	// 关闭之后新建的等待也应立即失效（不留下无人回答的卡片）
-	const d = store.create(request({ runId: "run-4" }));
-	assert.equal((await d.verdict as ClarificationDecision).status, "cancelled");
+	const restarted = makeStore({ file }).store;
+	assert.equal(restarted.pendingCount(), 1);
+	assert.equal(click(restarted, record).ok, true, "重启后点击仍然有效");
+	assert.equal(makeStore({ file }).store.pendingCount(), 0, "答过的不再恢复");
 });
 
 test("澄清提问：选项数量与问题内容校验", () => {
@@ -134,17 +122,18 @@ test("澄清提问：选项数量与问题内容校验", () => {
 	assert.equal(long.question.length, 500, "问题应截断");
 });
 
-test("澄清提问：卡片与文本回退都携带全部选项", () => {
+test("澄清提问：卡片与文本回退都携带全部选项；点击进入会话的消息带上问题", () => {
 	const { store } = makeStore();
-	const pending = store.create(request({ options: ["方案A", "方案B", "方案C"] }));
-	const card = JSON.stringify(buildClarificationCard(pending));
+	const record = store.create(request({ options: ["方案A", "方案B", "方案C"] }));
+	const card = JSON.stringify(buildClarificationCard(record));
 	for (const option of ["方案A", "方案B", "方案C"]) assert.ok(card.includes(option), `卡片必须含选项 ${option}`);
 	assert.ok(card.includes("\"op\":\"clarify\""), "卡片回调 op 必须是 clarify（不是 approval）");
 	assert.ok(!card.includes("\"op\":\"approval\""), "澄清卡片绝不能伪装成审批卡");
 
-	const fallback = clarificationTextFallback(pending);
+	const fallback = clarificationTextFallback(record);
 	assert.ok(fallback.includes("1. 方案A") && fallback.includes("3. 方案C"), "文本回退必须列出全部选项");
 	assert.ok(fallback.includes("直接回复"), "文本回退必须说明如何回答");
+	assert.equal(clarificationAnswerText("选哪个方案？", "方案B"), "[选择] 方案B\n（回答你的提问：选哪个方案？）");
 });
 
 test("澄清提问：选项短时每个选项一个整行按钮；有长选项时正文列完整选项、按钮只放编号", () => {
@@ -178,16 +167,30 @@ test("澄清提问：选项短时每个选项一个整行按钮；有长选项�
 	assert.ok(json.includes("\"column_set\""), "编号按钮并排一行");
 });
 
-test("澄清提问：澄清等待点独立于审批（pending 计数分属两个 store）", async () => {
-	// 关键安全断言：澄清只产生“回答内容”，不产生任何授权记录。
+test("澄清提问：不暴露任何授权接口（澄清 ≠ 工具授权）", () => {
 	const { store } = makeStore();
-	const pending = store.create(request());
-	store.attachCard(pending.id, "om_card");
-	assert.equal(store.pendingForConversation("oc_chat#ou_user"), 1);
-	store.decide({ id: pending.id, token: pending.token, messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_admin", choice: "方案A" });
-	await pending.verdict;
-	assert.equal(store.pendingForConversation("oc_chat#ou_user"), 0);
-	// ClarificationStore 不暴露任何授权接口：类型层面就没有 sessionAllow/autoApprove
 	const api = Object.getOwnPropertyNames(Object.getPrototypeOf(store));
 	assert.ok(!api.some((name) => /allow|approve/i.test(name)), `澄清 store 不得暴露授权接口：${api.join(",")}`);
+});
+
+test("澄清卡片按钮：能在这里 @ 机器人的人就能作答；点击以点击人身份进入提问所在的会话", async () => {
+	const { BridgeRuntime } = await import("../src/runtime/bridge-runtime.js");
+	const { DEFAULT_CONFIG } = await import("../src/types.js");
+	const { clarifyCardOps } = await import("../src/interaction/card-ops.js");
+	const rt = new BridgeRuntime();
+	rt.config = { ...DEFAULT_CONFIG, allowChats: ["oc_chat"], groupRules: { oc_chat: { policy: "allowlist", allowlist: ["ou_user", "ou_peer"] } } };
+	rt.clarificationStore = new ClarificationStore();
+	const routed: Array<{ text: string; senderId: string; conversationKey?: string }> = [];
+	rt.convManager = { route: async (msg: { text: string; senderId: string }, options: { conversationKey?: string }) => { routed.push({ text: msg.text, senderId: msg.senderId, conversationKey: options.conversationKey }); return "queued"; } } as never;
+	const log = { info() {}, warn() {}, error() {} };
+	const op = clarifyCardOps({ rt, log, admins: () => [], runCommand: async () => undefined }).clarify as (action: unknown, value: Record<string, unknown>) => { toast?: { type: string; content: string } };
+	const record = rt.clarificationStore.create(request());
+	rt.clarificationStore.attachCard(record.id, "om_card");
+	const press = (operator: string) => op({ messageId: "om_card", chatId: "oc_chat", operatorOpenId: operator, token: `tok-${operator}` }, { op: "clarify", clarificationId: record.id, token: record.token, choice: "方案B" });
+
+	assert.equal(press("ou_outsider").toast?.content, "你在这里没有使用机器人的权限，不能作答", "群名单外的人不能作答（即使不看管理员名单）");
+	assert.equal(press("ou_peer").toast?.type, "success", "群里其他有权限的人可以替发起人作答");
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.deepEqual(routed, [{ text: "[选择] 方案B\n（回答你的提问：选哪个方案？）", senderId: "ou_peer", conversationKey: "oc_chat#ou_user" }], "进入发起人的会话");
+	assert.match(String(press("ou_user").toast?.content), /已过期/, "答过一次就失效");
 });

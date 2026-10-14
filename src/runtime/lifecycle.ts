@@ -164,7 +164,7 @@ export class BridgeLifecycle {
 	}
 
 	private async stopUnlocked(): Promise<string> {
-		const { rt, log, status, features } = this.deps;
+		const { rt, status, features } = this.deps;
 		rt.stopping = true;
 		this.supervisor.cancel();
 		this.stopHeartbeat();
@@ -178,9 +178,6 @@ export class BridgeLifecycle {
 			try { await rt.pipeline?.stop(); } catch { /* best effort */ }
 			// 先停空闲回收巡检，避免关闭过程中回收句柄
 			rt.convManager?.stopLifecycle();
-			// 未决提问全部失效（不假装重启后能恢复）
-			const clarifyCancelled = rt.clarificationStore?.shutdown() ?? 0;
-			if (clarifyCancelled > 0) log.info("feishu.clarify.shutdown", { cancelled: clarifyCancelled });
 			try { await rt.convManager?.shutdown(); } catch { /* best effort */ }
 			try { await rt.outbox?.stop(); } catch { /* best effort */ }
 			try {

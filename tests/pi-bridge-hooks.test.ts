@@ -260,3 +260,21 @@ test("桥侧内联扩展：每个子会话都挂上 pi-permission-system 授权�
 	createBridgeInlineExtension({ ...ctx, attachPermissions: (pi) => { attached.push(pi); } })(api);
 	assert.deepEqual(attached, [api]);
 });
+
+test("子会话钩子：feishu_ask 发出提问就返回并结束本轮（terminate），不等待选择", async () => {
+	const { api, tools } = fakePi();
+	const { ctx } = fakeCtx(ROUTE);
+	const asked: unknown[] = [];
+	ctx.askChoice = async (input) => { asked.push(input); return { status: "card" }; };
+	createBridgeInlineExtension(ctx)(api);
+	const ask = tools.find((tool) => tool.name === "feishu_ask")!;
+	const result = await ask.execute("tc-1", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { terminate?: boolean; isError?: boolean; content: Array<{ text: string }> };
+	assert.equal(result.terminate, true);
+	assert.ok(!result.isError);
+	assert.match(result.content[0].text, /本轮到此结束/);
+	assert.equal((asked[0] as { route: BridgeRoute }).route.senderId, "ou_user", "带上发起人");
+
+	ctx.askChoice = async () => ({ status: "unavailable", detail: "没有活动会话" });
+	const failed = await ask.execute("tc-2", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { terminate?: boolean; isError?: boolean };
+	assert.deepEqual([failed.isError, failed.terminate], [true, undefined], "提问失败时不结束本轮，让模型改用文字");
+});

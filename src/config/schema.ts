@@ -141,6 +141,9 @@ export const fileConfigSchema = z.object({
 	feedback: m(z.object({
 		enabled: m(bool, "统计用户对回复点的 👍 / 👎（只记计数）", { default: "true" }),
 	}).partial(), "回复反馈"),
+	clarify: m(z.object({
+		ttlMs: m(nonNegative, "`feishu_ask` 提问卡片的有效期（毫秒；0 = 不设上限）。提问不阻塞会话，同一会话发出新提问或 /new 时旧卡也会失效", { default: "86400000" }),
+	}).partial(), "澄清提问（feishu_ask）"),
 	cardTool: m(z.object({
 		enabled: m(bool, "给 agent 一个 `feishu_card` 工具，用来发自定义交互卡片", { default: "false" }),
 	}).partial(), "agent 自定义卡片（可选能力，默认关闭）"),

@@ -42,6 +42,7 @@
   "alerts": { "enabled": true, "disconnectMs": 300000, "recipients": ["ou_example_admin"] },
   "onboarding": { "welcome": true, "notifyAdmins": true, "accessRequest": true, "accessRequestMaxPerHour": 10, "accessApprovers": "owner" },
   "feedback": { "enabled": true },
+  "clarify": { "ttlMs": 86400000 },
   "cardTool": { "enabled": false },
   "stt": { "provider": "openai", "endpoint": "http://stt.example/v1", "model": "whisper-1" },
   "userPrompts": { "ou_example_1": "回答简短一点" },

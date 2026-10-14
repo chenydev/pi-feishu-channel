@@ -25,6 +25,8 @@ export interface ExtensionToolResult {
 	content: Array<{ type: "text"; text: string }>;
 	details?: unknown;
 	isError?: boolean;
+	/** 这批工具执行完就结束本轮，不再调用模型（只有这批工具结果都设了才生效）。 */
+	terminate?: boolean;
 }
 
 /**

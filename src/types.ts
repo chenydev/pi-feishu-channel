@@ -244,6 +244,8 @@ export interface BridgeConfig {
 	};
 	/** 表情反馈统计（默认开，只记计数）与 agent 自定义卡片工具（默认关）。 */
 	feedback?: { enabled?: boolean };
+	/** `feishu_ask` 提问卡片：兜底有效期（毫秒，默认 24 小时；0 = 不设上限）。 */
+	clarify?: { ttlMs?: number };
 	cardTool?: { enabled?: boolean };
 	/** 语音转写（**默认关闭**）。`provider: "openai"` = OpenAI 兼容的 /audio/transcriptions。 */
 	stt?: { provider?: "off" | "openai"; endpoint?: string; model?: string; apiKeyEnv?: string; maxBytes?: number };

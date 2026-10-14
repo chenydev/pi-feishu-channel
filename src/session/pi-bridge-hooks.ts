@@ -81,21 +81,16 @@ export interface BridgeHookContext {
 	/** 工具参数脱敏摘要。toolName 用于选择展示形态（bash 显示命令原文而非 JSON）。 */
 	redactParams(input: Record<string, unknown> | undefined, toolName?: string): string;
 	/**
-	 * 在当前活动会话内提出澄清问题并等待选择。
-	 * 返回选中项（answered）、超时（timeout）、取消（cancelled）或无法提问（unavailable）。
+	 * 在当前活动会话内发出澄清提问（**不等待**）：卡片发出（card）或退化为文字提问（text）后立即返回。
+	 * 用户点选项会以一条新消息进入会话；也可以直接打字回复。
 	 * 注意：选择只是回答内容，**不会**授予任何工具权限。
 	 */
 	askChoice?(input: {
 		toolCallId: string;
 		question: string;
 		options: string[];
-		route: { conversationKey: string; chatId: string; threadId?: string; sourceMessageId?: string; runId?: string };
-	}): Promise<
-		| { status: "answered"; choice: string }
-		| { status: "timeout" }
-		| { status: "cancelled"; reason: string }
-		| { status: "unavailable"; detail: string }
-	>;
+		route: BridgeRoute;
+	}): Promise<{ status: "card" | "text" } | { status: "unavailable"; detail: string }>;
 
 	/**
 	 * 在当前活动会话内发送文本通知（不接收任意 chat_id）。
@@ -252,8 +247,8 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 		pi.registerTool({
 			name: "feishu_ask",
 			label: "向用户提出选择题",
-			description: "在飞书会话中提出 2-4 个选项的澄清问题，等待用户点击或回复后继续；不授予任何工具权限",
-			promptSnippet: "需要用户在几个方案中选择时，用 feishu_ask 提问，并把返回的选择作为后续依据；不要用它请求工具授权。",
+			description: "在飞书会话中提出 2-4 个选项的澄清问题。调用后本轮立即结束；用户的选择会以「[选择] 选项」的新消息发来，用户也可能直接打字回复。不授予任何工具权限",
+			promptSnippet: "需要用户在几个方案中选择时，用 feishu_ask 提问（单独调用，不要和其他工具一起），调用后本轮就结束，等用户的选择作为新消息发来再继续；不要用它请求工具授权。",
 			parameters: {
 				type: "object",
 				properties: {
@@ -276,16 +271,15 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 				const route = ctx.routeForSessionId(sessionId);
 				if (!route) return { content: [{ type: "text", text: "当前没有活动的飞书会话，无法提问" }], isError: true } as ExtensionToolResult;
 				const result = await ctx.askChoice({ toolCallId, question, options, route });
-				if (result.status === "answered") {
-					return { content: [{ type: "text", text: `用户选择：${result.choice}` }] } as ExtensionToolResult;
+				if (result.status === "unavailable") {
+					return { content: [{ type: "text", text: `无法提问：${result.detail}` }], isError: true } as ExtensionToolResult;
 				}
-				if (result.status === "timeout") {
-					return { content: [{ type: "text", text: "用户未在时限内作答（超时）。你可以自行选择合理默认值并说明。" }] } as ExtensionToolResult;
-				}
-				if (result.status === "cancelled") {
-					return { content: [{ type: "text", text: `提问已被取消（${result.reason}），请基于已有信息继续或改用文字说明。` }] } as ExtensionToolResult;
-				}
-				return { content: [{ type: "text", text: `无法提问：${result.detail}` }], isError: true } as ExtensionToolResult;
+				// 不等待：本轮到此结束（terminate），用户的选择会作为新消息进入会话
+				const how = result.status === "card" ? "选择题卡片" : "文字选择题（卡片发送失败）";
+				return {
+					content: [{ type: "text", text: `已向用户发出${how}。本轮到此结束：不要替用户做选择，也不要继续做依赖这个选择的事；用户的选择会以「[选择] 选项」的新消息发来，也可能直接打字回复。` }],
+					terminate: true,
+				} as ExtensionToolResult;
 			},
 		});
 
