@@ -189,7 +189,7 @@ export const fileConfigSchema = z.object({
 	usage: m(z.object({
 		balanceTtlMs: m(nonNegative, "账户余额查询结果的缓存时间（毫秒）"),
 		snapshots: m(bool, "记录余额快照，用来估算消耗速度"),
-		provider: m(choice(["deepseek", "none"], "用量提供方"), "账户余额从哪里查：`deepseek`；`none` = 不查余额，页脚也不折算人民币", { default: "\"deepseek\"" }),
+		provider: m(choice(["deepseek", "none"], "用量提供方"), "账户余额从哪里查：`none` 不查余额，页脚也不折算人民币；`deepseek` 查 DeepSeek 余额，页脚按它的价表折算人民币", { default: "\"none\"" }),
 	}).partial(), "用量报告（`/feishu usage`）"),
 	sessionLifecycle: m(z.object({
 		idleTtlMs: m(nonNegative, "会话空闲多久后释放内存（毫秒）。会话文件保留，下一条消息会自动恢复"),

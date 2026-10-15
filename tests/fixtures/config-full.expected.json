@@ -111,7 +111,7 @@
     "sweepIntervalMs": 60000
   },
   "progress": {
-    "mode": "new",
+    "mode": "all",
     "showThinking": false,
     "maxLines": 8,
     "previewChars": 40,

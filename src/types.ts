@@ -302,7 +302,7 @@ export interface BridgeConfig {
 	 *
 	 * 只在用户主动执行命令时才打外部接口，带 TTL 缓存（避免连续查询打爆）。
 	 */
-	usage?: { balanceTtlMs?: number; snapshots?: boolean; /** 账户用量提供方；none = 不查余额、页脚不折算人民币。默认 deepseek。 */ provider?: "deepseek" | "none" };
+	usage?: { balanceTtlMs?: number; snapshots?: boolean; /** 账户用量提供方；none（默认）= 不查余额、页脚不折算人民币。 */ provider?: "deepseek" | "none" };
 	/** 空闲会话回收（与 maxActiveSessions 的“并发上限”语义不同）。 */
 	sessionLifecycle: { idleTtlMs: number; maxResidentSessions: number; sweepIntervalMs: number };
 	/**
@@ -394,9 +394,9 @@ export const DEFAULT_CONFIG: BridgeConfig = {
 	queueNotice: true,
 	footer: { enabled: false, showCost: true, showCny: true, showContext: true, showSession: true },
 	footerByChat: {},
-	usage: { balanceTtlMs: 5 * 60_000, snapshots: true },
+	usage: { balanceTtlMs: 5 * 60_000, snapshots: true, provider: "none" },
 	sessionLifecycle: { idleTtlMs: 30 * 60_000, maxResidentSessions: 32, sweepIntervalMs: 60_000 },
-	progress: { mode: "all", showThinking: false, maxLines: 6, previewChars: 40, keepOnFinish: true },
+	progress: { mode: "new", showThinking: false, maxLines: 6, previewChars: 40, keepOnFinish: true },
 	// 默认关闭 —— 未确定授权范围前不允许切换工作区
 	workspaces: { aliases: {} },
 	sessionDir: "sessions/feishu",

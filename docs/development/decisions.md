@@ -216,3 +216,14 @@
   - 按群设置 `sessionsPerUser`：先看找回个人会话够不够用。
 - **影响**：升级后没显式写 `groupSessionsPerUser` 的群从新的共享会话开始，旧的个人会话要手动 `/resume`；
   共用会话里任何能用机器人的人发 `/new`、切模型都会影响全群。
+
+## ADR-17 用量默认不绑厂商，进度默认只在换工具时加行
+
+- **状态**：已定（2026-10-15）
+- **背景**：两个默认值是按自己的用法定的，不适合公开的通用扩展：
+  - `usage.provider` 默认 `deepseek`：没用 DeepSeek 的人也会去查它的余额，页脚按它的价表折算人民币；
+  - `progress.mode` 默认 `all`：每次工具调用加一行，群里全群共用会话后（ADR-16）所有人都看得到，太吵。
+- **决定**：`usage.provider` 默认 `none`，未知取值也按 `none` 处理；`progress.mode` 默认 `new`。
+- **否决**：顺带把 `approval.mode` 默认改为 `builtin`：维持 ADR-7「审批默认关闭」，靠 `allowChats` / `allowUsers` 默认拒绝兜底。
+- **影响**：用 DeepSeek 的要显式写 `usage.provider: "deepseek"`，否则页脚没有人民币、`/feishu usage` 查不到余额；
+  要每次工具调用一行的写 `progress.mode: "all"`。

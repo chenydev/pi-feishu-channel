@@ -54,7 +54,7 @@
   "usage": {
     "balanceTtlMs": 300000,
     "snapshots": true,
-    "provider": "deepseek"
+    "provider": "none"
   },
   "progress": {
     "showThinking": false

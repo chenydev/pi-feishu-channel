@@ -31,7 +31,7 @@
   会话 in 67.4k / out 9.4k · cache 514.7k · ctx 2.1%（20.8k/1.0M） · $0.02 / ¥0.13（估算）
   ```
   - **本轮**＝这一轮花的（跨工具多轮累加）；**会话**＝本次聊天累计 + 当前上下文占用
-  - 费用 2 位小数；不足一分钱显示 `<$0.01`（不显示假 0）；¥ 由**官方 CNY 价表**推导（不是汇率），模型不在价表内时只显示 `$`
+  - 费用 2 位小数；不足一分钱显示 `<$0.01`（不显示假 0）；¥ 由**官方 CNY 价表**推导（不是汇率），需要 `usage.provider: "deepseek"`（默认 `none` 只显示 `$`），模型不在价表内时也只显示 `$`
   - 开关：`footer.showCost` / `showCny` / `showContext` / `showSession`（`showSession:false` 只留本轮）
   - **开关**（管理员/应用归属人）：`/feishu footer on|off` 只改当前会话（群或私聊），落盘在 `footerByChat`；
     加 `-g` 改全局默认 `footer.enabled`（默认关）；`/feishu footer reset` 让当前会话改回跟随全局；`/feishu footer` 查看状态。

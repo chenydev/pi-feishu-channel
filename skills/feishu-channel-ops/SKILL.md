@@ -43,13 +43,14 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 | 只让部分人在某群使用 | `groupRules.<群id>.policy: "allowlist"` + `allowlist` |
 | 让其它机器人 / webhook 触发 | `allowBots` 加 `"mentions"`（任何 @ 了本机器人的 bot 都放行，不依赖 id，换应用不失效）；或加对方 `app_id` |
 | 指定管理员 | `admins`（open_id）。应用归属人和应用管理员启动时自动识别（开发者、运营不算），**不用写** |
+| 进度里每次工具调用都显示一行 | `progress.mode: "all"`（默认 `new`：只在换了工具时加一行；`off` 不显示） |
 | 限制某群可用的工具 | `groupRules.<群id>.tools`：`readonly` / `standard` / `full` / 工具名数组 |
 
 open_id 是**按应用生成**的：换了飞书应用，`admins`、`allowUsers`、`groupRules` 里的 open_id 和 `allowBots` 里的机器人 open_id 全部要重新确认。
 
 ### 可选能力默认关闭
 
-`approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest`、`groupAlsoOnReply`（回复机器人免 @）都需要显式开启。
+`approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest`、`groupAlsoOnReply`（回复机器人免 @）、`usage.provider: "deepseek"`（查余额、页脚折算人民币）都需要显式开启。
 
 开通申请（`onboarding.accessRequest`）：未放行的群里 @、群名单外的人 @、未放行的人私聊，都给审批人（`onboarding.accessApprovers`）发申请卡；
 审批人可选放行此群 / 加入本群名单 / 全局放行此人（写 `allowUsersAllGroups`，只放开群）/ 放行私聊，结果直接写回 `config.json`。

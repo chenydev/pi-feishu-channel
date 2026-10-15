@@ -182,7 +182,7 @@ test("进度消息：连续相同行折叠成 (×N)", async () => {
 	const dir = tempDir();
 	try {
 		const edits: string[] = [];
-		const manager = await withManager({ dir, edits });
+		const manager = await withManager({ dir, edits, mode: "all" });
 		await prime(manager);
 		for (const id of ["tc-1", "tc-2", "tc-3"]) {
 			manager.onToolEvent("sid-progress", "bash", "start", { command: "echo 1" }, id);
@@ -196,7 +196,7 @@ test("进度消息：超过 maxLines 只留最后 N 行并交代总步数", asyn
 	const dir = tempDir();
 	try {
 		const edits: string[] = [];
-		const manager = await withManager({ dir, edits, progress: { maxLines: 3 } });
+		const manager = await withManager({ dir, edits, progress: { mode: "all", maxLines: 3 } });
 		await prime(manager);
 		for (let i = 0; i < 7; i += 1) {
 			manager.onToolEvent("sid-progress", "bash", "start", { command: `echo ${i}` }, `tc-${i}`);
@@ -496,7 +496,7 @@ test("编辑配额用尽后自动轮换成新进度消息（不再无限编辑�
 			},
 		};
 		const manager = new ConversationManager({
-			config: config(), sessionDir: dir, sessionBackend: backend,
+			config: config({ progress: progressConfig({ mode: "all" }) }), sessionDir: dir, sessionBackend: backend,
 			sender: {
 				async send(_c: string, text: string) { sent.push(text); return { success: true, messageId: `om_${sent.length}` }; },
 			} as never,

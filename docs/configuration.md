@@ -232,7 +232,7 @@
 |---|---|---|---|---|
 | `usage.balanceTtlMs` | number | `300000`（5 分钟） |  | 账户余额查询结果的缓存时间（毫秒） |
 | `usage.snapshots` | boolean | `true` |  | 记录余额快照，用来估算消耗速度 |
-| `usage.provider` | "deepseek" \| "none" | `"deepseek"` |  | 账户余额从哪里查：`deepseek`；`none` = 不查余额，页脚也不折算人民币 |
+| `usage.provider` | "deepseek" \| "none" | `"none"` |  | 账户余额从哪里查：`none` 不查余额，页脚也不折算人民币；`deepseek` 查 DeepSeek 余额，页脚按它的价表折算人民币 |
 
 ## `sessionLifecycle`：空闲会话回收
 
@@ -246,7 +246,7 @@
 
 | 字段 | 类型 | 默认 | 环境变量 | 说明 |
 |---|---|---|---|---|
-| `progress.mode` | "off" \| "new" \| "all" \| "verbose" | `"all"` | `FEISHU_PROGRESS_MODE` | 处理过程的展示：`off` 不展示；`new` 只在换了工具时加一行；`all` 每次工具调用加一行；`verbose` 同 `all`，参数预览更长 |
+| `progress.mode` | "off" \| "new" \| "all" \| "verbose" | `"new"` | `FEISHU_PROGRESS_MODE` | 处理过程的展示：`off` 不展示；`new` 只在换了工具时加一行；`all` 每次工具调用加一行；`verbose` 同 `all`，参数预览更长 |
 | `progress.showThinking` | boolean | `false` |  | 展示模型的思考过程 |
 | `progress.maxLines` | number | `6` |  | 进度消息最多显示多少行（至少 1） |
 | `progress.previewChars` | number | `40` |  | 每行参数预览的长度（至少 4） |

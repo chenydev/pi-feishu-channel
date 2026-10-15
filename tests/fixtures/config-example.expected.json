@@ -65,7 +65,7 @@
   "usage": {
     "balanceTtlMs": 300000,
     "snapshots": true,
-    "provider": "deepseek"
+    "provider": "none"
   },
   "sessionLifecycle": {
     "idleTtlMs": 1800000,
@@ -73,7 +73,7 @@
     "sweepIntervalMs": 60000
   },
   "progress": {
-    "mode": "all",
+    "mode": "new",
     "showThinking": false,
     "maxLines": 6,
     "previewChars": 40,

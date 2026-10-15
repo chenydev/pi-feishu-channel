@@ -142,9 +142,18 @@ test("用量提供方：usage.provider=none 时不展示账户段、不折算人
 	assert.doesNotMatch(card, /"hr"/);
 });
 
-test("用量提供方：默认 deepseek provider 给出档位文案与人民币系数", () => {
+test("用量提供方：默认 none，不查余额、不折算人民币", () => {
 	return import("../src/outbound/usage-provider.js").then(({ createUsageProvider }) => {
 		const provider = createUsageProvider({});
+		assert.equal(provider.id, "none");
+		assert.equal(provider.accountLabel, undefined);
+		assert.equal(provider.cnyPerUsd("deepseek-flash"), undefined);
+	});
+});
+
+test("用量提供方：deepseek provider 给出档位文案与人民币系数", () => {
+	return import("../src/outbound/usage-provider.js").then(({ createUsageProvider }) => {
+		const provider = createUsageProvider({ provider: "deepseek" });
 		assert.equal(provider.id, "deepseek");
 		assert.equal(provider.accountLabel, "DeepSeek");
 		assert.ok(provider.tierLabel(new Date("2026-09-26T10:00:00Z")));

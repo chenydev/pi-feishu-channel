@@ -2,8 +2,8 @@
  * 账户用量提供方（余额 / 计费档位 / 汇率）的可插拔接口。
  *
  * 桥本身与模型厂商无关：`/feishu usage` 与页脚的人民币换算统一经由 `UsageProvider`，
- * 不直接依赖某家厂商。默认 `deepseek`，`none` 则只展示会话用量、
- * 不打任何外部接口、页脚不做人民币换算。新增厂商只需实现这个接口并在 `createUsageProvider` 注册。
+ * 不直接依赖某家厂商。默认 `none`：只展示会话用量、不打任何外部接口、页脚不做人民币换算；
+ * `deepseek` 查 DeepSeek 余额并按它的价表折算人民币。新增厂商只需实现这个接口并在 `createUsageProvider` 注册。
  */
 import { createBalanceClient, type BalanceResult } from "./deepseek-balance.js";
 import { cnyPerUsdForModel, pricingTierAt, tierLabel } from "./deepseek-usage.js";
@@ -38,7 +38,7 @@ const NONE_PROVIDER: UsageProvider = {
 };
 
 export function createUsageProvider(options: UsageProviderOptions): UsageProvider {
-	if (options.provider === "none") return NONE_PROVIDER;
+	if (options.provider !== "deepseek") return NONE_PROVIDER;
 	let client: ReturnType<typeof createBalanceClient> | undefined;
 	return {
 		id: "deepseek",

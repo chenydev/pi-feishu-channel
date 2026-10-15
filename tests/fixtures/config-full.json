@@ -57,7 +57,7 @@
   "docTools": { "enabled": true, "maxChars": 20000 },
   "usage": { "provider": "deepseek", "snapshots": true },
   "sessionLifecycle": { "idleTtlMs": 3600000 },
-  "progress": { "mode": "new", "maxLines": 8 },
+  "progress": { "mode": "all", "maxLines": 8 },
   "workspaces": { "aliases": { "demo": "/workspace/demo" } },
   "debug": false,
   "dedupCacheSize": 2000,

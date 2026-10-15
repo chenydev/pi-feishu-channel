@@ -8,6 +8,9 @@
   原先默认每人一个会话。要保持旧行为，在 `config.json` 里显式写 `"groupSessionsPerUser": true`；
   升级后没写这个字段的群会从一个新的共享会话开始，原来各人的会话文件仍在：群里发 `/sessions` 会列出本群切换前各人的个人会话（标明是谁的），
   本人或管理员 `/resume #N` 接着做，工作区一起带过来；恢复后这段上下文全群共用。
+- **行为变更（用量）**：`usage.provider` 默认改为 `none`，不再默认查 DeepSeek 余额，页脚只显示美元、不折算人民币。
+  用 DeepSeek 的要显式写 `"usage": { "provider": "deepseek" }`。
+- **行为变更（进度）**：`progress.mode` 默认改为 `new`，只在换了工具时加一行，连续调用同一个工具不再逐条刷屏；要旧行为写 `"progress": { "mode": "all" }`。
 - 修复：流式卡片开启约 10 分钟后，飞书会关闭它的流式模式（`200850 card streaming timeout`，之后 `300309 streaming mode is closed`），
   原先之后的写入全部失败，卡片一直停在「正在处理…」或半截内容：超过 10 分钟的长任务答案改发成另一条文字，空闲超时的中止说明也写不进卡片。
   现在撞到时改用整组件替换继续写（没有打字机效果），长任务的最终答案和页脚照常写进卡片，记一次 `feishu.stream_card.streaming_closed`。
