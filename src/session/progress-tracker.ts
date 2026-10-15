@@ -70,6 +70,8 @@ export interface ProgressState {
 	finishedAt?: number;
 	/** 思考摘要（仅配置开启时累积；只保留末尾 500 字）。 */
 	thinking?: string;
+	/** 等模型阶段的状态行（见 `modelWaitNotice`），由执行器写入。 */
+	status?: string;
 	/**
 	 * 卡片模式下进度气泡**懒创建** —— 第一个工具行出现时才发。
 	 * 纯聊天（没调工具）的轮次因此不再"先发一条正在处理再撤回"（多 2 次 API、群里闪一下）。
@@ -247,6 +249,7 @@ export class ProgressTracker {
 			outcome: opts.outcome,
 			now: st.finishedAt ?? this.now(),
 			continued: st.pageIndex > 0,
+			...(st.status ? { status: st.status } : {}),
 			...(opts.outcome ? { stepSummary: formatStepSummary(st.toolCounts, st.toolErrors) } : {}),
 		});
 	}

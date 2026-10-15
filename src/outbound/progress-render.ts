@@ -219,6 +219,8 @@ export interface ProgressSnapshot {
 	continued?: boolean;
 	/** 终态页脚的步骤摘要（`共 9 步（bash×6、read×3）`）。 */
 	stepSummary?: string;
+	/** 等模型阶段的状态行（自动重试中、长时间没有输出）；收尾后不显示。 */
+	status?: string;
 }
 
 /**
@@ -276,6 +278,7 @@ export function renderProgressText(
 	for (const line of shown) output.push(line.count > 1 ? `${line.text} (×${line.count})` : line.text);
 
 	if (thinking) output.push(`💭 ${thinking}`);
+	if (snapshot.status && !finished) output.push(snapshot.status);
 
 	const startedAt = snapshot.startedAt;
 	if (startedAt !== undefined) {

@@ -17,10 +17,13 @@ import type { DeliveryTarget, PiImageContent } from "../types.js";
 import type { AgentHandle, BridgeSession, ConversationManagerDeps, QueuedMessage } from "./conversation-manager.js";
 import { PROGRESS_HEARTBEAT_MS, type ProgressTracker } from "./progress-tracker.js";
 import { classifyRunError, newErrorId } from "./run-errors.js";
-import { RunActivity, durationLabel } from "./run-activity.js";
+import { RunActivity, durationLabel, modelWaitNotice, type ModelWaitNotice } from "./run-activity.js";
 import { extractAssistantText, stripContextPrefix, stripInjectedPrompt } from "./text-utils.js";
 
 type RunMetrics = ReturnType<typeof createRunMetrics>;
+
+/** 等模型状态（自动重试、长时间没有输出）的检查间隔；文案按分钟变化，这里只决定提示出现得多及时。 */
+const MODEL_WAIT_CHECK_MS = 10_000;
 
 /** 执行器需要的管理器能力（全部由 ConversationManager 在构造时提供）。 */
 export interface RunHost {
@@ -60,7 +63,9 @@ export class RunExecutor {
 		// 进度消息的回复目标：轮换新消息（编辑配额用尽）时沿用，保持阅读顺序。
 		st.replyTo = item.replyTo;
 		st.threadId = sess.threadId ?? item.threadId;
+		st.status = undefined;
 		let progressTimer: ReturnType<typeof setInterval> | undefined;
+		let waitTimer: ReturnType<typeof setInterval> | undefined;
 		let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 		let unsubscribe: (() => void) | undefined;
 		let activeAgent: BridgeSession["agent"];
@@ -127,6 +132,21 @@ export class RunExecutor {
 			let lastEndText = "";
 			let agentError: string | undefined;
 			let sentFromEvent = false;
+			// 等模型状态：写进卡片（正文末尾）和进度消息的状态行；收到任何事件后重新判断，多半就清掉了。
+			let waitNotice: ModelWaitNotice | undefined;
+			let quietLogged = false;
+			const refreshWaitNotice = (): void => {
+				const next = sess.run ? modelWaitNotice(sess.run, this.host.now(), this.host.runIdleTimeoutMs) : undefined;
+				if (next?.text === waitNotice?.text) return;
+				waitNotice = next;
+				if (next?.kind === "quiet" && !quietLogged) {
+					quietLogged = true;
+					this.deps.log?.("warn", "feishu.conv.model_quiet", logMeta({ chatId: sess.chatId, quietMs: this.host.now() - (sess.run?.lastEventAt ?? 0) }));
+				}
+				st.status = next?.text;
+				streamCard?.update(next ? (cardText ? `${cardText}\n\n${next.text}` : next.text) : cardText || "正在处理…");
+				void this.host.progress.render(sess, st);
+			};
 			const preparedInput = await this.host.prepareAgentInput(item, sess.conversationKey);
 			const injectedPrompt = preparedInput.text;
 			resolvedResources = preparedInput.resources;
@@ -210,6 +230,13 @@ export class RunExecutor {
 					}));
 				}
 				const adapted = adaptAgentEvent(ev);
+				if (adapted?.type === "retry_start") {
+					this.deps.log?.("warn", "feishu.conv.model_retry", logMeta({
+						chatId: sess.chatId, attempt: adapted.attempt, maxAttempts: adapted.maxAttempts,
+						delayMs: adapted.delayMs, error: adapted.errorMessage.slice(0, 300),
+					}));
+				}
+				refreshWaitNotice();
 				// 工具进度：订阅回调本来就在会话上下文里（不用猜 sessionId），
 				// 因此这是主路径；`pi.on` 全局钩子是退路，两边靠 toolCallId 去重。
 				if (adapted?.type === "tool_start") {
@@ -301,6 +328,8 @@ export class RunExecutor {
 			progressTimer = setInterval(() => {
 				void this.host.progress.render(sess, st);
 			}, PROGRESS_HEARTBEAT_MS);
+			waitTimer = setInterval(refreshWaitNotice, MODEL_WAIT_CHECK_MS);
+			waitTimer.unref?.();
 
 			// 双计时器：
 			// - 空闲计时器：每次事件重置；长时间无产出才判卡死（默认 10 分钟）
@@ -438,6 +467,7 @@ export class RunExecutor {
 			sess.runIdleReject = undefined;
 			sess.run = undefined;
 			if (progressTimer) clearInterval(progressTimer);
+			if (waitTimer) clearInterval(waitTimer);
 			try { unsubscribe?.(); } catch { /* best effort */ }
 			// 先取快照：下面会把 stopRequested 复位，之后再读它就永远是 false。
 			const stopped = Boolean(sess.stopRequested);

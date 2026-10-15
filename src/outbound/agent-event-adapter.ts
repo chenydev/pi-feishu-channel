@@ -7,7 +7,10 @@ export type AdaptedAgentEvent =
 		type: "message_end"; role?: string; text: string; messageId?: string; stopReason?: string; errorMessage?: string;
 		provider?: string; model?: string; usage?: AdaptedUsage;
 	}
-	| { type: "turn_end"; text: string; messageId?: string };
+	| { type: "turn_end"; text: string; messageId?: string }
+	/** pi 遇到临时错误（503、限流、网络）后的自动重试：`delayMs` 后发起第 `attempt` 次。 */
+	| { type: "retry_start"; attempt: number; maxAttempts: number; delayMs: number; errorMessage: string }
+	| { type: "retry_end"; success: boolean; attempt: number };
 
 /** Pi assistant message 的用量字段（reasoning 是 output 子集，不单独累加）。 */
 export interface AdaptedUsage {
@@ -79,6 +82,12 @@ export function adaptAgentEvent(event: unknown): AdaptedAgentEvent | undefined {
 		type: "tool_end", toolCallId: typeof value.toolCallId === "string" ? value.toolCallId : undefined,
 		toolName: typeof value.toolName === "string" ? value.toolName : "tool", isError: value.isError === true,
 	};
+	const num = (key: string): number => (typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] as number : 0);
+	if (type === "auto_retry_start") return {
+		type: "retry_start", attempt: num("attempt"), maxAttempts: num("maxAttempts"), delayMs: num("delayMs"),
+		errorMessage: typeof value.errorMessage === "string" ? value.errorMessage : "",
+	};
+	if (type === "auto_retry_end") return { type: "retry_end", success: value.success === true, attempt: num("attempt") };
 	if (type === "message_end" || type === "turn_end") {
 		const message = value.message as Record<string, unknown> | undefined;
 		const text = textFromContent(message?.content ?? value.content);

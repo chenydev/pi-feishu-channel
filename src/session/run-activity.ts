@@ -24,19 +24,26 @@ export class RunActivity {
 	toolCalls = 0;
 	/** 正在执行的工具最近几行输出（工具结束后清空）。 */
 	lastOutput?: string;
+	/** pi 正在自动重试（503、限流等临时错误）；收到模型输出或重试结束后清空。 */
+	retry?: { attempt: number; maxAttempts: number; error: string };
 	private readonly tools = new Map<string, RunningTool>();
 
 	constructor(readonly startedAt: number) {
 		this.lastEventAt = startedAt;
 	}
 
-	/** 记一个 agent 事件（`tool_execution_start / update / end`，其余只更新时间）。 */
+	/** 记一个 agent 事件（工具事件和自动重试事件，其余只更新时间）。 */
 	record(event: unknown, now: number): void {
 		this.lastEventAt = now;
 		if (!event || typeof event !== "object") return;
 		const value = event as Record<string, unknown>;
 		const id = typeof value.toolCallId === "string" ? value.toolCallId : "";
-		if (value.type === "tool_execution_start") {
+		if (value.type === "auto_retry_start") {
+			const num = (key: string): number => (typeof value[key] === "number" ? value[key] as number : 0);
+			this.retry = { attempt: num("attempt"), maxAttempts: num("maxAttempts"), error: typeof value.errorMessage === "string" ? value.errorMessage : "" };
+		} else if (value.type === "auto_retry_end" || value.type === "message_update") {
+			this.retry = undefined;
+		} else if (value.type === "tool_execution_start") {
 			const name = typeof value.toolName === "string" ? value.toolName : "tool";
 			this.tools.set(id, { id, name, startedAt: now, detail: detailOf(value.args) });
 			this.toolCalls += 1;
@@ -78,6 +85,45 @@ export function toolLabel(tool: RunningTool): string {
 	return tool.detail ? `${tool.name} \`${tool.detail}\`` : tool.name;
 }
 
+/**
+ * 等模型时连续多久没有任何事件就提示「可能在排队」。
+ *
+ * DeepSeek 繁忙时不报错，而是先回响应头、再只发 SSE 注释 `: keep-alive` 排队，最长 10 分钟才断开；
+ * pi 收不到任何事件，用户只看到「正在处理…」。
+ */
+export const MODEL_QUIET_NOTICE_MS = 60_000;
+
+export interface ModelWaitNotice {
+	kind: "retry" | "quiet";
+	text: string;
+}
+
+/**
+ * 等模型阶段的状态提示：pi 在自动重试，或者长时间没有任何输出（多半在排队）。
+ * 工具执行中、一切正常时返回 undefined。时长按分钟取整，文案一分钟最多变一次（进度消息的编辑次数有限）。
+ */
+export function modelWaitNotice(activity: RunActivity, now: number, idleLimitMs: number): ModelWaitNotice | undefined {
+	if (activity.inTool) return undefined;
+	const quiet = now - activity.lastEventAt;
+	if (quiet >= MODEL_QUIET_NOTICE_MS) {
+		const minutes = Math.max(1, Math.floor(quiet / 60_000));
+		const limit = idleLimitMs > 0 ? `，${durationLabel(idleLimitMs)}仍没有输出会自动中止` : "";
+		return { kind: "quiet", text: `⏳ 已 ${minutes} 分钟没有收到模型输出，模型服务可能在排队${limit}。不想等可以 /stop，用 /model 换个模型再发。` };
+	}
+	const retry = activity.retry;
+	if (retry) return { kind: "retry", text: `⚠️ 模型服务暂时不可用（${briefError(retry.error)}），正在自动重试（第 ${retry.attempt}/${retry.maxAttempts} 次）…` };
+	return undefined;
+}
+
+/** 错误摘要：有 HTTP 状态码就只给状态码，否则取首行前 40 字。 */
+function briefError(message: string): string {
+	const status = /^\s*(\d{3})\b/.exec(message)?.[1];
+	if (status) return status;
+	const line = message.trim().split("\n")[0] ?? "";
+	if (!line) return "临时错误";
+	return line.length > 40 ? `${line.slice(0, 40)}…` : line;
+}
+
 /** 工具在执行时，用户的消息要等这一步结束才交给模型：返回一句说明（没有工具在执行时返回 undefined）。 */
 export function busyNoticeText(activity: RunActivity, now: number): string | undefined {
 	const tool = activity.current();
@@ -97,6 +143,7 @@ export function describeProgress(input: { activity: RunActivity; now: number; ta
 		if (activity.lastOutput) lines.push("最近输出：", "```", activity.lastOutput, "```");
 	} else {
 		lines.push(`当前：等模型回复${quiet >= 30_000 ? `（${durationLabel(quiet)}没有新输出）` : ""}`);
+		if (activity.retry) lines.push(`模型服务暂时不可用（${briefError(activity.retry.error)}），pi 正在自动重试（第 ${activity.retry.attempt}/${activity.retry.maxAttempts} 次）`);
 	}
 	const extra = [`本轮已调用工具 ${activity.toolCalls} 次`];
 	if (input.steered) extra.push(`待并入 ${input.steered} 条消息`);

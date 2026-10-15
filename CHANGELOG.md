@@ -4,6 +4,11 @@
 
 ## 未发布
 
+- 等模型时说明发生了什么，不再只显示「正在处理…」（卡片正文末尾和进度消息的状态行，收到模型输出后消失）：
+  - pi 遇到 503、限流等临时错误自动重试时，显示「模型服务暂时不可用（503），正在自动重试（第 1/3 次）」，日志 `feishu.conv.model_retry`；
+  - 等模型时 1 分钟没有任何输出，显示「已 N 分钟没有收到模型输出，模型服务可能在排队，… 仍没有输出会自动中止」，日志 `feishu.conv.model_quiet`。
+    DeepSeek 繁忙时不报错，只发 `: keep-alive` 让请求排队（最长 10 分钟），之前用户看不出任务卡在哪。
+  - `/progress` 也会显示「pi 正在自动重试」。
 - 空闲超时分两段：工具执行中（如 bash 跑构建、测试）按新配置 `runToolIdleTimeoutMs`（默认 60 分钟），等模型时仍按 `runIdleTimeoutMs`（10 分钟）。
   原先整轮统一 10 分钟，长时间没有输出的命令会被误杀。中止提示写明是哪个工具没有输出，还是一直没收到模型的输出；
   日志 `feishu.conv.run_idle_timeout` 新增 `phase`（`tool` / `model`）、`tool`、`toolMs`、`runMs`、`toolCalls`。

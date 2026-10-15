@@ -159,3 +159,12 @@ test("进度渲染：formatDuration 紧凑表达", () => {
 	assert.equal(formatDuration(150_000), "2m30s");
 	assert.equal(formatDuration(-5), "0.0s");
 });
+
+test("进度：等模型状态行在耗时之前，收尾后不再显示", () => {
+	const view = { mode: "all" as const, maxLines: 6, previewChars: 40 };
+	const status = "⏳ 已 2 分钟没有收到模型输出，模型服务可能在排队";
+	const running = renderProgressText([], undefined, view, { startedAt: 0, now: 120_000, status });
+	assert.deepEqual(running.split("\n"), ["🤖 正在处理…", status, "⏱ 2m0s"]);
+	const done = renderProgressText([], undefined, view, { startedAt: 0, finishedAt: 130_000, outcome: "failed", now: 130_000, status });
+	assert.ok(!done.includes(status), done);
+});

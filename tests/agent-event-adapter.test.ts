@@ -29,3 +29,10 @@ test("AgentEventAdapter：turn_end 提取权威最终文本", () => {
 		type: "turn_end", message: { id: "turn-1", content: [{ type: "text", text: "最终" }] },
 	}), { type: "turn_end", text: "最终", messageId: "turn-1" });
 });
+
+test("AgentEventAdapter：pi 自动重试事件", () => {
+	assert.deepEqual(adaptAgentEvent({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "503: busy" }), {
+		type: "retry_start", attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "503: busy",
+	});
+	assert.deepEqual(adaptAgentEvent({ type: "auto_retry_end", success: false, attempt: 3, finalError: "503" }), { type: "retry_end", success: false, attempt: 3 });
+});

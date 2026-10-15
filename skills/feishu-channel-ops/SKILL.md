@@ -89,7 +89,7 @@ cat "$H/status.json"
 | `group_policy_rejected` | 群策略是 `disabled` / `admin_only` / `blacklist` | `groupPolicy` / `groupRules` |
 | `bot_not_mentioned` | 策略要求 @ 但没 @ | 消息里 @ 机器人，或改策略 |
 
-4. **执行了吗** → `feishu.session.created`、`feishu.conv.send_reply_start`；异常看 `feishu.conv.run_error`、`run_idle_timeout`（`phase: tool` 卡在工具，`model` 卡在等模型）。任务还在跑时让用户发 `/progress` 看进度。
+4. **执行了吗** → `feishu.session.created`、`feishu.conv.send_reply_start`；异常看 `feishu.conv.run_error`、`run_idle_timeout`（`phase: tool` 卡在工具，`model` 卡在等模型）、`model_retry`（pi 在自动重试）、`model_quiet`（等模型 1 分钟没输出）。任务还在跑时让用户发 `/progress` 看进度。
 5. **回复发出去了吗** → `feishu.outbox.delivered`；失败看 `feishu.outbox.failed` 的 `lastError`。
 
 ```bash
@@ -104,6 +104,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | `status.json` 说已连接，却没反应 | 文件过期，进程已停 | 看 mtime，重启 |
 | 回复机器人的消息，没 @ 也触发 | 开了 `groupAlsoOnReply`（默认关） | 设为 `false` 或去掉 `FEISHU_GROUP_ALSO_ON_REPLY` 后重启 |
 | 任务被中止（空闲超时） | 工具执行中 `runToolIdleTimeoutMs`（默认 60 分钟）没有输出，或等模型时 `runIdleTimeoutMs`（默认 10 分钟）没有输出 | 中止提示和 `run_idle_timeout` 的 `phase` 说明是哪一种；调大对应字段 |
+| 显示「模型服务暂时不可用，正在自动重试」/「可能在排队」 | 模型服务繁忙（DeepSeek 排队时只发 keep-alive，pi 的 HTTP 超时拦不住） | 等或 `/stop` 后 `/model` 换模型；常遇到把 `runIdleTimeoutMs` 调到 `180000`。见 [运维 §4](../../docs/operations.md#4-常见症状) |
 | 任务执行中问进度没回应 | 普通消息要等当前工具结束才交给模型 | 发 `/progress`（立即回复，不打断任务） |
 | 点提问卡片选项提示没有权限 / 已过期 | 作答权限 = 能在这里 @ 机器人；卡片答过一次、有新提问、`/new` 或超过 `clarify.ttlMs`（24 小时）后失效 | 放行这个人（§3），或直接打字回复；看 `feishu.clarify.audit` |
 | 开了开通申请，没权限的人找机器人没收到申请卡 | 冷却期内已发过、被「暂不放行」（24 小时）、超出每小时上限，或群策略本身拒绝 | 看 `feishu.access_request.silent` 的 `reason`（`reminded` / `ignored` / `rate_limited`）；急用直接改配置 |

@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ConversationManager } from "../src/session/conversation-manager.js";
-import { RunActivity, busyNoticeText, describeProgress, durationLabel } from "../src/session/run-activity.js";
+import { MODEL_QUIET_NOTICE_MS, RunActivity, busyNoticeText, describeProgress, durationLabel, modelWaitNotice } from "../src/session/run-activity.js";
 import { DEFAULT_CONFIG, type BridgeConfig, type FeishuInboundMessage, type SessionBackend } from "../src/types.js";
 
 const toolStart = (id: string, command: string) => ({ type: "tool_execution_start", toolCallId: id, toolName: "bash", args: { command } });
@@ -39,6 +39,82 @@ test("运行状态：时长写法、/progress 正文、忙碌提示", () => {
 	assert.match(report, /最近输出：\n```\ncompiling…\n```/);
 	assert.match(report, /本轮已调用工具 1 次；待并入 1 条消息；排队 2 个任务/);
 	assert.match(String(busyNoticeText(activity, 180_000)), /^正在执行 bash `npm run build`（已 2 分钟），你的消息会在这一步结束后交给模型。发 \/progress/);
+});
+
+const retryStart = (attempt: number) => ({
+	type: "auto_retry_start", attempt, maxAttempts: 3, delayMs: 2_000,
+	errorMessage: '503: {"message":"Service is too busy.","type":"service_unavailable_error"}',
+});
+const textDelta = (delta: string) => ({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta } });
+
+test("等模型提示：pi 自动重试时说明状态码和第几次；收到模型输出后清掉", () => {
+	const activity = new RunActivity(0);
+	assert.equal(modelWaitNotice(activity, 1_000, 600_000), undefined, "一切正常时不提示");
+	activity.record(retryStart(1), 1_000);
+	assert.deepEqual(modelWaitNotice(activity, 2_000, 600_000), { kind: "retry", text: "⚠️ 模型服务暂时不可用（503），正在自动重试（第 1/3 次）…" });
+	assert.match(describeProgress({ activity, now: 2_000, steered: 0, queued: 0 }), /模型服务暂时不可用（503），pi 正在自动重试（第 1\/3 次）/);
+	activity.record(textDelta("答"), 3_000);
+	assert.equal(activity.retry, undefined);
+	assert.equal(modelWaitNotice(activity, 4_000, 600_000), undefined);
+	activity.record(retryStart(2), 5_000);
+	activity.record({ type: "auto_retry_end", success: false, attempt: 3, finalError: "503" }, 6_000);
+	assert.equal(activity.retry, undefined, "重试结束（成败都算）后不再显示重试中");
+});
+
+test("等模型提示：长时间没有任何事件 → 提示可能在排队，并写明多久后自动中止；工具执行中不提示", () => {
+	const activity = new RunActivity(0);
+	assert.equal(modelWaitNotice(activity, MODEL_QUIET_NOTICE_MS - 1, 600_000), undefined);
+	const quiet = modelWaitNotice(activity, MODEL_QUIET_NOTICE_MS, 600_000);
+	assert.equal(quiet?.kind, "quiet");
+	assert.match(String(quiet?.text), /^⏳ 已 1 分钟没有收到模型输出，模型服务可能在排队，10 分钟仍没有输出会自动中止。/);
+	assert.equal(modelWaitNotice(activity, 150_000, 600_000)?.text, modelWaitNotice(activity, 179_000, 600_000)?.text, "按分钟取整：一分钟内文案不变（进度消息编辑次数有限）");
+	assert.doesNotMatch(String(modelWaitNotice(activity, 120_000, 0)?.text), /自动中止/, "关闭空闲超时时不说会自动中止");
+	activity.record(retryStart(1), 1_000);
+	assert.equal(modelWaitNotice(activity, 1_000 + MODEL_QUIET_NOTICE_MS, 600_000)?.kind, "quiet", "重试后又挂住：排队提示优先");
+	activity.record(toolStart("t1", "npm test"), 200_000);
+	assert.equal(modelWaitNotice(activity, 900_000, 600_000), undefined, "工具执行中（包括等审批）不算等模型");
+});
+
+test("等模型提示：卡片模式下重试状态写进卡片，模型开始输出后被正文替换", async () => {
+	const contents: string[] = [];
+	const rawRequest = async (opts: { url: string; method: string; data?: unknown }) => {
+		if (opts.url === "/open-apis/cardkit/v1/cards") return { data: { card_id: "card-wait" } };
+		if (opts.url.startsWith("/open-apis/im/v1/messages")) return { data: { message_id: "om-card-wait" } };
+		if (opts.url.endsWith("/elements/stream/content")) contents.push(String((opts.data as { content?: unknown }).content));
+		return { data: {} };
+	};
+	let emit: (event: unknown) => void = () => {};
+	let finish: (text: string) => void = () => {};
+	const backend: SessionBackend = {
+		async createSession() {
+			return {
+				sessionId: "sid-wait",
+				prompt: () => new Promise<string>((resolve) => { finish = resolve; }),
+				subscribe(listener: (event: unknown) => void) { emit = listener; return () => {}; },
+				async abort() {}, async dispose() {}, modelId: "m",
+			};
+		},
+	};
+	const logs: string[] = [];
+	const manager = new ConversationManager({
+		config: {
+			...DEFAULT_CONFIG, allowChats: ["oc_chat"], streamingCard: { enabled: true, throttleMs: 0 },
+			reaction: { ...DEFAULT_CONFIG.reaction, enabled: false }, footer: { enabled: false, showCost: false },
+		},
+		sessionDir: "/tmp/feishu-run-activity-wait", sessionBackend: backend, rawRequest,
+		sender: { async send() { return { success: true, messageId: "om_text" }; } } as never,
+		log: (_level, msg) => logs.push(msg),
+	});
+	await manager.route(message("wait"));
+	await waitUntil(() => contents.length === 0 && logs.includes("feishu.stream_card.started"));
+	emit(retryStart(1));
+	await waitUntil(() => contents.some((text) => text.includes("正在自动重试（第 1/3 次）")));
+	assert.ok(logs.includes("feishu.conv.model_retry"));
+	emit(textDelta("答案开头"));
+	await waitUntil(() => contents.at(-1) === "答案开头");
+	finish("答案开头");
+	await waitUntil(() => logs.includes("feishu.stream_card.finished"));
+	await manager.shutdown();
 });
 
 function setup(over: Partial<BridgeConfig> & { runIdleTimeoutMs?: number; runToolIdleTimeoutMs?: number; now?: () => number } = {}) {
