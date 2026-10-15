@@ -209,3 +209,94 @@ test("会话恢复：没有会话索引时不 pretend（明确拒绝）", async 
 		assert.match(await manager.commands.listSessionsFor(message("m1")), /尚无历史记录/);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ------------------------------------------- 群里切到全群共用后找回个人会话 ----
+
+function groupMessage(senderId: string): FeishuInboundMessage {
+	return { ...message(`m-${senderId}`), chatId: "oc_g", chatType: "group", senderId };
+}
+
+/** 造切换前的个人会话指针：oc_g 里 ou_a（带工作区和历史）、ou_b，另有别的群里 ou_a 的会话。 */
+function seedPersonal(dir: string) {
+	const files = Object.fromEntries(["a1", "a0", "b1", "other"].map((name) => [name, join(dir, `${name}.jsonl`)]));
+	for (const file of Object.values(files)) writeFileSync(file, "");
+	const storeFile = join(dir, "conversations.jsonl");
+	const store = new ConversationStore(storeFile);
+	store.set({ conversationKey: "oc_g:u:ou_a", sessionFile: files.a1, generation: 2, workspace: "proj", history: [{ sessionFile: files.a0, generation: 1, retiredAt: 1 }] });
+	store.set({ conversationKey: "oc_g:u:ou_b", sessionFile: files.b1, generation: 1 });
+	store.set({ conversationKey: "oc_other:u:ou_a", sessionFile: files.other, generation: 1 });
+	const sessions = Object.entries(files).map(([name, path]) => ({ path, id: name, name: `会话${name}`, modified: Date.now(), messageCount: 1 }));
+	return { files, storeFile, sessions };
+}
+
+function sharedManager(dir: string, storeFile: string, sessions: NonNullable<Parameters<typeof backend>[0]>["sessions"], perUser = false) {
+	return new ConversationManager({
+		config: { ...config(), groupSessionsPerUser: perUser }, sessionDir: dir,
+		sessionBackend: backend({ sessions }), sender: sender() as never, conversationFile: storeFile,
+		resolveUserName: async (openId) => ({ ou_a: "张三", ou_b: "李四" } as Record<string, string>)[openId],
+	});
+}
+
+test("群共用会话：/sessions 列出本群切换前各人的个人会话，标明是谁的，不列别的群", async () => {
+	const dir = tempDir();
+	try {
+		const { storeFile, sessions } = seedPersonal(dir);
+		const manager = sharedManager(dir, storeFile, sessions);
+		const text = await manager.commands.listSessionsFor(groupMessage("ou_b"));
+		assert.ok(text.includes("会话a1（张三 的个人会话）"), text);
+		assert.ok(text.includes("会话a0（张三 的个人会话）"), "个人会话的历史也要列出");
+		assert.ok(text.includes("会话b1（李四 的个人会话）"), text);
+		assert.ok(!text.includes("会话other"), "不得列出别的群里的个人会话");
+		assert.ok(text.includes("恢复后全群共用"), "要提示恢复后全群共用");
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("群共用会话：本人恢复自己的个人会话，指针和工作区切过来，列表不重复", async () => {
+	const dir = tempDir();
+	try {
+		const { files, storeFile, sessions } = seedPersonal(dir);
+		const manager = sharedManager(dir, storeFile, sessions);
+		const listed = await manager.commands.listSessionsFor(groupMessage("ou_a"));
+		const selector = /(#\d+) · 会话a1/.exec(listed)?.[1];
+		assert.ok(selector, listed);
+
+		const result = await manager.commands.resumeConversation(groupMessage("ou_a"), selector);
+		assert.match(result, /全群共用/, result);
+		const pointer = new ConversationStore(storeFile).get("oc_g");
+		assert.equal(pointer?.sessionFile, files.a1, "群会话的指针指向张三的个人会话");
+		assert.equal(pointer?.workspace, "proj", "工作区随会话带过来");
+
+		const after = await manager.commands.listSessionsFor(groupMessage("ou_b"));
+		assert.equal(after.match(/会话a1/g)?.length, 1, `恢复后不得在个人会话里再列一次：${after}`);
+		assert.match(after, /#1 · 会话a1.*· 当前/, after);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("群共用会话：别人的个人会话只有本人或管理员能恢复", async () => {
+	const dir = tempDir();
+	try {
+		const { files, storeFile, sessions } = seedPersonal(dir);
+		const manager = sharedManager(dir, storeFile, sessions);
+		const listed = await manager.commands.listSessionsFor(groupMessage("ou_b"));
+		const selector = /(#\d+) · 会话a1/.exec(listed)?.[1];
+		assert.ok(selector, listed);
+
+		assert.match(await manager.commands.resumeConversation(groupMessage("ou_b"), selector), /只有本人或管理员/);
+		assert.notEqual(new ConversationStore(storeFile).get("oc_g")?.sessionFile, files.a1, "被拒绝的恢复不得改动指针");
+
+		assert.match(await manager.commands.resumeConversation(groupMessage("ou_b"), selector, { isAdmin: true }), /已恢复/);
+		assert.equal(new ConversationStore(storeFile).get("oc_g")?.sessionFile, files.a1);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("群按人隔离：/sessions 只列自己的会话，不列同群其他人的", async () => {
+	const dir = tempDir();
+	try {
+		const { storeFile, sessions } = seedPersonal(dir);
+		const manager = sharedManager(dir, storeFile, sessions, true);
+		const text = await manager.commands.listSessionsFor(groupMessage("ou_a"));
+		assert.ok(text.includes("会话a1") && text.includes("会话a0"), text);
+		assert.ok(!text.includes("会话b1"), "不得列出同群其他人的会话");
+		assert.ok(!text.includes("个人会话"), "按人隔离时不加个人会话标注");
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});

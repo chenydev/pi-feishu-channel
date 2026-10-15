@@ -14,7 +14,7 @@
   ],
   "adminBypassMention": false,
   "groupAlsoOnReply": false,
-  "groupSessionsPerUser": true,
+  "groupSessionsPerUser": false,
   "runIdleTimeoutMs": 600000,
   "runToolIdleTimeoutMs": 3600000,
   "requireMention": true,

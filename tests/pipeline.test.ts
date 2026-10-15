@@ -374,7 +374,7 @@ test("会话隔离：群内按用户隔离 + 话题内共享（hermes 模型）"
 	const { ConversationManager } = await import("../src/session/conversation-manager.js");
 	const sessionFiles: string[] = [];
 	const mgr = new ConversationManager({
-		config: cfg({ groupPolicy: "open" }),
+		config: cfg({ groupPolicy: "open", groupSessionsPerUser: true }),
 		sessionDir: "/tmp/feishu-test-sessions2",
 		sessionBackend: {
 			async createSession(opts: { sessionFile?: string }) {

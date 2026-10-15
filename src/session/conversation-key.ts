@@ -4,7 +4,7 @@ import type { BridgeConfig, FeishuInboundMessage } from "../types.js";
  * 飞书消息的会话键的唯一来源。
  *
  * - 话题默认由参与者共享；
- * - 群主聊天默认按发送者隔离；
+ * - 群主聊天默认全群共用 chatId；`groupSessionsPerUser` 开启时按发送者隔离（`chatId:u:openId`）；
  * - 私聊直接使用 chatId。
  */
 export function buildConversationKey(

@@ -72,7 +72,7 @@ export const fileConfigSchema = z.object({
 	runMaxDurationMs: m(nonNegative, "一轮任务的总时长上限（毫秒；0 = 不限制）"),
 	ignoreAtAll: m(bool, "忽略「@所有人」。设为 false 时，@所有人 等同于 @ 本机器人（仍受群策略和白名单约束）", { default: "true" }),
 	groupAlsoOnReply: m(bool, "`mention` 策略下，回复机器人发出的消息时不用再 @。只认进程内记住的最近 `lastSentCacheSize` 条机器人消息，重启后清空；对整个实例生效，不分群和人", { env: "FEISHU_GROUP_ALSO_ON_REPLY" }),
-	groupSessionsPerUser: m(bool, "群里每个人各用一个独立会话；设为 false 时全群共用一个会话。话题里始终共用该话题的会话"),
+	groupSessionsPerUser: m(bool, "设为 true 时群里每个人各用一个独立会话；默认全群共用一个会话。话题里始终共用该话题的会话"),
 	requireMention: m(bool, "群里是否必须 @ 机器人才触发", { env: "FEISHU_REQUIRE_MENTION" }),
 
 	batch: m(z.object({

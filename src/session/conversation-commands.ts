@@ -15,6 +15,15 @@ import type { ConversationStore } from "./conversation-store.js";
 import { ModelUsageStore } from "../runtime/model-usage-store.js";
 import { formatRelative, matchModels, modelLabel, sessionUsageStats } from "./model-utils.js";
 
+/** 一段可恢复的会话；`owner` 有值 = 本群切到全群共用前某人的个人会话。 */
+interface SessionChoice {
+	file: string;
+	isCurrent: boolean;
+	owner?: string;
+	/** 个人会话所在的工作区别名，恢复时随会话带过来。 */
+	workspace?: string;
+}
+
 /** 命令需要的管理器能力（ConversationManager 构造时提供）。 */
 export interface CommandsHost {
 	readonly sessions: Map<string, BridgeSession>;
@@ -142,8 +151,7 @@ export class ConversationCommands {
 		footer: string;
 	}> {
 		const key = buildConversationKey(msg, this.deps.config);
-		const pointer = this.host.conversationStore?.get(key);
-		if (!pointer) return "当前会话尚无历史记录（/new 之后会保留上一段会话）";
+		if (this.sessionChoices(msg, key).length === 0) return "当前会话尚无历史记录（/new 之后会保留上一段会话）";
 		const session = this.host.getOrCreateSession(msg, key);
 		let agent: AgentHandle;
 		try {
@@ -151,6 +159,8 @@ export class ConversationCommands {
 		} catch {
 			return "会话列表获取失败，请稍后重试";
 		}
+		// 建会话可能刚写入本会话的指针：编号要在这之后算，和随后 /resume 看到的一致
+		const choices = this.sessionChoices(msg, key);
 		if (!agent.listSessions) return "当前 Pi 版本不支持列出会话";
 		let infos: Array<{ path: string; name?: string; modified: number; messageCount: number }>;
 		try {
@@ -161,16 +171,20 @@ export class ConversationCommands {
 			});
 			return "会话列表获取失败，请稍后重试";
 		}
-		// 归属过滤：只显示本会话指针索引内的文件，绝不列出会话目录里的其他会话
-		const ordered = [pointer.sessionFile, ...(pointer.history ?? []).map((entry) => entry.sessionFile)];
+		// 归属过滤：只显示 sessionChoices 给出的文件，绝不列出会话目录里的其他会话
 		const byPath = new Map(infos.map((info) => [info.path, info]));
-		const all = ordered.map((file, index) => ({ selector: `#${index + 1}`, info: byPath.get(file), isCurrent: file === pointer.sessionFile }));
+		const owners = new Map(await Promise.all([...new Set(choices.flatMap((choice) => choice.owner ? [choice.owner] : []))]
+			.map(async (owner) => [owner, (await this.deps.resolveUserName?.(owner).catch(() => undefined)) ?? owner] as const)));
+		const all = choices.map((choice, index) => ({
+			selector: `#${index + 1}`, info: byPath.get(choice.file), isCurrent: choice.isCurrent,
+			suffix: choice.owner ? `（${owners.get(choice.owner)} 的个人会话）` : "",
+		}));
 		const pageSize = 10;
 		const pages = Math.max(1, Math.ceil(all.length / pageSize));
 		const current = Math.min(Math.max(0, page), pages - 1);
 		const entries = all.slice(current * pageSize, current * pageSize + pageSize).map((entry) => ({
 			selector: entry.selector,
-			name: entry.info?.name?.trim() || "未命名会话",
+			name: `${entry.info?.name?.trim() || "未命名会话"}${entry.suffix}`,
 			when: entry.info ? formatRelative(entry.info.modified, this.host.now()) : "未知时间",
 			count: entry.info ? `${entry.info.messageCount} 条` : "文件缺失",
 			isCurrent: entry.isCurrent,
@@ -179,6 +193,7 @@ export class ConversationCommands {
 			`共 ${all.length} 段`,
 			pages > 1 ? `第 ${current + 1}/${pages} 页` : "",
 			current + 1 < pages ? `下一页：/sessions ${current + 2}` : "",
+			choices.some((choice) => choice.owner) ? "个人会话是切换到全群共用前各人的上下文，本人或管理员可恢复，恢复后全群共用" : "",
 			"用 /resume <选择 id> 恢复；/name <名称> 命名当前会话",
 		].filter(Boolean).join("　");
 		return { entries, footer };
@@ -212,12 +227,14 @@ export class ConversationCommands {
 	/**
 	 * 恢复历史会话。只接受本会话列表内的选择 id（不接受任意路径），
 	 * 忙碌/有排队时拒绝；先落盘指针再切运行态，失败保留当前会话。
+	 * 群里旧的个人会话只有本人或管理员能恢复（恢复后全群都能看到这段上下文），工作区随会话一起带过来。
 	 */
-	async resumeConversation(msg: FeishuInboundMessage, rawSelector?: string): Promise<string> {
+	async resumeConversation(msg: FeishuInboundMessage, rawSelector?: string, options: { isAdmin?: boolean } = {}): Promise<string> {
 		const key = buildConversationKey(msg, this.deps.config);
 		if (!this.host.conversationStore) return "当前部署未启用会话索引，无法恢复";
 		const pointer = this.host.conversationStore.get(key);
-		if (!pointer) return "当前会话尚无历史记录，无法恢复";
+		const choices = this.sessionChoices(msg, key);
+		if (choices.length === 0) return "当前会话尚无历史记录，无法恢复";
 		const session = this.host.sessions.get(key);
 		const pending = this.host.pendingWork(key);
 		if (session?.activeRun || pending > 0) return "当前会话仍在执行或有排队任务，请先 /stop 或处理队列后再恢复";
@@ -225,17 +242,25 @@ export class ConversationCommands {
 		const match = /^#(\d+)$/.exec((rawSelector ?? "").trim());
 		if (!match) return "用法：/resume <选择 id>（先用 /sessions 查看）";
 		const index = Number.parseInt(match[1], 10);
-		const ordered = [pointer.sessionFile, ...(pointer.history ?? []).map((entry) => entry.sessionFile)];
-		const target = ordered[index - 1];
-		if (!target) return `选择 id 无效：${rawSelector}（先用 /sessions 查看）`;
-		if (target === pointer.sessionFile) return "该会话已经是当前会话";
+		const choice = choices[index - 1];
+		if (!choice) return `选择 id 无效：${rawSelector}（先用 /sessions 查看）`;
+		if (choice.isCurrent) return "该会话已经是当前会话";
+		if (choice.owner && choice.owner !== msg.senderId && !options.isAdmin) return "这是别人的个人会话，只有本人或管理员能恢复到群里";
+		const target = choice.file;
 		if (!existsSync(target)) return "目标会话文件不存在，已保留当前会话";
 
 		// ① 先原子落盘指针：失败则不切换（避免重启后状态不一致）
 		try {
-			this.host.conversationStore.set({ conversationKey: key, sessionFile: target, generation: pointer.generation + 1 });
+			this.host.conversationStore.set({
+				conversationKey: key, sessionFile: target, generation: (pointer?.generation ?? 0) + 1,
+				...(choice.owner ? { workspace: choice.workspace } : {}),
+			});
 		} catch {
 			return "会话指针写入失败，已保留当前会话";
+		}
+		if (choice.owner) {
+			if (choice.workspace) this.host.workspaceAliasByKey.set(key, choice.workspace);
+			else this.host.workspaceAliasByKey.delete(key);
 		}
 		// ② 处置旧 handle 与内存状态（Pi 历史、pending、outbox 不动）
 		this.host.sessions.delete(key);
@@ -246,8 +271,40 @@ export class ConversationCommands {
 		}
 		// ③ 旧审批卡一律失效（不携带 runId → 按会话全量撤销）
 		this.deps.onApprovalInvalidate?.({ conversationKey: key, reason: "reset" });
-		this.deps.log?.("info", "feishu.conv.session_resumed", { conversationKey: key, selector: rawSelector });
-		return `已恢复会话 ${rawSelector}；下一条消息将在该会话继续`;
+		this.deps.log?.("info", "feishu.conv.session_resumed", {
+			conversationKey: key, selector: rawSelector, ...(choice.owner ? { personalOwner: choice.owner } : {}),
+		});
+		return choice.owner
+			? `已恢复会话 ${rawSelector}；这段个人会话现在全群共用，下一条消息接着它继续`
+			: `已恢复会话 ${rawSelector}；下一条消息将在该会话继续`;
+	}
+
+	/**
+	 * 可恢复的会话文件，选择 id = 下标 + 1：先列本会话指针里的当前和历史；
+	 * 群里全群共用时，再接上本群旧的个人会话（`<chatId>:u:<openId>` 指针里的当前和历史，最近更新的在前）。
+	 * 从按人隔离切到全群共用后会话键变了，没有后一段就找不回切换前各人的上下文。
+	 */
+	private sessionChoices(msg: FeishuInboundMessage, key: string): SessionChoice[] {
+		const store = this.host.conversationStore;
+		const pointer = store?.get(key);
+		const choices: SessionChoice[] = pointer
+			? [pointer.sessionFile, ...(pointer.history ?? []).map((entry) => entry.sessionFile)].map((file, index) => ({ file, isCurrent: index === 0 }))
+			: [];
+		if (!store || msg.chatType !== "group" || key !== msg.chatId) return choices;
+		const prefix = `${msg.chatId}:u:`;
+		const seen = new Set(choices.map((choice) => choice.file));
+		const personal = store.list()
+			.filter((record) => record.conversationKey.startsWith(prefix))
+			.sort((a, b) => b.updatedAt - a.updatedAt);
+		for (const record of personal) {
+			const owner = record.conversationKey.slice(prefix.length);
+			for (const file of [record.sessionFile, ...(record.history ?? []).map((entry) => entry.sessionFile)]) {
+				if (seen.has(file)) continue;
+				seen.add(file);
+				choices.push({ file, isCurrent: false, owner, workspace: record.workspace });
+			}
+		}
+		return choices;
 	}
 
 	/**

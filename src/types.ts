@@ -379,7 +379,7 @@ export const DEFAULT_CONFIG: BridgeConfig = {
 	runToolIdleTimeoutMs: 3_600_000,
 	// 总时长上限：默认 0 = 不限制
 	runMaxDurationMs: 0,
-	groupSessionsPerUser: true,
+	groupSessionsPerUser: false,
 	requireMention: true,
 	// 群内 @ 检查对所有人一致（含管理员/应用归属人）——管理员可显式设为 true 豁免
 	adminBypassMention: false,

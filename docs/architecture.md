@@ -96,11 +96,14 @@ src/
 | 场景 | conversationKey | 说明 |
 |---|---|---|
 | 私聊 | `<chatId>` | 一人一会话 |
-| 群聊（默认按人隔离） | `<chatId>:u:<openId>` | 同一个群里每人一份上下文 |
-| 群聊（共享） | `<chatId>` | `groupSessionsPerUser: false` |
+| 群聊（默认全群共享） | `<chatId>` | 同一个群里所有人共用一份上下文 |
+| 群聊（按人隔离） | `<chatId>:u:<openId>` | `groupSessionsPerUser: true`，同一个群里每人一份上下文 |
 | 话题 | `<chatId>:t:<threadId>` | 话题内共享，不同话题互不影响 |
 
 会话指针（`conversations.jsonl`）记录每个 key 当前的会话文件。`/new` 先写指针再切换运行态，所以重启后不会回到旧上下文。
+
+从按人隔离切到全群共用后，群的 key 从 `<chatId>:u:<openId>` 变成 `<chatId>`，旧指针保留不动。群里的 `/sessions` 会接着列出这些 `<chatId>:u:*` 指针里的会话，
+本人或管理员 `/resume` 后，群会话的指针指向那个文件，工作区一起带过来（`session/conversation-commands.ts`）。
 
 ## 6. 审批
 

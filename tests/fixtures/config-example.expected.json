@@ -21,7 +21,7 @@
   "runIdleTimeoutMs": 600000,
   "runToolIdleTimeoutMs": 3600000,
   "runMaxDurationMs": 0,
-  "groupSessionsPerUser": true,
+  "groupSessionsPerUser": false,
   "requireMention": true,
   "adminBypassMention": false,
   "batch": {

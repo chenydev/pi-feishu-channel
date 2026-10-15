@@ -552,7 +552,7 @@ export class ConversationManager {
 		// 会话 key（对齐 hermes build_session_key）：
 		// 1. 话题消息：chatId:t:threadId → 话题独立会话（thread_sessions_per_user=false：
 		//    话题内所有参与者共享同一话题会话——B 回复 A 的话题消息复用同一上下文）
-		// 2. 群普通消息：groupSessionsPerUser=true → chatId:u:senderId
+		// 2. 群普通消息：默认 chatId（全群共用）；groupSessionsPerUser=true → chatId:u:senderId
 		//    （B 在主聊天发无关联新消息 → B 自己的新会话）
 		// 3. 私聊：chatId（p2p chat）
 		const key = options.conversationKey ?? buildConversationKey(msg, this.deps.config);

@@ -102,8 +102,8 @@ export function sessionCommands(svc: CommandServices): Record<string, CommandHan
 		"/name": async ({ msg, rest, reply }) => {
 			reply(await svc.rt.convManager?.commands.renameConversation(msg, rest) ?? "会话不可用");
 		},
-		"/resume": async ({ msg, args, reply }) => {
-			reply(await svc.rt.convManager?.commands.resumeConversation(msg, args[0]) ?? "会话不可用");
+		"/resume": async ({ msg, args, isAdmin, reply }) => {
+			reply(await svc.rt.convManager?.commands.resumeConversation(msg, args[0], { isAdmin }) ?? "会话不可用");
 		},
 		"/workspace": async ({ msg, args, rest, isAdmin, reply }) => {
 			// 查看（任何人）/ 切换、增删、设默认（仅管理员）

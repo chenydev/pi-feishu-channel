@@ -38,7 +38,7 @@
 | `runMaxDurationMs` | number | `0` |  | 一轮任务的总时长上限（毫秒；0 = 不限制） |
 | `ignoreAtAll` | boolean | `true` |  | 忽略「@所有人」。设为 false 时，@所有人 等同于 @ 本机器人（仍受群策略和白名单约束） |
 | `groupAlsoOnReply` | boolean | `false` | `FEISHU_GROUP_ALSO_ON_REPLY` | `mention` 策略下，回复机器人发出的消息时不用再 @。只认进程内记住的最近 `lastSentCacheSize` 条机器人消息，重启后清空；对整个实例生效，不分群和人 |
-| `groupSessionsPerUser` | boolean | `true` |  | 群里每个人各用一个独立会话；设为 false 时全群共用一个会话。话题里始终共用该话题的会话 |
+| `groupSessionsPerUser` | boolean | `false` |  | 设为 true 时群里每个人各用一个独立会话；默认全群共用一个会话。话题里始终共用该话题的会话 |
 | `requireMention` | boolean | `true` | `FEISHU_REQUIRE_MENTION` | 群里是否必须 @ 机器人才触发 |
 | `queueNotice` | boolean | `true` |  | 忙碌时排队的消息回复一次「已排队」（同一会话 10 秒内只提示一次）；工具执行超过 1 分钟时收到的消息回复一次正在做什么（5 分钟内只提示一次） |
 | `userPrompts` | { [id]: string } | — |  | 私聊的个人提示词（open_id → 提示词）；在私聊里用 `/feishu prompt set` 设置 |

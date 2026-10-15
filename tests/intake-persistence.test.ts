@@ -142,7 +142,7 @@ test("入站持久化：批处理窗口内消息先写入待处理记录，合�
 		// 窗口未到期时两条都必须在待处理记录里（这是原实现丢失的那段）
 		assert.ok(h.store.has("om_b1") && h.store.has("om_b2"), "窗口内消息必须已被持久登记");
 
-		pipeline.flushBatch(`${fakeMsg().chatId}:u:ou_user`);
+		pipeline.flushBatch(fakeMsg().chatId); // 默认全群共用会话，key 就是 chatId
 		await new Promise((r) => setTimeout(r, 60));
 
 		const restarted = new PendingStore(h.pendingFile);
