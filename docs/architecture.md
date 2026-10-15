@@ -100,6 +100,8 @@ src/
 | 群聊（按人隔离） | `<chatId>:u:<openId>` | `groupSessionsPerUser: true`，同一个群里每人一份上下文 |
 | 话题 | `<chatId>:t:<threadId>` | 话题内共享，不同话题互不影响 |
 
+单个群用 `groupRules.<id>.sessionsPerUser` 覆盖全局，两个方向都能覆盖（`session/conversation-key.ts` 的 `groupSessionsPerUser()`）。
+
 会话指针（`conversations.jsonl`）记录每个 key 当前的会话文件。`/new` 先写指针再切换运行态，所以重启后不会回到旧上下文。
 
 从按人隔离切到全群共用后，群的 key 从 `<chatId>:u:<openId>` 变成 `<chatId>`，旧指针保留不动。群里的 `/sessions` 会接着列出这些 `<chatId>:u:*` 指针里的会话，

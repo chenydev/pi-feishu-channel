@@ -113,6 +113,7 @@ function validateGroupRule(value: unknown, source: string): import("./types.js")
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`invalid group rule at ${source}`);
 	const raw = value as Record<string, unknown>;
 	if (raw.requireMention !== undefined && typeof raw.requireMention !== "boolean") throw new Error(`invalid boolean at ${source}.requireMention`);
+	if (raw.sessionsPerUser !== undefined && typeof raw.sessionsPerUser !== "boolean") throw new Error(`invalid boolean at ${source}.sessionsPerUser`);
 	if (raw.prompt !== undefined && typeof raw.prompt !== "string") throw new Error(`invalid string at ${source}.prompt`);
 	if (raw.dailyBudgetUsd !== undefined && (typeof raw.dailyBudgetUsd !== "number" || !Number.isFinite(raw.dailyBudgetUsd) || raw.dailyBudgetUsd < 0)) {
 		throw new Error(`invalid number at ${source}.dailyBudgetUsd`);
@@ -130,6 +131,7 @@ function validateGroupRule(value: unknown, source: string): import("./types.js")
 		...(raw.prompt !== undefined ? { prompt: raw.prompt as string } : {}),
 		...(tools !== undefined ? { tools } : {}),
 		...(raw.dailyBudgetUsd !== undefined ? { dailyBudgetUsd: raw.dailyBudgetUsd as number } : {}),
+		...(raw.sessionsPerUser !== undefined ? { sessionsPerUser: raw.sessionsPerUser as boolean } : {}),
 	};
 }
 

@@ -1064,6 +1064,27 @@ test("上下文注入：按人隔离的群会话与私聊不加发言人（永�
 	assert.doesNotMatch(prompts[0], /发言人/);
 });
 
+test("上下文注入：按群设置会话模式时，发言人按这个群的模式决定加不加", async () => {
+	const prompts: string[] = [];
+	const backend: SessionBackend = {
+		async createSession() {
+			return { sessionId: `sid-ctx3-${prompts.length}`, async prompt(text: string) { prompts.push(text); return "ok"; }, subscribe() { return () => {}; }, async abort() {}, async dispose() {}, modelId: "m" };
+		},
+	};
+	const manager = new ConversationManager({
+		config: config({ groupSessionsPerUser: false, groupRules: { oc_a: { sessionsPerUser: true } }, batch: { ...DEFAULT_CONFIG.batch, enabled: false } }),
+		sessionDir: "/tmp/feishu-ctx3", sessionBackend: backend, sender: sender([]) as never,
+		durableOutbox: { enqueue() { return ["1"]; } },
+		resolveUserName: async () => "张三",
+	});
+	await manager.route({ ...message("ctx-solo"), chatId: "oc_a", chatType: "group" });
+	await waitUntil(() => prompts.length === 1);
+	assert.doesNotMatch(prompts[0], /发言人/, "这个群设成按人隔离，会话里永远是同一个人");
+	await manager.route({ ...message("ctx-team"), chatId: "oc_b", chatType: "group" });
+	await waitUntil(() => prompts.length === 2);
+	assert.match(prompts[1], /发言人：张三/, "没设的群跟随全局（共用），要加发言人");
+});
+
 test("工具档位：工具档位解析（只取实际注册工具的交集）", async () => {
 	const { resolveToolPolicy } = await import("../src/session/conversation-manager.js");
 	const all = ["read", "bash", "edit", "write", "grep", "feishu_notify"];

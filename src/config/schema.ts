@@ -46,6 +46,7 @@ const groupRule = z.object({
 	prompt: m(str, "这个群的设定（会话开始时告诉 agent 一次，之后留在会话历史里）"),
 	tools: m(toolSet, `这个群里 agent 可用的工具：${TOOLS_HELP}`),
 	dailyBudgetUsd: m(nonNegative, "这个群每天的费用上限（美元）。用尽后当天不再接新任务（进行中的不打断）；也可以用 `/feishu budget` 设置"),
+	sessionsPerUser: m(bool, "这个群里每个人各用一个独立会话（`true`）还是全群共用一个（`false`）；不设时跟随 `groupSessionsPerUser`。几个人在同一个群里各做各的事时设为 `true`"),
 }).partial();
 
 export const fileConfigSchema = z.object({
@@ -72,7 +73,7 @@ export const fileConfigSchema = z.object({
 	runMaxDurationMs: m(nonNegative, "一轮任务的总时长上限（毫秒；0 = 不限制）"),
 	ignoreAtAll: m(bool, "忽略「@所有人」。设为 false 时，@所有人 等同于 @ 本机器人（仍受群策略和白名单约束）", { default: "true" }),
 	groupAlsoOnReply: m(bool, "`mention` 策略下，回复机器人发出的消息时不用再 @。只认进程内记住的最近 `lastSentCacheSize` 条机器人消息，重启后清空；对整个实例生效，不分群和人", { env: "FEISHU_GROUP_ALSO_ON_REPLY" }),
-	groupSessionsPerUser: m(bool, "设为 true 时群里每个人各用一个独立会话；默认全群共用一个会话。话题里始终共用该话题的会话"),
+	groupSessionsPerUser: m(bool, "设为 true 时群里每个人各用一个独立会话；默认全群共用一个会话。单个群用 `groupRules.<id>.sessionsPerUser` 覆盖。话题里始终共用该话题的会话"),
 	requireMention: m(bool, "群里是否必须 @ 机器人才触发", { env: "FEISHU_REQUIRE_MENTION" }),
 
 	batch: m(z.object({

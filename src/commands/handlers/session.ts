@@ -7,7 +7,7 @@ import { isAbsolute, join } from "node:path";
 import type { CommandHandler } from "../dispatch.js";
 import type { CommandServices } from "./services.js";
 import { saveConfigFields } from "../../config.js";
-import { buildConversationKey } from "../../session/conversation-key.js";
+import { buildConversationKey, groupSessionsPerUser } from "../../session/conversation-key.js";
 import type { FeishuInboundMessage } from "../../types.js";
 import { buildNewSessionCard, buildSessionsCard } from "../cards.js";
 
@@ -119,7 +119,7 @@ export function sessionCommands(svc: CommandServices): Record<string, CommandHan
 
 /** 会话是否多人共用（话题、不按人隔离的群）：导出这类会话要二次确认。 */
 function isSharedConversation(svc: CommandServices, msg: FeishuInboundMessage): boolean {
-	return buildConversationKey(msg, svc.rt.config).includes(":t:") || (msg.chatType === "group" && !svc.rt.config.groupSessionsPerUser);
+	return buildConversationKey(msg, svc.rt.config).includes(":t:") || (msg.chatType === "group" && !groupSessionsPerUser(svc.rt.config, msg.chatId));
 }
 
 /** 别名：字母、数字、下划线、连字符（含中文），不能和子命令重名；不允许 `.`，否则写回配置时会被当成路径分隔。 */

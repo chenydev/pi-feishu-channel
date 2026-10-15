@@ -229,9 +229,9 @@ function seedPersonal(dir: string) {
 	return { files, storeFile, sessions };
 }
 
-function sharedManager(dir: string, storeFile: string, sessions: NonNullable<Parameters<typeof backend>[0]>["sessions"], perUser = false) {
+function sharedManager(dir: string, storeFile: string, sessions: NonNullable<Parameters<typeof backend>[0]>["sessions"], perUser = false, groupRules: BridgeConfig["groupRules"] = {}) {
 	return new ConversationManager({
-		config: { ...config(), groupSessionsPerUser: perUser }, sessionDir: dir,
+		config: { ...config(), groupSessionsPerUser: perUser, groupRules }, sessionDir: dir,
 		sessionBackend: backend({ sessions }), sender: sender() as never, conversationFile: storeFile,
 		resolveUserName: async (openId) => ({ ou_a: "张三", ou_b: "李四" } as Record<string, string>)[openId],
 	});
@@ -298,5 +298,26 @@ test("群按人隔离：/sessions 只列自己的会话，不列同群其他人�
 		assert.ok(text.includes("会话a1") && text.includes("会话a0"), text);
 		assert.ok(!text.includes("会话b1"), "不得列出同群其他人的会话");
 		assert.ok(!text.includes("个人会话"), "按人隔离时不加个人会话标注");
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("群会话模式按群设置：全局按人隔离、这个群设成共用时，/sessions 列出本群各人的个人会话", async () => {
+	const dir = tempDir();
+	try {
+		const { storeFile, sessions } = seedPersonal(dir);
+		const manager = sharedManager(dir, storeFile, sessions, true, { oc_g: { sessionsPerUser: false } });
+		const text = await manager.commands.listSessionsFor(groupMessage("ou_b"));
+		assert.ok(text.includes("会话a1（张三 的个人会话）"), text);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("群会话模式按群设置：全局共用、这个群设成按人隔离时，/sessions 只列自己的", async () => {
+	const dir = tempDir();
+	try {
+		const { storeFile, sessions } = seedPersonal(dir);
+		const manager = sharedManager(dir, storeFile, sessions, false, { oc_g: { sessionsPerUser: true } });
+		const text = await manager.commands.listSessionsFor(groupMessage("ou_a"));
+		assert.ok(text.includes("会话a1") && !text.includes("会话b1"), text);
+		assert.ok(!text.includes("个人会话"), "按人隔离的群不加个人会话标注");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

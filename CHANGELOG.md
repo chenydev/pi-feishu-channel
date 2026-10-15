@@ -4,6 +4,9 @@
 
 ## 未发布
 
+- 群的会话模式可以按群设置：`groupRules.<id>.sessionsPerUser` 为 `true` 时这个群每人一个会话，`false` 时全群共用，不设时跟随全局 `groupSessionsPerUser`。
+  适合大多数群围绕一件事协作、少数群里几个人各做各的事。改完 `/feishu config reload` 即生效；发言人上下文（`agentContext.sender: shared`）和 `/sessions` 都按这个群的模式判断。
+  reload 改了会话模式时，立即释放这些群里空闲的驻留会话：个人会话 `/resume` 进群后两边是同一个会话文件，旧句柄留在内存里时工具进度和审批会落到旧会话上。
 - 新命令 `/feishu config reload`（管理员）：改完 `config.json` 后不用重启，重新读取文件，能热加载的字段立即生效。
   准入（`allowChats`、`allowUsers`、群策略、`groupRules` 等）、`groupSessionsPerUser`、`streamingCard`、`progress`、页脚、审批（`approval.plugin` 除外）、
   工作区、`usage` 等每次用到才读的字段都能热加载；应用凭据、超时、缓存容量、定时器间隔、可选能力的开关要重启，reload 不应用它们，只在回执里列出来。

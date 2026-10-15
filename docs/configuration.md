@@ -39,7 +39,7 @@
 | `runMaxDurationMs` | number | `0` |  | 重启 | 一轮任务的总时长上限（毫秒；0 = 不限制） |
 | `ignoreAtAll` | boolean | `true` |  | 热加载 | 忽略「@所有人」。设为 false 时，@所有人 等同于 @ 本机器人（仍受群策略和白名单约束） |
 | `groupAlsoOnReply` | boolean | `false` | `FEISHU_GROUP_ALSO_ON_REPLY` | 热加载 | `mention` 策略下，回复机器人发出的消息时不用再 @。只认进程内记住的最近 `lastSentCacheSize` 条机器人消息，重启后清空；对整个实例生效，不分群和人 |
-| `groupSessionsPerUser` | boolean | `false` |  | 热加载 | 设为 true 时群里每个人各用一个独立会话；默认全群共用一个会话。话题里始终共用该话题的会话 |
+| `groupSessionsPerUser` | boolean | `false` |  | 热加载 | 设为 true 时群里每个人各用一个独立会话；默认全群共用一个会话。单个群用 `groupRules.<id>.sessionsPerUser` 覆盖。话题里始终共用该话题的会话 |
 | `requireMention` | boolean | `true` | `FEISHU_REQUIRE_MENTION` | 热加载 | 群里是否必须 @ 机器人才触发 |
 | `queueNotice` | boolean | `true` |  | 热加载 | 忙碌时排队的消息回复一次「已排队」（同一会话 10 秒内只提示一次）；工具执行超过 1 分钟时收到的消息回复一次正在做什么（5 分钟内只提示一次） |
 | `userPrompts` | { [id]: string } | — |  | 热加载 | 私聊的个人提示词（open_id → 提示词）；在私聊里用 `/feishu prompt set` 设置 |
@@ -66,6 +66,7 @@
 | `groupRules.<id>.prompt` | string | — |  | 热加载 | 这个群的设定（会话开始时告诉 agent 一次，之后留在会话历史里） |
 | `groupRules.<id>.tools` | "readonly" \| "standard" \| "full" \| string[] | — |  | 热加载 | 这个群里 agent 可用的工具：`readonly`（只读工具：read/grep/find/ls/网页搜索等）、`standard`（除 bash 以外的全部工具）、`full`（全部工具），或工具名数组 |
 | `groupRules.<id>.dailyBudgetUsd` | number | — |  | 热加载 | 这个群每天的费用上限（美元）。用尽后当天不再接新任务（进行中的不打断）；也可以用 `/feishu budget` 设置 |
+| `groupRules.<id>.sessionsPerUser` | boolean | — |  | 热加载 | 这个群里每个人各用一个独立会话（`true`）还是全群共用一个（`false`）；不设时跟随 `groupSessionsPerUser`。几个人在同一个群里各做各的事时设为 `true` |
 
 ## `batch`：连续消息合并
 

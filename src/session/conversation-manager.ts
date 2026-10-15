@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { type BridgeConfig, type DeliveryTarget, EXTERNAL_CHAT_PREFIX, type FeishuInboundMessage, type ReloadSummary, type SessionBackend } from "../types.js";
 import type { Sender } from "../outbound/sender.js";
 import type { Outbox } from "../outbound/outbox.js";
-import { buildConversationKey } from "./conversation-key.js";
+import { buildConversationKey, groupSessionsPerUser } from "./conversation-key.js";
 import { PendingStore } from "./pending-store.js";
 import { ConversationStore, type ConversationPointer } from "./conversation-store.js";
 import type { IntakeLedger } from "../inbound/pipeline.js";
@@ -552,7 +552,7 @@ export class ConversationManager {
 		// 会话 key（对齐 hermes build_session_key）：
 		// 1. 话题消息：chatId:t:threadId → 话题独立会话（thread_sessions_per_user=false：
 		//    话题内所有参与者共享同一话题会话——B 回复 A 的话题消息复用同一上下文）
-		// 2. 群普通消息：默认 chatId（全群共用）；groupSessionsPerUser=true → chatId:u:senderId
+		// 2. 群普通消息：默认 chatId（全群共用）；按人隔离的群（groupRules.<id>.sessionsPerUser，没设时看 groupSessionsPerUser）→ chatId:u:senderId
 		//    （B 在主聊天发无关联新消息 → B 自己的新会话）
 		// 3. 私聊：chatId（p2p chat）
 		const key = options.conversationKey ?? buildConversationKey(msg, this.deps.config);
@@ -729,7 +729,7 @@ export class ConversationManager {
 			sess.promptInjected = groupPrompt;
 		}
 		const senderMode = options.sender ?? "shared";
-		const shared = conversationKey.includes(":t:") || (item.chatType === "group" && !this.deps.config.groupSessionsPerUser);
+		const shared = conversationKey.includes(":t:") || (item.chatType === "group" && !groupSessionsPerUser(this.deps.config, item.chatId));
 		if (item.senderId && item.chatType !== "p2p" && (senderMode === "always" || (senderMode === "shared" && shared))) {
 			const name = item.senderName ?? await this.deps.resolveUserName?.(item.senderId).catch(() => undefined);
 			lines.push(`[发言人：${name ?? `用户…${item.senderId.slice(-4)}`}（open_id=${item.senderId}）]`);
@@ -845,12 +845,40 @@ export class ConversationManager {
 	}
 
 	private canReclaim(key: string, session: BridgeSession, now: number): boolean {
+		if (!this.isQuiet(key, session)) return false;
+		const idleSince = session.lastActivityAt ?? session.createdAt;
+		return now - idleSince >= this.idleTtlMs;
+	}
+
+	/** 没有在跑、排队、待审批的事，释放句柄不影响任何进行中的工作。 */
+	private isQuiet(key: string, session: BridgeSession): boolean {
 		if (session.activeRun || session.creatingAgent) return false;
 		if (session.queue.length > 0 || session.steered.length > 0) return false;
 		if (this.activeItems.has(key)) return false;
-		if ((this.deps.pendingApprovalCount?.(key) ?? 0) > 0) return false;
-		const idleSince = session.lastActivityAt ?? session.createdAt;
-		return now - idleSince >= this.idleTtlMs;
+		return (this.deps.pendingApprovalCount?.(key) ?? 0) === 0;
+	}
+
+	/**
+	 * 会话模式变了的会话（群共享 `<chatId>` 和群里各人的 `<chatId>:u:*`）不等空闲超时，现在就释放句柄。
+	 *
+	 * 某人的个人会话 `/resume` 进群后，群指针和他的个人指针是同一个文件、同一个 session id；
+	 * 切换模式后旧句柄还驻留时，按 session id 转发的工具事件和审批会落到旧会话上。
+	 * 有工作在进行的不动，返回它们的键。私聊的键也是 `<chatId>`，释放空闲句柄对它无害（等同提前回收）。
+	 */
+	async releaseSessionsForChats(changed: (chatId: string) => boolean): Promise<{ released: string[]; busy: string[] }> {
+		const released: string[] = [];
+		const busy: string[] = [];
+		for (const [key, session] of [...this.sessions]) {
+			if (key !== session.chatId && !key.startsWith(`${session.chatId}:u:`)) continue;
+			if (!changed(session.chatId)) continue;
+			if (!this.isQuiet(key, session)) {
+				busy.push(key);
+				continue;
+			}
+			await this.retireSession(key, session);
+			released.push(key);
+		}
+		return { released, busy };
 	}
 
 	/** 回收单个会话句柄：先从索引移除，再（有界等待）dispose，失败只记日志。 */

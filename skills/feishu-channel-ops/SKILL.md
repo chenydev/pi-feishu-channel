@@ -37,7 +37,7 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 | 让某个群能用 | 把群 id（`oc_` 开头）加进 `allowChats`。**空数组 = 拒绝所有群** |
 | 让某人能私聊 | 把 open_id（`ou_` 开头）加进 `allowUsers`。**空数组 = 拒绝所有私聊**；管理员和应用归属人始终可以 |
 | 群里不 @ 也响应 | `requireMention: false`（全局）或 `groupRules.<群id>.requireMention: false`（单个群）。**只把策略设为 `open` 不够**：`open` / `mention` 只管谁能用，要不要 @ 只看 `requireMention`（默认 true） |
-| 群里每人一份上下文 | `groupSessionsPerUser: true`（默认 false：全群共用一个会话；话题始终按话题共用） |
+| 群里每人一份上下文 | 全局 `groupSessionsPerUser: true`（默认 false：全群共用一个会话；话题始终按话题共用）；只改某个群用 `groupRules.<id>.sessionsPerUser: true / false`，`/feishu config reload` 即生效 |
 | 回复机器人的消息不用 @ | `groupAlsoOnReply: true`（默认关）。全实例生效，不分群和人；只认最近 `lastSentCacheSize` 条（默认 64）机器人消息，重启清空 |
 | 让某人在所有群都能用（含没放行的群） | 把 open_id 加进 `allowUsersAllGroups`。不放开私聊；群策略 `disabled` / `admin_only` / `blacklist` 仍然生效 |
 | 只让部分人在某群使用 | `groupRules.<群id>.policy: "allowlist"` + `allowlist` |
@@ -109,7 +109,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 任务被中止（空闲超时） | 工具执行中 `runToolIdleTimeoutMs`（默认 60 分钟）没有输出，或等模型时 `runIdleTimeoutMs`（默认 10 分钟）没有输出 | 中止提示和 `run_idle_timeout` 的 `phase` 说明是哪一种；调大对应字段 |
 | 卡片停在「正在处理…」/ 半截，答案另发一条 | 旧版本没处理卡片 10 分钟后流式模式被关闭（`update_failed` 的 `200850` / `300309`） | 升级；新版本记 `feishu.stream_card.streaming_closed` 后改用整组件替换 |
 | 显示「模型服务暂时不可用，正在自动重试」/「可能在排队」 | 模型服务繁忙（DeepSeek 排队时只发 keep-alive，pi 的 HTTP 超时拦不住） | 等或 `/stop` 后 `/model` 换模型；常遇到把 `runIdleTimeoutMs` 调到 `180000`。见 [运维 §4](../../docs/operations.md#4-常见症状) |
-| 群切到全群共用后机器人不记得之前的内容 | 会话 key 从 `<chatId>:u:<openId>` 变成 `<chatId>`，旧个人会话还在 | 群里 `/sessions` 找「某某 的个人会话」，本人或管理员 `/resume #N`（恢复后全群共用）。见 [运维 §4](../../docs/operations.md#4-常见症状) |
+| 群切到全群共用后机器人不记得之前的内容 | 会话 key 从 `<chatId>:u:<openId>` 变成 `<chatId>`，旧个人会话还在；几个人在群里各做各的事时，该群应设 `groupRules.<id>.sessionsPerUser: true` | 群里 `/sessions` 找「某某 的个人会话」，本人或管理员 `/resume #N`（恢复后全群共用）。见 [运维 §4](../../docs/operations.md#4-常见症状) |
 | 任务执行中问进度没回应 | 普通消息要等当前工具结束才交给模型 | 发 `/progress`（立即回复，不打断任务） |
 | 点提问卡片选项提示没有权限 / 已过期 | 作答权限 = 能在这里 @ 机器人；卡片答过一次、有新提问、`/new` 或超过 `clarify.ttlMs`（24 小时）后失效 | 放行这个人（§3），或直接打字回复；看 `feishu.clarify.audit` |
 | 开了开通申请，没权限的人找机器人没收到申请卡 | 冷却期内已发过、被「暂不放行」（24 小时）、超出每小时上限，或群策略本身拒绝 | 看 `feishu.access_request.silent` 的 `reason`（`reminded` / `ignored` / `rate_limited`）；急用直接改配置 |

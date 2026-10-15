@@ -200,3 +200,35 @@ test("会话回收：startLifecycle/stopLifecycle 幂等且不阻塞", async () 
 		assert.equal(manager.residentCount(), 0);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("会话回收·切换会话模式：只释放模式变了的群里空闲的会话，有任务在跑的留着并报出来", async () => {
+	const dir = tempDir();
+	try {
+		const sent: Array<{ chatId: string; text: string }> = [];
+		let release: (value: string) => void = () => {};
+		const state: { created: number; disposed: number; hanging?: () => Promise<string> } = { created: 0, disposed: 0 };
+		const cfg = config({ groupSessionsPerUser: true });
+		const manager = new ConversationManager({
+			config: cfg, sessionDir: dir, sessionBackend: trackingBackend(state), sender: sender(sent) as never,
+			durableOutbox: { enqueue() { return ["1"]; } },
+		});
+		const group = (id: string, chatId: string, senderId: string): FeishuInboundMessage => ({ ...message(id, chatId), chatType: "group", senderId });
+		await manager.route(group("g1", "oc_g", "ou_a"));
+		await manager.route(group("o1", "oc_other", "ou_a"));
+		const idle = (msg: FeishuInboundMessage) => manager.queueSnapshot(msg).active === undefined;
+		await waitUntil(() => state.created === 2 && idle(group("g1", "oc_g", "ou_a")) && idle(group("o1", "oc_other", "ou_a")));
+
+		let prompted = false;
+		state.hanging = () => new Promise<string>((resolve) => { release = resolve; prompted = true; });
+		await manager.route(group("g2", "oc_g", "ou_b"));
+		await waitUntil(() => prompted);
+
+		const result = await manager.releaseSessionsForChats((chatId) => chatId === "oc_g");
+		assert.deepEqual(result.released, ["oc_g:u:ou_a"], "模式变了的群里空闲的会话现在就释放");
+		assert.deepEqual(result.busy, ["oc_g:u:ou_b"], "有任务在跑的不能释放");
+		assert.equal(state.disposed, 1);
+		assert.equal(manager.residentCount(), 2, "别的群的会话不受影响");
+		release("ok");
+		await manager.shutdown();
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});

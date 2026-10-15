@@ -27,6 +27,8 @@ export interface GroupRule {
 	tools?: string[] | "readonly" | "standard" | "full";
 	/** 该群每日费用上限（USD；0/缺省 = 不限）。 */
 	dailyBudgetUsd?: number;
+	/** 该群的普通消息是否按人隔离会话；undefined = 跟随全局 `groupSessionsPerUser`。 */
+	sessionsPerUser?: boolean;
 }
 
 export interface BatchConfig {
@@ -349,7 +351,7 @@ export interface BridgeConfig {
 	/**
 	 * 给 agent 的上下文。
 	 * - `sender`：在消息前加 `[发言人：张三]`。`shared`（默认）只在多人共用的会话（话题、
-	 *   或 groupSessionsPerUser=false 的群）里加；`always` 群聊都加；`off` 不加。
+	 *   或全群共用会话的群）里加；`always` 群聊都加；`off` 不加。
 	 * - `mentions`（默认 true）：消息里 @ 了别人时追加 `[提及：张三(ou_x)]`，agent 才知道"他"是谁、能 @ 回去。
 	 */
 	agentContext?: { sender?: "shared" | "always" | "off"; mentions?: boolean };

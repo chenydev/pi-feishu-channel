@@ -10,7 +10,7 @@
   "groupPolicyByChat": { "oc_example_a": "open", "oc_example_b": "admin_only" },
   "groupRules": {
     "oc_example_c": { "policy": "allowlist", "allowlist": ["ou_example_1"], "requireMention": false, "prompt": "用中文回答", "tools": "readonly", "dailyBudgetUsd": 5 },
-    "oc_example_d": { "blacklist": ["ou_example_2"], "tools": ["read", "grep"] }
+    "oc_example_d": { "blacklist": ["ou_example_2"], "tools": ["read", "grep"], "sessionsPerUser": false }
   },
   "allowChats": ["oc_example_a", "oc_example_b"],
   "allowUsers": ["ou_example_1"],

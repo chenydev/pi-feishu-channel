@@ -11,7 +11,7 @@ import { runDoctor } from "../../runtime/doctor.js";
 import { APPROVAL_MODE_LABEL, effectiveApprovalMode, globalApprovalMode, parseApprovalMode } from "../../approval/mode.js";
 import { PS_LINK_NAME, PS_MIN_VERSION, piPermissionSystemInstalled, psConfigFile, psLinkStatus } from "../../approval/pi-permission-system.js";
 import { loadPsConfig, summarizeApprovalPolicy } from "../../approval/policy-summary.js";
-import { buildConversationKey } from "../../session/conversation-key.js";
+import { buildConversationKey, groupSessionsPerUser } from "../../session/conversation-key.js";
 import type { FeishuInboundMessage, GroupPolicy } from "../../types.js";
 import { splitGlobalFlag } from "./model.js";
 
@@ -40,10 +40,10 @@ export function adminCommands(svc: CommandServices): Record<string, CommandHandl
 			if (!policy || !VALID_POLICIES.includes(policy)) { reply(`用法：/feishu policy <${VALID_POLICIES.join("|")}>`); return; }
 			reply(setChatPolicy(svc, msg.chatId, policy) ? `已设置本群策略：${policy}` : "策略落盘失败，运行态未修改");
 		},
-		"/feishu config": ({ msg, args, isAdmin, reply }) => {
+		"/feishu config": async ({ msg, args, isAdmin, reply }) => {
 			if (!isAdmin) { reply("仅管理员或应用归属人可重新读取配置"); return; }
 			if (args[0]?.toLowerCase() !== "reload") { reply("用法：/feishu config reload"); return; }
-			reply(configReloadCommand(svc, msg.senderId));
+			reply(await configReloadCommand(svc, msg.senderId));
 		},
 		"/feishu footer": ({ msg, rest, isAdmin, reply }) => {
 			reply(footerCommand(svc, msg, rest, isAdmin));
@@ -166,8 +166,10 @@ function handlePromptCommand(svc: CommandServices, msg: FeishuInboundMessage, ar
  * `/feishu config reload`：重新读取 config.json，能热加载的字段立即生效，其余列出来提示重启。
  * 哪些字段能热加载见 config/reload.ts 的 RELOAD_RULES。
  */
-function configReloadCommand(svc: CommandServices, operator: string): string {
+async function configReloadCommand(svc: CommandServices, operator: string): Promise<string> {
 	const { rt, log } = svc;
+	// 会话模式的旧值：groupRules 生效时整个换成新对象，留住旧引用就能比较每个群切换前后
+	const before = { groupSessionsPerUser: rt.config.groupSessionsPerUser, groupRules: rt.config.groupRules };
 	let result: ReturnType<typeof reloadConfig>;
 	try {
 		result = reloadConfig(rt.homeDir, rt.config);
@@ -179,11 +181,18 @@ function configReloadCommand(svc: CommandServices, operator: string): string {
 	const { applied, restartRequired } = result;
 	// 用量提供方是懒建的：丢掉旧的，下次用到时按新配置建
 	if (applied.includes("usage")) rt.usageProvider = undefined;
-	log.info("feishu.config.reloaded", { operator, applied, restartRequired });
+	const sessions = applied.includes("groupSessionsPerUser") || applied.includes("groupRules")
+		? await rt.convManager?.releaseSessionsForChats((chatId) => groupSessionsPerUser(before, chatId) !== groupSessionsPerUser(rt.config, chatId))
+		: undefined;
+	log.info("feishu.config.reloaded", {
+		operator, applied, restartRequired,
+		...(sessions ? { releasedSessions: sessions.released.length, busySessions: sessions.busy } : {}),
+	});
 	if (applied.length === 0 && restartRequired.length === 0) return "config.json 与运行中的配置一致，没有改动需要应用。";
 	const lines: string[] = [];
 	if (applied.length) lines.push(`已生效（${applied.length} 项）：${applied.join("、")}`);
 	if (restartRequired.length) lines.push(`要重启才生效（${restartRequired.length} 项，未应用）：${restartRequired.join("、")}`);
+	if (sessions?.busy.length) lines.push(`会话模式改了的群里有 ${sessions.busy.length} 个会话还在执行，没有释放；任务结束后空闲回收前，切换前后共用同一个会话文件的人，进度和审批可能对不上。下次改会话模式挑没有任务的时候。`);
 	if (applied.length) lines.push("群设定、工具档位、默认工作区只对新会话生效；设了环境变量的字段以环境变量为准。");
 	return lines.join("\n");
 }

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../src/config.js";
 import { reloadConfig, reloadModeOf } from "../src/config/reload.js";
+import { buildConversationKey } from "../src/session/conversation-key.js";
 import { ADMIN, T, withHarness } from "./features/helpers.js";
 
 function withHome(body: (home: string, write: (config: unknown) => void) => void): void {
@@ -73,6 +74,18 @@ test("重新读取配置：环境变量仍优先于文件", () => {
 		write({ progress: { mode: "off" } });
 		assert.deepEqual(reloadConfig(home, current, env).applied, [], "环境变量覆盖的字段，改文件不算改动");
 		assert.equal(current.progress.mode, "all");
+	});
+});
+
+test("重新读取配置：改了某个群的会话模式，下一条消息就按新的会话键路由", () => {
+	withHome((home, write) => {
+		write({ groupSessionsPerUser: false });
+		const current = loadConfig(home, {});
+		const msg = { chatId: "oc_x", chatType: "group" as const, senderId: "ou_a" };
+		assert.equal(buildConversationKey(msg, current), "oc_x");
+		write({ groupSessionsPerUser: false, groupRules: { oc_x: { sessionsPerUser: true } } });
+		assert.deepEqual(reloadConfig(home, current, {}).applied, ["groupRules"]);
+		assert.equal(buildConversationKey(msg, current), "oc_x:u:ou_a");
 	});
 });
 
