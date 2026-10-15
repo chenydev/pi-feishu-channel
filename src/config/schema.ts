@@ -173,7 +173,7 @@ export const fileConfigSchema = z.object({
 		maxChars: m(nonNegative, "单次最多读取多少字", { default: "30000" }),
 	}).partial(), "云文档读取（可选能力，默认关闭）"),
 	streamingCard: m(z.object({
-		enabled: m(bool, "用流式卡片展示处理过程；最终回答仍以普通消息发送（卡片失败不影响交付）。需要 `cardkit:card:write` 权限", { env: "FEISHU_STREAMING_CARD" }),
+		enabled: m(bool, "用流式卡片展示处理过程和最终回答；卡片写不进去时改发普通消息（卡片失败不影响交付）。需要 `cardkit:card:write` 权限", { env: "FEISHU_STREAMING_CARD" }),
 		throttleMs: m(nonNegative, "卡片更新的最短间隔（毫秒）"),
 		printFrequencyMs: m(nonNegative, "打字机效果：每次上屏的间隔（毫秒）。飞书平台默认 70，越小越快"),
 		printStep: m(nonNegative, "打字机效果：每次上屏的字数。飞书平台默认 1（500 字要播 35 秒）"),

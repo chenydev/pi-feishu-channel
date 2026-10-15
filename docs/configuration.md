@@ -211,7 +211,7 @@
 
 | 字段 | 类型 | 默认 | 环境变量 | 说明 |
 |---|---|---|---|---|
-| `streamingCard.enabled` | boolean | `false` | `FEISHU_STREAMING_CARD` | 用流式卡片展示处理过程；最终回答仍以普通消息发送（卡片失败不影响交付）。需要 `cardkit:card:write` 权限 |
+| `streamingCard.enabled` | boolean | `false` | `FEISHU_STREAMING_CARD` | 用流式卡片展示处理过程和最终回答；卡片写不进去时改发普通消息（卡片失败不影响交付）。需要 `cardkit:card:write` 权限 |
 | `streamingCard.throttleMs` | number | `1000`（1 秒） |  | 卡片更新的最短间隔（毫秒） |
 | `streamingCard.printFrequencyMs` | number | `50` |  | 打字机效果：每次上屏的间隔（毫秒）。飞书平台默认 70，越小越快 |
 | `streamingCard.printStep` | number | `50` |  | 打字机效果：每次上屏的字数。飞书平台默认 1（500 字要播 35 秒） |

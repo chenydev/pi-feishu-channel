@@ -331,6 +331,10 @@ export interface BridgeConfig {
 	 */
 	/** 受控工作区：别名 → 目录；`default` 是新会话默认使用的别名（不设 = pi 进程的启动目录）。 */
 	workspaces: { aliases: Record<string, string>; default?: string };
+	/**
+	 * 保留字段，目前不生效：会话文件固定在 `<home>/sessions/`（见 `config.ts` 的 `resolvePaths`）。
+	 * 留着是为了以后接上自定义会话目录，接上前不要依赖它。
+	 */
 	sessionDir: string;
 	debug: boolean;
 	/** 最近已发消息缓存容量（回复判定用） */

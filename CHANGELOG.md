@@ -11,6 +11,7 @@
 - **行为变更（用量）**：`usage.provider` 默认改为 `none`，不再默认查 DeepSeek 余额，页脚只显示美元、不折算人民币。
   用 DeepSeek 的要显式写 `"usage": { "provider": "deepseek" }`。
 - **行为变更（进度）**：`progress.mode` 默认改为 `new`，只在换了工具时加一行，连续调用同一个工具不再逐条刷屏；要旧行为写 `"progress": { "mode": "all" }`。
+- 修正 `streamingCard.enabled` 的说明：最终回答写进卡片，卡片写不进去时才改发普通消息。
 - 修复：流式卡片开启约 10 分钟后，飞书会关闭它的流式模式（`200850 card streaming timeout`，之后 `300309 streaming mode is closed`），
   原先之后的写入全部失败，卡片一直停在「正在处理…」或半截内容：超过 10 分钟的长任务答案改发成另一条文字，空闲超时的中止说明也写不进卡片。
   现在撞到时改用整组件替换继续写（没有打字机效果），长任务的最终答案和页脚照常写进卡片，记一次 `feishu.stream_card.streaming_closed`。
