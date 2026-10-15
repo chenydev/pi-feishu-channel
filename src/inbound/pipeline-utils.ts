@@ -38,7 +38,8 @@ export interface BatchWindow {
  */
 export class TextBatcher {
 	private windows = new Map<string, BatchWindow>();
-	constructor(private windowMs: number) {}
+	/** `windowMs` 传函数时每次合并都重新取值（`/feishu config reload` 改了窗口后立即生效）。 */
+	constructor(private windowMs: number | (() => number)) {}
 
 	/**
 	 * 尝试把消息并入窗口。返回 true=已合并（调用方应丢弃单条）；false=作为窗口首条开启新窗口。
@@ -50,7 +51,8 @@ export class TextBatcher {
 		if (!textual && !media) return false;
 		const now = Date.now();
 		const existing = this.windows.get(key);
-		if (existing && now - existing.lastTs <= this.windowMs) {
+		const windowMs = typeof this.windowMs === "function" ? this.windowMs() : this.windowMs;
+		if (existing && now - existing.lastTs <= windowMs) {
 			existing.parts.push(msg.text);
 			existing.messageIds.push(msg.messageId);
 			existing.resources.push(...(msg.resources ?? []));

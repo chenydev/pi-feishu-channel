@@ -65,6 +65,7 @@
 | `/feishu budget [<美元>\|off]` | 本群每日费用上限（管理员；超限后拒绝新任务） |
 | `/feishu prompt [show\|set <内容>\|clear]` | 本群提示词；私聊里设置的是个人提示词 |
 | `/feishu policy` `/feishu footer [on\|off\|reset] [-g]` `/feishu always [revoke <规则名>]` | 群策略、页脚开关、「始终批准」规则（管理员） |
+| `/feishu config reload` | 改完 `config.json` 后重新读取，能热加载的字段立即生效，要重启的列出来（管理员） |
 
 ### 触发与准入
 
@@ -164,6 +165,7 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 
 - 环境变量优先于配置文件 —— 注意 shell 里残留的同名变量会静默覆盖配置文件；
 - 启动时校验配置，类型或取值不对时拒绝启动并列出全部问题；拼错的字段不报错，`/feishu doctor` 的 `config_fields` 项会列出来；
+- 改完配置后管理员发 `/feishu config reload`：「改后」列是「热加载」的字段立即生效，是「重启」的要重启进程；
 - 必填的只有 `appId` / `appSecret`。准入是默认拒绝的：`allowChats` 为空时不响应任何群，`allowUsers` 为空时只有管理员能私聊。
   `allowUsersAllGroups` 里的人在所有群都能用（包括没放行的群），不放开私聊。
 

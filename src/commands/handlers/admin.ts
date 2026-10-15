@@ -1,10 +1,11 @@
 /**
- * 管理类命令：诊断包导出、群策略、页脚、审批模式、「始终批准」规则、提示词、费用上限。
+ * 管理类命令：诊断包导出、群策略、页脚、审批模式、「始终批准」规则、提示词、费用上限、重新读取配置。
  * 需要管理员的命令在各自的处理函数里校验（帮助里的 adminOnly 只是标注）。
  */
 import type { CommandHandler } from "../dispatch.js";
 import type { CommandServices } from "./services.js";
 import { formatTimeInZone, resolveFooterEnabled, resolvePaths, saveConfigFields } from "../../config.js";
+import { reloadConfig } from "../../config/reload.js";
 import { buildDiagnosticsBundle, writeDiagnosticsBundle } from "../../runtime/diagnostics.js";
 import { runDoctor } from "../../runtime/doctor.js";
 import { APPROVAL_MODE_LABEL, effectiveApprovalMode, globalApprovalMode, parseApprovalMode } from "../../approval/mode.js";
@@ -38,6 +39,11 @@ export function adminCommands(svc: CommandServices): Record<string, CommandHandl
 			const policy = args[0] as GroupPolicy | undefined;
 			if (!policy || !VALID_POLICIES.includes(policy)) { reply(`用法：/feishu policy <${VALID_POLICIES.join("|")}>`); return; }
 			reply(setChatPolicy(svc, msg.chatId, policy) ? `已设置本群策略：${policy}` : "策略落盘失败，运行态未修改");
+		},
+		"/feishu config": ({ msg, args, isAdmin, reply }) => {
+			if (!isAdmin) { reply("仅管理员或应用归属人可重新读取配置"); return; }
+			if (args[0]?.toLowerCase() !== "reload") { reply("用法：/feishu config reload"); return; }
+			reply(configReloadCommand(svc, msg.senderId));
 		},
 		"/feishu footer": ({ msg, rest, isAdmin, reply }) => {
 			reply(footerCommand(svc, msg, rest, isAdmin));
@@ -154,6 +160,32 @@ function handlePromptCommand(svc: CommandServices, msg: FeishuInboundMessage, ar
 	}
 	svc.log.info("feishu.prompt.updated", { scope: personal ? "user" : "chat", chatId: msg.chatId, operator: msg.senderId, cleared: !text });
 	return text ? `已更新${scope}（下一轮起生效）。` : `已清除${scope}。`;
+}
+
+/**
+ * `/feishu config reload`：重新读取 config.json，能热加载的字段立即生效，其余列出来提示重启。
+ * 哪些字段能热加载见 config/reload.ts 的 RELOAD_RULES。
+ */
+function configReloadCommand(svc: CommandServices, operator: string): string {
+	const { rt, log } = svc;
+	let result: ReturnType<typeof reloadConfig>;
+	try {
+		result = reloadConfig(rt.homeDir, rt.config);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		log.warn("feishu.config.reload_failed", { operator, error: message });
+		return `config.json 有错误，没有应用任何改动：\n${message.slice(0, 500)}`;
+	}
+	const { applied, restartRequired } = result;
+	// 用量提供方是懒建的：丢掉旧的，下次用到时按新配置建
+	if (applied.includes("usage")) rt.usageProvider = undefined;
+	log.info("feishu.config.reloaded", { operator, applied, restartRequired });
+	if (applied.length === 0 && restartRequired.length === 0) return "config.json 与运行中的配置一致，没有改动需要应用。";
+	const lines: string[] = [];
+	if (applied.length) lines.push(`已生效（${applied.length} 项）：${applied.join("、")}`);
+	if (restartRequired.length) lines.push(`要重启才生效（${restartRequired.length} 项，未应用）：${restartRequired.join("、")}`);
+	if (applied.length) lines.push("群设定、工具档位、默认工作区只对新会话生效；设了环境变量的字段以环境变量为准。");
+	return lines.join("\n");
 }
 
 /** 诊断包以文件形式私聊给管理员。 */

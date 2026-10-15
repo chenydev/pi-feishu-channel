@@ -82,6 +82,15 @@ export const COMMANDS: readonly CommandSpec[] = [
 	{ name: "/feishu approvals", usage: "/feishu approvals [off|builtin|pi-permission-system|reset] [-g]", description: "查看审批策略；管理员可切换审批模式（只改本会话；-g 写入配置）", group: "管理" },
 	{ name: "/feishu export", usage: "/feishu export", description: "导出脱敏诊断包（发到管理员私聊）", group: "管理", adminOnly: true },
 	{ name: "/feishu policy", usage: "/feishu policy <策略>", description: "设置当前群策略", group: "管理", adminOnly: true },
+	{
+		name: "/feishu config", usage: "/feishu config reload", description: "重新读取 config.json，能热加载的改动立即生效", group: "管理", adminOnly: true,
+		details: [
+			"改完 config.json 后发这条，不用重启；回执列出已生效的字段和要重启才生效的字段",
+			"准入、会话模式、流式卡片、进度、页脚、审批、工作区等每次用到才读的字段立即生效",
+			"应用凭据、超时、缓存容量、定时器间隔、可选能力的开关要重启；这些改动不会应用，只在回执里列出",
+			"文件有错误时不应用任何改动，回执里给出出错的字段",
+		],
+	},
 	{ name: "/feishu footer", usage: "/feishu footer [on|off|reset] [-g]", description: "开关当前会话的页脚（默认关；-g 改全局默认）", group: "管理", adminOnly: true },
 	{ name: "/feishu always", usage: "/feishu always [revoke <规则名>]", description: "查看/撤销「始终批准」规则", group: "管理", adminOnly: true },
 	{ name: "/feishu prompt", usage: "/feishu prompt [show|set <内容>|clear]", description: "查看/设置本群（或私聊个人）提示词", group: "管理" },

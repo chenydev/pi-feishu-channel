@@ -22,13 +22,13 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 
 ## 1. 改配置
 
-- 编辑 `<home>/feishu-channel/config.json`，**改完要重启进程才生效**（没有热加载）。
+- 编辑 `<home>/feishu-channel/config.json` 后，管理员在飞书发 **`/feishu config reload`**：能热加载的字段立即生效；回执里「要重启才生效」的字段（应用凭据、超时、缓存容量、定时器间隔、可选能力开关）要重启进程。每个字段归哪类看 [configuration.md](../../docs/configuration.md) 的「改后」列。详见 [operations.md](../../docs/operations.md) §1.3。
 - 启动时校验：类型或取值错误会拒绝启动，并一次列出全部问题；**拼错的字段不报错**，用 `/feishu doctor` 的 `config_fields` 项检查。
 - **环境变量优先于配置文件**。改了文件不生效时，先查是不是有同名环境变量（如 `FEISHU_GROUP_POLICY`、`FEISHU_ALLOW_CHATS`）在覆盖。
 - 凭据（`appId` / `appSecret`）建议走环境变量 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，不要写进文件，也**不要在回复或日志里输出 secret**。
 - 运行中的进程会把部分字段写回文件：`/feishu policy`、`/feishu footer`、群开通审批（`allowChats`）、「始终批准」（`approval.autoApprove`）等。
-  进程会用内存里的值覆盖这些字段，所以**手改同名字段后要立即重启**，别和运行中的命令交叉修改。
-- 能用飞书命令改的优先用命令（即时生效，自动写回）：`/feishu policy <策略>`、`/feishu footer on|off|reset [-g]`（页脚默认关）、`/feishu approvals <模式> -g`、`/feishu prompt set <内容>`、`/feishu budget <美元>|off`、`/feishu always revoke <规则名>`、`/workspace add <别名> <绝对路径>` / `rm <别名>` / `default <别名>|reset`（工作区，不用重启）。多数只有管理员能用。
+  进程会用内存里的值覆盖这些字段，所以**手改同名字段后要立即 `/feishu config reload`**，别和运行中的命令交叉修改。
+- 能用飞书命令改的优先用命令（即时生效，自动写回）：`/feishu policy <策略>`、`/feishu footer on|off|reset [-g]`（页脚默认关）、`/feishu approvals <模式> -g`、`/feishu prompt set <内容>`、`/feishu budget <美元>|off`、`/feishu always revoke <规则名>`、`/workspace add <别名> <绝对路径>` / `rm <别名>` / `default <别名>|reset`（工作区，不用重启）、`/feishu config reload`（手改文件后重新读取）。多数只有管理员能用。
 
 ### 准入是默认拒绝的
 
@@ -104,7 +104,8 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 |---|---|---|
 | 桥没起来，日志 `feishu.bridge.autostart_skipped` | `reason: disabled` = 没设 `FEISHU_CHANNEL_ENABLED=1`（默认关）；`reason: mode` = 不是 `pi --mode rpc` | 部署进程设上该变量并用 `--mode rpc`（容器要重建）；本地 TUI 要连就 `/feishu:start` |
 | `status.json` 说已连接，却没反应 | 文件过期，进程已停 | 看 mtime，重启 |
-| 回复机器人的消息，没 @ 也触发 | 开了 `groupAlsoOnReply`（默认关） | 设为 `false` 或去掉 `FEISHU_GROUP_ALSO_ON_REPLY` 后重启 |
+| 改了 `config.json` 不生效 | 没 reload / 重启；字段要重启；同名环境变量覆盖 | `/feishu config reload` 看回执；日志 `feishu.config.reloaded` 的 `applied` / `restartRequired`，`reload_failed` 是文件有错 |
+| 回复机器人的消息，没 @ 也触发 | 开了 `groupAlsoOnReply`（默认关） | 设为 `false` 后 `/feishu config reload`；是环境变量 `FEISHU_GROUP_ALSO_ON_REPLY` 开的要去掉后重启 |
 | 任务被中止（空闲超时） | 工具执行中 `runToolIdleTimeoutMs`（默认 60 分钟）没有输出，或等模型时 `runIdleTimeoutMs`（默认 10 分钟）没有输出 | 中止提示和 `run_idle_timeout` 的 `phase` 说明是哪一种；调大对应字段 |
 | 卡片停在「正在处理…」/ 半截，答案另发一条 | 旧版本没处理卡片 10 分钟后流式模式被关闭（`update_failed` 的 `200850` / `300309`） | 升级；新版本记 `feishu.stream_card.streaming_closed` 后改用整组件替换 |
 | 显示「模型服务暂时不可用，正在自动重试」/「可能在排队」 | 模型服务繁忙（DeepSeek 排队时只发 keep-alive，pi 的 HTTP 超时拦不住） | 等或 `/stop` 后 `/model` 换模型；常遇到把 `runIdleTimeoutMs` 调到 `180000`。见 [运维 §4](../../docs/operations.md#4-常见症状) |

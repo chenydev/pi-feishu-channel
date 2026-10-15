@@ -44,6 +44,19 @@
 | `ps_link`、`ps_always_approved` | 模式为 pi-permission-system 时：它的版本是否 ≥ 27.0.0、`authorizerChain` 里有没有 `feishu-channel`、挂上了几个会话；「始终批准」的规则 |
 | `session_dir`、`outbox_dir`、`runtime` | 目录可写、运行环境 |
 
+### 1.3 改了 config.json 之后
+
+管理员在飞书里发 `/feishu config reload`，不用重启：
+
+- 能热加载的字段（[configuration.md](configuration.md) 「改后」列为「热加载」）立即生效。群设定 `prompt`、工具档位 `tools`、默认工作区只在会话开始时用，对新会话生效；
+- 要重启的字段（应用凭据、超时、缓存容量、定时器间隔、可选能力的开关）不会应用，回执里列出来，重启后才生效；
+- 文件有错误时不应用任何改动，回执和日志里给出出错的字段；
+- 环境变量优先于文件：设了同名环境变量的字段，改文件不算改动。
+
+日志 `feishu.config.reloaded`（`applied` 已生效、`restartRequired` 要重启的字段）、`feishu.config.reload_failed`（`error`）。
+
+运行中的命令（`/feishu policy`、`/feishu footer`、群开通审批、「始终批准」等）会把内存里的值写回对应字段。手改了这些字段要先 reload 再用命令，否则手改的内容会被覆盖。
+
 ## 2. 一条消息走到哪了
 
 按照消息的路径逐层查日志，每一层都有对应的事件：
@@ -133,8 +146,9 @@
 | 症状 | 通常的原因 | 怎么确认 / 修复 |
 |---|---|---|
 | 消息发了完全没反应 | 没有 @；群不在白名单里 | 查 `feishu.pipeline.drop` 的 `reason` |
-| 开了开通申请，没权限的人找机器人却没收到申请卡 | 冷却期内已发过（`silent` 的 `reason: reminded`）、被「暂不放行」（`ignored`）、超出每小时上限（`rate_limited`）；或群策略本身拒绝（`group_policy_rejected` 不申请） | 查 `feishu.access_request.*`；急用时直接改 `config.json` 并重启 |
-| 回复机器人发的消息，没 @ 也触发了 | 开了 `groupAlsoOnReply`（默认关闭）：`mention` 策略下回复机器人的消息免 @ | 查 `config.json` 和环境变量 `FEISHU_GROUP_ALSO_ON_REPLY`；不要这个行为就设为 `false` 后重启。它对整个实例生效，不能按群或按人设置 |
+| 改了 `config.json` 不生效 | 还没 reload 或重启；字段要重启才生效；有同名环境变量覆盖 | 发 `/feishu config reload`，看回执是「已生效」还是「要重启才生效」；都没列出来就是文件和运行中的一致，查环境变量。见 §1.3 |
+| 开了开通申请，没权限的人找机器人却没收到申请卡 | 冷却期内已发过（`silent` 的 `reason: reminded`）、被「暂不放行」（`ignored`）、超出每小时上限（`rate_limited`）；或群策略本身拒绝（`group_policy_rejected` 不申请） | 查 `feishu.access_request.*`；急用时直接改 `config.json` 后 `/feishu config reload` |
+| 回复机器人发的消息，没 @ 也触发了 | 开了 `groupAlsoOnReply`（默认关闭）：`mention` 策略下回复机器人的消息免 @ | 查 `config.json` 和环境变量 `FEISHU_GROUP_ALSO_ON_REPLY`；不要这个行为就设为 `false` 后 `/feishu config reload`。它对整个实例生效，不能按群或按人设置 |
 | 开了 `groupAlsoOnReply`，回复机器人有时仍要 @ | 只认进程内存里最近 `lastSentCacheSize` 条（默认 64）机器人消息：重启前发的、或群里机器人发言多时较早的消息都认不出来 | 设计如此，@ 机器人即可；需要时调大 `lastSentCacheSize` |
 | 桥没起来，日志 `extension_error session_start … pi.getAgentDir is not a function` | 扩展版本过旧，调用了 pi 扩展 API 上不存在的方法 | 升级扩展；临时绕过：设置 `FEISHU_CHANNEL_HOME` |
 | 桥没起来，日志 `feishu.bridge.autostart_skipped` | `reason: disabled`：进程没设 `FEISHU_CHANNEL_ENABLED=1`（默认关闭）；`reason: mode`：不是 `pi --mode rpc` 启动的 | 部署的进程设上 `FEISHU_CHANNEL_ENABLED=1` 并用 `--mode rpc`（容器要重建才拿到新环境变量）；本地 TUI 里要连就 `/feishu:start` |

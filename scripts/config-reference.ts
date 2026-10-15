@@ -13,11 +13,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { loadConfig } from "../src/config.js";
+import { reloadModeOf } from "../src/config/reload.js";
 import { type FieldMeta, fileConfigSchema } from "../src/config/schema.js";
 
 export const REFERENCE_FILE = join(dirname(fileURLToPath(import.meta.url)), "..", "docs", "configuration.md");
 
-interface Row { path: string; type: string; defaultValue: string; env: string; description: string }
+interface Row { path: string; type: string; defaultValue: string; env: string; reload: string; description: string }
 
 function unwrap(schema: z.ZodType): z.ZodType {
 	let current = schema;
@@ -96,15 +97,18 @@ function rowsOf(shape: Record<string, z.ZodType>, prefix: string[], defaults: un
 			type: typeOf(schema),
 			defaultValue: formatDefault(path, valueAt(defaults, path), meta),
 			env: formatEnv(schema, meta),
+			reload: RELOAD_LABEL[reloadModeOf(path)],
 			description: meta.description,
 		});
 	}
 	return rows;
 }
 
+const RELOAD_LABEL = { live: "热加载", restart: "重启", runtime: "—" } as const;
+
 function table(rows: Row[]): string {
-	const lines = ["| 字段 | 类型 | 默认 | 环境变量 | 说明 |", "|---|---|---|---|---|"];
-	for (const row of rows) lines.push(`| \`${row.path}\` | ${row.type} | ${row.defaultValue} | ${row.env} | ${row.description.replaceAll("|", "\\|")} |`);
+	const lines = ["| 字段 | 类型 | 默认 | 环境变量 | 改后 | 说明 |", "|---|---|---|---|---|---|"];
+	for (const row of rows) lines.push(`| \`${row.path}\` | ${row.type} | ${row.defaultValue} | ${row.env} | ${row.reload} | ${row.description.replaceAll("|", "\\|")} |`);
 	return lines.join("\n");
 }
 
@@ -152,6 +156,7 @@ export function renderConfigReference(): string {
 - **全部字段都是可选的**，没写的取下表的默认值。默认值为「—」的字段表示不设置（对应的功能按说明里的方式处理）。
 - **环境变量优先于配置文件**：设置了表中的环境变量时，以环境变量为准（注意 shell 里残留的同名变量会静默覆盖配置文件）。
 - **启动时校验**：类型或取值不对时拒绝启动，并一次列出全部问题，例如 \`配置无效：config.progress.mode：进度档位「quiet」无效（可选 off/new/all/verbose）\`。
+- **改了以后**：「改后」列是「热加载」的字段，管理员发 \`/feishu config reload\` 立即生效（群设定、工具档位、默认工作区只对新会话生效）；是「重启」的字段要重启进程，reload 不会应用它们，只在回执里列出来。归类在 \`src/config/reload.ts\`。
 - **拼错的字段不会报错**，但 \`/feishu doctor\` 的 \`config_fields\` 项会列出来。
 - 以 \`_\` 或 \`$\` 开头的键当注释用（如 \`"_comment"\`），不校验。
 - 时长字段的单位都是毫秒。

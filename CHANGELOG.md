@@ -4,6 +4,10 @@
 
 ## 未发布
 
+- 新命令 `/feishu config reload`（管理员）：改完 `config.json` 后不用重启，重新读取文件，能热加载的字段立即生效。
+  准入（`allowChats`、`allowUsers`、群策略、`groupRules` 等）、`groupSessionsPerUser`、`streamingCard`、`progress`、页脚、审批（`approval.plugin` 除外）、
+  工作区、`usage` 等每次用到才读的字段都能热加载；应用凭据、超时、缓存容量、定时器间隔、可选能力的开关要重启，reload 不应用它们，只在回执里列出来。
+  文件有错误时不应用任何改动。每个字段归哪类见 `docs/configuration.md` 新增的「改后」列，日志 `feishu.config.reloaded` / `reload_failed`。
 - **行为变更（会话）**：`groupSessionsPerUser` 默认改为 `false`，群里所有人默认共用一个会话（键为 `<chatId>`），话题仍按话题共用。
   原先默认每人一个会话。要保持旧行为，在 `config.json` 里显式写 `"groupSessionsPerUser": true`；
   升级后没写这个字段的群会从一个新的共享会话开始，原来各人的会话文件仍在：群里发 `/sessions` 会列出本群切换前各人的个人会话（标明是谁的），

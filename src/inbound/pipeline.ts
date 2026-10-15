@@ -62,7 +62,7 @@ export class InboundPipeline {
 
 	constructor(private deps: PipelineDeps) {
 		this.dedup = deps.dedupeStore ?? new DedupCache(deps.config.dedupCacheSize);
-		this.batcher = new TextBatcher(deps.config.batch.textWindowMs);
+		this.batcher = new TextBatcher(() => deps.config.batch.textWindowMs);
 	}
 
 	getStats(): PipelineStats {
