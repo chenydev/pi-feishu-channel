@@ -231,3 +231,45 @@ test("忙碌提示：关了 queueNotice 就不提示", async () => {
 	assert.ok(!sent.some((text) => text.includes("正在执行")));
 	await stop();
 });
+
+test("空闲超时（卡片模式）：中止说明写进卡片，不再另发一条文字；卡片写不进去才发文字", async () => {
+	for (const cardWritable of [true, false]) {
+		const contents: string[] = [];
+		const rawRequest = async (opts: { url: string; method: string; data?: unknown }) => {
+			if (opts.url === "/open-apis/cardkit/v1/cards") return { data: { card_id: "card-idle" } };
+			if (opts.url.startsWith("/open-apis/im/v1/messages")) return { data: { message_id: "om-card-idle" } };
+			if (!cardWritable) return { code: 300301, msg: "card not found" };
+			contents.push(String((opts.data as { content?: unknown }).content));
+			return { data: {} };
+		};
+		const sent: string[] = [];
+		let fail: (error: Error) => void = () => {};
+		const backend: SessionBackend = {
+			async createSession() {
+				return {
+					sessionId: "sid-idle-card",
+					prompt: () => new Promise<string>((_resolve, reject) => { fail = reject; }),
+					subscribe: () => () => {},
+					async abort() { fail(new Error("aborted")); }, async dispose() {}, modelId: "m",
+				};
+			},
+		};
+		const manager = new ConversationManager({
+			config: {
+				...DEFAULT_CONFIG, allowChats: ["oc_chat"], streamingCard: { enabled: true, throttleMs: 0 },
+				reaction: { ...DEFAULT_CONFIG.reaction, enabled: false }, footer: { enabled: false, showCost: false },
+			},
+			sessionDir: "/tmp/feishu-run-activity-idle-card", sessionBackend: backend, rawRequest, runIdleTimeoutMs: 40,
+			sender: { async send(_chatId: string, text: string) { sent.push(text); return { success: true, messageId: `om_${sent.length}` }; } } as never,
+		});
+		await manager.route(message(`idle-${cardWritable}`));
+		if (cardWritable) {
+			await waitUntil(() => contents.some((text) => text.includes("没有收到模型的任何输出")));
+			await sleep(20);
+			assert.ok(!sent.some((text) => text.includes("没有收到模型的任何输出")), `已写进卡片就不再另发：${JSON.stringify(sent)}`);
+		} else {
+			await waitUntil(() => sent.some((text) => text.includes("没有收到模型的任何输出")));
+		}
+		await manager.shutdown();
+	}
+});

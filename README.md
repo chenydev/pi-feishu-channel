@@ -266,6 +266,7 @@ npm run check     # lint + test（CI 同款）
 - **打字机速度需要显式指定**：平台默认是「每次 1 字、间隔 70ms」，500 字要播 35 秒 —— 现象是「服务端早已推完、桌面端还在慢慢吐」。本项目建卡时总会传 `streaming_config.print_step` / `print_frequency_ms`（默认 50 字 / 50ms），可用 `streamingCard.printStep` / `streamingCard.printFrequencyMs` 调整。
 - **卡片写入不能并发**：并发会让 `sequence` 乱序，飞书侧最终渲染为空白卡片。本项目对同一卡片的写入严格串行，排队期间的新内容合并为一次写入。
 - **`streaming_mode` 不可置 `false`**：置 `false` 后 `/content` 接口不可用（卡片会停在初始文案）。本项目建卡固定为 `true`，收尾也不关闭。注意它只影响该接口 —— 整组件替换（`PUT /cards/{id}/elements/{eid}`）仍然可用。
+- **流式模式约 10 分钟后自动关闭**：从建卡算起，之后第一次写 `/content` 返回 `200850 card streaming timeout`，再写返回 `300309 streaming mode is closed`。本项目撞到时改用整组件替换继续写（没有打字机效果），长任务的答案和中止说明仍写进卡片。
 - **`partial_strategy` 字段不存在**：`/content` 的请求契约只有 `uuid` / `content` / `sequence`。
 
 ---

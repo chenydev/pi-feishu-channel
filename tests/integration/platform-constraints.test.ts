@@ -80,3 +80,43 @@ test("平台约束：流式卡片的 sequence 严格递增；回复目标已撤�
 	const [entity] = [...fake.cards.values()];
 	assert.ok([...entity.elements.values()].some((content) => content.includes("完")));
 });
+
+test("平台约束：流式模式 10 分钟后被关闭 → 改用整组件替换，长任务的最终答案和页脚仍写进卡片", async () => {
+	const fake = new FakeFeishu();
+	let clock = 1_000_000;
+	fake.now = () => clock;
+	const logs: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
+	const card = new StreamingCard({ rawRequest: fake.rawRequest, throttleMs: 0, now: () => clock, log: (_level, msg, meta) => logs.push({ msg, meta }) });
+	assert.equal(await card.start({ chatId: "oc" }), true);
+	card.update("前十分钟的输出");
+	await waitFor(() => [...fake.cards.values()][0].elements.get("stream") === "前十分钟的输出");
+	clock += 11 * 60_000;
+	card.update("前十分钟的输出，之后的输出");
+	await waitFor(() => [...fake.cards.values()][0].elements.get("stream") === "前十分钟的输出，之后的输出");
+	assert.equal(await card.finish("最终答案", { metrics: "⏱ 11m" }), true);
+	const [entity] = [...fake.cards.values()];
+	assert.equal(entity.elements.get("stream"), "最终答案");
+	assert.equal(entity.elements.get("metrics"), "⏱ 11m");
+	assert.equal(logs.filter((log) => log.msg === "feishu.stream_card.streaming_closed").length, 1, "只在第一次撞到时切换");
+	assert.equal(logs.find((log) => log.msg === "feishu.stream_card.streaming_closed")?.meta?.code, 200850);
+	assert.ok(!logs.some((log) => log.msg === "feishu.stream_card.update_failed"), "流式关闭不算写失败，不触发熔断");
+});
+
+test("平台约束：流式关闭后中止任务，卡片写入中止说明，不再停在「正在处理…」", async () => {
+	const fake = new FakeFeishu();
+	let clock = 1_000_000;
+	fake.now = () => clock;
+	const card = new StreamingCard({ rawRequest: fake.rawRequest, throttleMs: 0, now: () => clock });
+	assert.equal(await card.start({ chatId: "oc" }), true);
+	clock += 10 * 60_000;
+	assert.equal(await card.abandon("已 10 分钟没有收到模型的任何输出，已中止"), true);
+	assert.equal([...fake.cards.values()][0].elements.get("stream"), "已 10 分钟没有收到模型的任何输出，已中止");
+});
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!predicate()) {
+		if (Date.now() >= deadline) throw new Error("waitFor timeout");
+		await new Promise((resolve) => setTimeout(resolve, 2));
+	}
+}

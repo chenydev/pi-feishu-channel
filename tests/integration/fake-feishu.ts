@@ -7,7 +7,9 @@
  * - 机器人不在群里返回 230002；
  * - 可注入限流：前 N 次写请求返回 99991400；
  * - 同一 uuid 的创建请求幂等（返回同一条消息）；
- * - CardKit：卡片实体、按元素流式更新（sequence 必须递增，否则 300317）。
+ * - CardKit：卡片实体、按元素流式更新（sequence 必须递增，否则 300317）；
+ * - CardKit：流式模式开启 10 分钟后被关闭，之后第一次写 `/content` 返回 200850、再写返回 300309，
+ *   整组件替换 `PUT /cards/{id}/elements/{eid}` 仍可用（2026-10-15 真实租户实测）。
  */
 
 export interface FakeMessage {
@@ -22,7 +24,7 @@ export interface FakeMessage {
 
 export class FakeFeishu {
 	readonly messages = new Map<string, FakeMessage>();
-	readonly cards = new Map<string, { elements: Map<string, string>; sequence: number }>();
+	readonly cards = new Map<string, { elements: Map<string, string>; sequence: number; createdAt: number; streamingClosed: boolean }>();
 	readonly calls: Array<{ method: string; url: string }> = [];
 	private seq = 0;
 	private byUuid = new Map<string, string>();
@@ -30,6 +32,10 @@ export class FakeFeishu {
 	rateLimitNext = 0;
 	/** 机器人不在这些群里。 */
 	notInChats = new Set<string>();
+	/** 时钟（流式模式超时用），测试可替换。 */
+	now: () => number = Date.now;
+	/** CardKit 流式模式自动关闭的时限。 */
+	streamingTimeoutMs = 10 * 60_000;
 
 	private ok(data: unknown = {}) { return { code: 0, msg: "success", data }; }
 	private fail(code: number, msg: string) { return { code, msg }; }
@@ -88,7 +94,7 @@ export class FakeFeishu {
 		}
 		if (opts.method === "POST" && opts.url === "/open-apis/cardkit/v1/cards") {
 			const id = `card_${++this.seq}`;
-			this.cards.set(id, { elements: new Map(), sequence: 0 });
+			this.cards.set(id, { elements: new Map(), sequence: 0, createdAt: this.now(), streamingClosed: false });
 			return this.ok({ card_id: id });
 		}
 		match = opts.method === "PUT" ? /^\/open-apis\/cardkit\/v1\/cards\/([^/]+)\/elements\/([^/]+)\/content$/.exec(opts.url) : null;
@@ -97,8 +103,25 @@ export class FakeFeishu {
 			if (!card) return this.fail(300301, "card not found");
 			const sequence = Number(data.sequence);
 			if (!(sequence > card.sequence)) return this.fail(300317, "sequence must be increasing");
+			if (card.streamingClosed) return this.fail(300309, "ErrMsg: streaming mode is closed; ");
+			if (this.now() - card.createdAt >= this.streamingTimeoutMs) {
+				card.streamingClosed = true;
+				return this.fail(200850, "ErrMsg: card streaming timeout; ");
+			}
 			card.sequence = sequence;
 			card.elements.set(match[2], String(data.content));
+			return this.ok();
+		}
+		match = opts.method === "PUT" ? /^\/open-apis\/cardkit\/v1\/cards\/([^/]+)\/elements\/([^/]+)$/.exec(opts.url) : null;
+		if (match) {
+			const card = this.cards.get(match[1]);
+			if (!card) return this.fail(300301, "card not found");
+			const sequence = Number(data.sequence);
+			if (!(sequence > card.sequence)) return this.fail(300317, "sequence must be increasing");
+			const element = JSON.parse(String(data.element)) as { element_id?: string; content?: string };
+			if (element.element_id !== match[2]) return this.fail(300303, "element_id mismatch");
+			card.sequence = sequence;
+			card.elements.set(match[2], String(element.content ?? ""));
 			return this.ok();
 		}
 		match = opts.method === "PATCH" ? /^\/open-apis\/cardkit\/v1\/cards\/([^/]+)\/settings$/.exec(opts.url) : null;

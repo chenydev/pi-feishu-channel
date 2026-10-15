@@ -85,7 +85,7 @@ src/
 | 1 | **先持久化后确认**：入站消息进入内存批次前先写待处理记录；最终回复先写 outbox 再发送 | `pending-store`、`outbox` | `intake-persistence`、`outbox` |
 | 2 | **一个会话键**：合批、会话、outbox 通道、审批都使用同一个 `conversationKey` | `conversation-key` | `conversation-manager` |
 | 3 | **同 key 串行**：一个会话同时最多一轮在执行；超时的轮次被取消后，下一轮才能开始 | `scheduler`、`run-executor` | `scheduler`、`scheduler-fairness` |
-| 4 | **流式更新通道不承载正确性**：流式编辑失败不影响最终回复；最终回复由 outbox 确认送达 | `live-channel`、`streaming-card` | `live-final-ordering`、`streaming-card` |
+| 4 | **流式更新通道不承载正确性**：流式编辑失败不影响最终回复；最终回复（含失败说明）由 outbox 确认送达，或由流式卡片的收尾写入确认（写不进卡片就回到 outbox） | `live-channel`、`streaming-card` | `live-final-ordering`、`streaming-card` |
 | 5 | **ID 优先**：@ 判定两侧都有同层 ID 时，ID 不同即不匹配，不能再用名字推翻判定 | `normalize` | `normalize`、`admit` |
 | 6 | **不静默丢弃**：除去重和准入外，所有拒绝、溢出和永久失败都记录原因和关联 ID | 各模块日志 | `pipeline`、`outbox` |
 | 7 | **审批跟随执行**：一轮结束或会话重置时，未决审批立即失效，旧卡片不能再授予权限 | `permission-bridge` | `permission-run-lifecycle` |

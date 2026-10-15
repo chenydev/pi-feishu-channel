@@ -428,28 +428,36 @@ export class RunExecutor {
 					messageId: item.messageId,
 					conversationKey: sess.conversationKey,
 				}));
-			} else if (isRunTimeout) {
-				// 说明「多久没动静」而不是「总共跑了多久」——两者语义不同，用户需要能区分；也说清卡在工具还是模型
-				const info = sess.runIdleInfo as BridgeSession["runIdleInfo"];
-				const idleLabel = durationLabel(info?.idleMs ?? this.host.runIdleTimeoutMs);
-				const timeoutText = msg !== "run idle timeout"
-					? "任务超过配置的最长执行时间，已中止。"
-					: info?.phase === "tool"
-						? `工具 ${info.tool ?? ""} 已 ${idleLabel}没有输出，已中止（不是总时长限制）。确实需要更久的话把 runToolIdleTimeoutMs 调大。`
-						: `已 ${idleLabel}没有收到模型的任何输出，已中止（不是总时长限制）。多半是模型服务卡住了，可以 /retry；需要的话把 runIdleTimeoutMs 调大。`;
-				durableHandled = external ? await this.deliverExternal(external, timeoutText, item) : await this.host.notify(sess.chatId, timeoutText, {
-					replyTo: item.replyTo,
-					threadId: sess.threadId ?? item.threadId,
-				}, `${item.messageId}:timeout`, sess.conversationKey, "error");
 			} else {
-				// 原始错误只进日志；群里给类别文案 + 下一步建议 + 错误编号
-				const errorId = newErrorId(this.host.now());
-				const classified = classifyRunError(msg, errorId);
-				this.deps.log?.("error", "feishu.conv.run_error", logMeta({ chatId: sess.chatId, error: msg, errorId, category: classified.category }));
-				durableHandled = external ? await this.deliverExternal(external, classified.text, item) : await this.host.notify(sess.chatId, classified.text, {
-					replyTo: item.replyTo,
-					threadId: sess.threadId ?? item.threadId,
-				}, `${item.messageId}:error`, sess.conversationKey, "error");
+				// 卡片还在：失败说明直接写进卡片（用户正盯着的就是它），写不进去再另发文字。
+				// 卡片内容由飞书持久化，和 final 一样算已交付。
+				const deliverFailure = async (text: string, dedupeKey: string): Promise<boolean> => {
+					if (external) return this.deliverExternal(external, text, item);
+					const card = streamCard;
+					streamCard = undefined;
+					if (card && await card.abandon(text)) return true;
+					return this.host.notify(sess.chatId, text, {
+						replyTo: item.replyTo,
+						threadId: sess.threadId ?? item.threadId,
+					}, dedupeKey, sess.conversationKey, "error");
+				};
+				if (isRunTimeout) {
+					// 说明「多久没动静」而不是「总共跑了多久」——两者语义不同，用户需要能区分；也说清卡在工具还是模型
+					const info = sess.runIdleInfo as BridgeSession["runIdleInfo"];
+					const idleLabel = durationLabel(info?.idleMs ?? this.host.runIdleTimeoutMs);
+					const timeoutText = msg !== "run idle timeout"
+						? "任务超过配置的最长执行时间，已中止。"
+						: info?.phase === "tool"
+							? `工具 ${info.tool ?? ""} 已 ${idleLabel}没有输出，已中止（不是总时长限制）。确实需要更久的话把 runToolIdleTimeoutMs 调大。`
+							: `已 ${idleLabel}没有收到模型的任何输出，已中止（不是总时长限制）。多半是模型服务卡住了，可以 /retry；需要的话把 runIdleTimeoutMs 调大。`;
+					durableHandled = await deliverFailure(timeoutText, `${item.messageId}:timeout`);
+				} else {
+					// 原始错误只进日志；群里给类别文案 + 下一步建议 + 错误编号
+					const errorId = newErrorId(this.host.now());
+					const classified = classifyRunError(msg, errorId);
+					this.deps.log?.("error", "feishu.conv.run_error", logMeta({ chatId: sess.chatId, error: msg, errorId, category: classified.category }));
+					durableHandled = await deliverFailure(classified.text, `${item.messageId}:error`);
+				}
 			}
 		} finally {
 			const steered = sess.steered.splice(0);

@@ -57,7 +57,7 @@
 | 命令 | `feishu.command` | `feishu.card.command_failed` |
 | 执行 | `feishu.session.resource_loader_ready`（`strippedGateways` 正常为 1）、`feishu.session.created`、`feishu.conv.send_reply_start` | `feishu.conv.run_error`、`run_idle_timeout`（`phase`：`tool` 卡在工具，带 `tool` / `toolMs`；`model` 卡在等模型）、`model_retry`（pi 自动重试，带 `attempt` / `error`）、`model_quiet`（等模型 1 分钟没有输出）、`budget_exceeded` |
 | 审批 | `feishu.approval.mode`（启动时的全局模式）、`mode_changed`、`audit`、`command_allow` / `command_ask` / `command_deny`；pi-permission-system 模式：`ps_link`、`ps_link_decision`、`ps_always_approved`、`ps_session_approved` | `feishu.approval.invalidated`、`card_terminal_failed`、`plugin_unavailable`、`ps_link_not_in_chain`、`ps_version_unsupported`、`ps_link_capped`、`ps_link_unavailable` |
-| 回复 | `feishu.conv.reply_sent`、`feishu.outbox.delivered` | `feishu.outbox.failed`、`feishu.sender.*_fallback` |
+| 回复 | `feishu.conv.reply_sent`、`feishu.outbox.delivered`、`feishu.stream_card.finished`；卡片超过 10 分钟后 `streaming_closed`（改用整组件替换，正常） | `feishu.outbox.failed`、`feishu.sender.*_fallback`、`feishu.stream_card.update_failed`、`fallback_to_text` |
 
 **以最终效果为准**：看到 `tool_execution_*` 只说明过程发生了；要确认功能可用，得看 agent 的回复里有没有命令的真实输出。
 
@@ -156,6 +156,7 @@
 | 点提问卡片提示「已过期」 | 已经答过、同一会话后来又发了新提问、执行过 `/new`，或超过 `clarify.ttlMs`（默认 24 小时） | 直接打字回复即可；日志 `feishu.clarify.audit` 的 `decision` 记着失效原因 |
 | 任务被中止，提示「工具 … 没有输出」 | 工具执行中连续 `runToolIdleTimeoutMs`（默认 60 分钟）没有输出 | 确实要跑更久就调大它；日志 `feishu.conv.run_idle_timeout` 的 `tool` / `toolMs` |
 | 任务被中止，提示「没有收到模型的任何输出」 | 等模型时连续 `runIdleTimeoutMs`（默认 10 分钟）没有输出，多半是模型服务卡住。DeepSeek 繁忙时先回响应头、再只发 `: keep-alive` 排队，最长 10 分钟才断开：pi 的 `httpIdleTimeoutMs`、`retry.provider.timeoutMs` 都拦不住，只能靠这个超时 | `/retry`，或 `/model` 换模型；常遇到可以把 `runIdleTimeoutMs` 调到 `180000`，早点结束排队 |
+| 流式卡片一直停在「正在处理…」或半截内容，答案或中止说明另发了一条 | 旧版本：卡片开启约 10 分钟后飞书关闭流式模式，之后写入全部失败（日志 `feishu.stream_card.update_failed`，`200850` / `300309`） | 升级到包含 `feishu.stream_card.streaming_closed` 的版本 |
 | 卡片或进度显示「模型服务暂时不可用，正在自动重试」或「可能在排队」 | 模型服务繁忙：前者是 pi 收到 503、限流等临时错误后在重试（默认 3 次），后者是 1 分钟没有任何输出 | 一般等着即可；不想等就 `/stop`，`/model` 换模型再发。日志 `feishu.conv.model_retry` / `model_quiet` |
 | 任务执行中发消息问进度，很久没回应 | 普通消息在工具执行中要等这一步结束才交给模型 | 发 `/progress`：立即回复，不打断任务 |
 | 装了新技能 / 扩展，飞书会话里用不上 | 已建立的会话不会自动重新加载，只有新建的会话才读到 | 在该会话发 `/reload`（或 `/new`）；回执列出新增技能和加载失败的条目，日志 `feishu.conv.reloaded` / `reload_failed` |

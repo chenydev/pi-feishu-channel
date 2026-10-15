@@ -10,8 +10,12 @@
  * - `POST /open-apis/cardkit/v1/cards`                         创建卡片实体 → card_id
  * - `PUT  /open-apis/cardkit/v1/cards/{id}/elements/{eid}/content`  全量设置元素内容
  * - `POST /open-apis/im/v1/messages`（msg_type=interactive，content 里引用 card_id）发到会话
- * 注：`GET /cards/{id}`、`DELETE /cards/{id}`、`PATCH /cards/{id}/settings` 均返回 404/失败，
- * 因此不依赖它们做清理或关闭 streaming_mode。
+ * 注：`GET /cards/{id}`、`DELETE /cards/{id}` 返回 404/失败，因此不依赖它们做清理；
+ * `PATCH /cards/{id}/settings` 早期实测失败，2026-10-15 复测可用，但这里用不到。
+ *
+ * 流式模式开启约 10 分钟后被平台关闭（2026-10-15 实测）：之后 `/content` 返回 200850 / 300309，
+ * 只能用整组件替换 `PUT /cards/{id}/elements/{eid}` 写入（没有打字机效果）。超过 10 分钟的长任务、
+ * 模型挂住到空闲超时，都会走到这一步；不切换的话卡片会一直停在「正在处理…」。
  */
 
 import { randomUUID } from "node:crypto";
@@ -22,6 +26,8 @@ import type { RateBudget } from "../runtime/rate-budget.js";
 const MAX_CONSECUTIVE_WRITE_FAILURES = 3;
 /** 收尾写入对可重试错误的额外尝试次数。 */
 const FINAL_WRITE_RETRIES = 2;
+/** 流式模式已被平台关闭：200850 = 本次写入时超时关闭，300309 = 之前已经关闭。 */
+const STREAMING_CLOSED_CODES: ReadonlySet<number> = new Set([200850, 300309]);
 /** 卡片正文超长时的衔接提示：完整内容由调用方另行投递。 */
 export const CARD_OVERFLOW_NOTE = "…（内容较长，完整内容见下条消息）";
 
@@ -60,6 +66,8 @@ export class StreamingCard {
 	private pendingText?: string;
 	private lastFlushAt = 0;
 	private broken = false;
+	/** 流式模式已被平台关闭：之后改用整组件替换写入。 */
+	private streamingClosed = false;
 	/** 收尾阶段：此时 doWrite 不再用 pendingText 覆盖传入的最终文本。 */
 	private finalizing = false;
 	/** 写入串行链：保证同一卡片上的 PUT 不会并发。 */
@@ -236,12 +244,7 @@ export class StreamingCard {
 		if (!this.cardId || this.withMetrics === false) return false;
 		const writeStart = this.now();
 		try {
-			this.sequence += 1;
-			assertApiOk(await this.deps.rawRequest({
-				url: `/open-apis/cardkit/v1/cards/${this.cardId}/elements/${METRICS_ELEMENT_ID}/content`,
-				method: "PUT",
-				data: { content: text.slice(0, this.maxChars), sequence: this.sequence, uuid: randomUUID() },
-			}), "cardkit metrics");
+			await this.putElement(METRICS_ELEMENT_ID, text.slice(0, this.maxChars), "cardkit metrics");
 			this.lastFlushAt = this.now();
 			this.totalWriteMs += this.lastFlushAt - writeStart;
 			this.writeCount += 1;
@@ -257,31 +260,66 @@ export class StreamingCard {
 		}
 	}
 
-	/** 放弃卡片（run 失败/中止）：尽量写一句状态，之后不再更新。 */
-	async abandon(reason: string): Promise<void> {
+	/**
+	 * 放弃卡片（run 失败/中止）：写一句状态，之后不再更新。
+	 * 返回是否写进了卡片（写进了，调用方可以不再另发同样的文字）。
+	 */
+	async abandon(reason: string): Promise<boolean> {
 		if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
 		if (!this.available) {
 			if (this.cardId && this.broken && !this.finished) await this.bestEffortNote(reason);
 			this.finished = true;
-			return;
+			return false;
 		}
 		this.finalizing = true;
-		await this.flushText(reason);
+		const ok = await this.flushText(reason);
 		this.finished = true;
+		return ok;
 	}
 
 	/** 损坏后的最后一次尝试：只写一次、不重试、不影响返回值。 */
 	private async bestEffortNote(text: string): Promise<void> {
 		try {
-			this.sequence += 1;
-			assertApiOk(await this.deps.rawRequest({
-				url: `/open-apis/cardkit/v1/cards/${this.cardId}/elements/${STREAM_ELEMENT_ID}/content`,
-				method: "PUT",
-				data: { content: text, sequence: this.sequence, uuid: randomUUID() },
-			}), "cardkit note");
+			await this.putElement(STREAM_ELEMENT_ID, text, "cardkit note");
 		} catch {
 			/* 卡片链路已坏，答案由文本通道交付 */
 		}
+	}
+
+	/**
+	 * 写一个 markdown 元素：流式模式下用 `/content`（有打字机效果）；
+	 * 流式模式被平台关闭后改用整组件替换，本次写入立即用新接口重试一次，不算失败。
+	 */
+	private async putElement(elementId: string, content: string, label: string): Promise<void> {
+		if (!this.streamingClosed) {
+			try {
+				this.sequence += 1;
+				assertApiOk(await this.deps.rawRequest({
+					url: `/open-apis/cardkit/v1/cards/${this.cardId}/elements/${elementId}/content`,
+					method: "PUT",
+					// uuid 幂等键：飞书 cardkit 要求，且网络重试时不会重复应用同一段
+					data: { content, sequence: this.sequence, uuid: randomUUID() },
+				}), label);
+				return;
+			} catch (error) {
+				const code = apiErrorCode(error);
+				if (code === undefined || !STREAMING_CLOSED_CODES.has(code)) throw error;
+				this.streamingClosed = true;
+				this.deps.log?.("info", "feishu.stream_card.streaming_closed", {
+					cardId: this.cardId, code, elapsedMs: this.now() - this.startedAt,
+				});
+			}
+		}
+		this.sequence += 1;
+		assertApiOk(await this.deps.rawRequest({
+			url: `/open-apis/cardkit/v1/cards/${this.cardId}/elements/${elementId}`,
+			method: "PUT",
+			data: { element: JSON.stringify(this.markdownElement(elementId, content)), sequence: this.sequence, uuid: randomUUID() },
+		}), `${label} (replace)`);
+	}
+
+	private markdownElement(elementId: string, content: string): Record<string, unknown> {
+		return { tag: "markdown", element_id: elementId, ...(elementId === METRICS_ELEMENT_ID ? { text_size: "notation" } : {}), content };
 	}
 
 	private async flush(): Promise<void> {
@@ -334,13 +372,7 @@ export class StreamingCard {
 		for (let attempt = 1; attempt <= attempts; attempt++) {
 			const writeStart = this.now();
 			try {
-				this.sequence += 1;
-				assertApiOk(await this.deps.rawRequest({
-					url: `/open-apis/cardkit/v1/cards/${this.cardId}/elements/${STREAM_ELEMENT_ID}/content`,
-					method: "PUT",
-					// uuid 幂等键：飞书 cardkit 要求，且网络重试时不会重复应用同一段
-					data: { content: this.window(text), sequence: this.sequence, uuid: randomUUID() },
-				}), "cardkit update");
+				await this.putElement(STREAM_ELEMENT_ID, this.window(text), "cardkit update");
 				this.lastFlushAt = this.now();
 				this.totalWriteMs += this.lastFlushAt - writeStart;
 				this.writeCount += 1;
@@ -399,13 +431,13 @@ export class StreamingCard {
 			},
 			body: {
 				elements: [
-					{ tag: "markdown", element_id: STREAM_ELEMENT_ID, content: text },
+					this.markdownElement(STREAM_ELEMENT_ID, text),
 					// 页脚块：分割线 + 独立 markdown 元素。创建时留空（空 markdown 不占视觉空间），
 					// 收尾时再用 /content 写入 —— 飞书卡片元素必须在建卡时就存在。
 					...(this.withMetrics
 						? [
 							{ tag: "hr" },
-							{ tag: "markdown", element_id: METRICS_ELEMENT_ID, text_size: "notation", content: "" },
+							this.markdownElement(METRICS_ELEMENT_ID, ""),
 						]
 						: []),
 				],
