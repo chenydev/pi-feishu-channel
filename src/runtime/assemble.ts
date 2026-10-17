@@ -158,13 +158,18 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 		onResult: (result) => rt.convManager?.recordApiOutcome({ ok: result.success, errorClass: result.errorClass, retryAfterMs: result.retryAfterMs }),
 		// 最终回复永久发送失败 → 给用户一条最朴素的提示（不回复原消息、纯文本、新 UUID），
 		// 否则用户那边只是"机器人不回了"。提示本身是 notify，失败不再触发提示（不会循环）。
-		onTerminalFailure: (entry) => {
+		onTerminalFailure: (entry, info) => {
 			if (entry.kind !== "final" && entry.kind !== "error") return;
 			const reason = /230072|edited/i.test(entry.lastError ?? "") ? "消息编辑次数已达上限"
 				: /permission|403|forbidden|not in chat|230002/i.test(entry.lastError ?? "") ? "机器人在该会话没有发言权限"
 				: "飞书接口持续报错";
+			// 长回答会拆成多条：有兄弟条目说明这次只有一段没发出去，其它段照常送达 ——
+			// 提示必须说「可能不完整」，否则读者会以为整条回复都没到。
+			const text = (info?.siblings ?? 0) > 0
+				? `⚠️ 回复的一部分没有发送成功（${reason}），上面的内容可能不完整；请重试这一句或联系管理员。`
+				: `⚠️ 回复发送失败（${reason}），请重试或联系管理员。`;
 			try {
-				rt.outbox?.enqueue(entry.route.chatId, `⚠️ 回复发送失败（${reason}），请重试或联系管理员。`, { threadId: entry.route.threadId }, {
+				rt.outbox?.enqueue(entry.route.chatId, text, { threadId: entry.route.threadId }, {
 					dedupeKey: `${entry.dedupeKey}:failed-notice`, laneKey: entry.laneKey, kind: "notify",
 				});
 			} catch (error) {

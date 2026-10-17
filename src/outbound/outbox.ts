@@ -62,8 +62,13 @@ export interface OutboxDeps {
 	now?: () => number;
 	random?: () => number;
 	onChange?: () => void;
-	/** 条目进入 failed（永久失败）时回调；final/error 类由调用方给用户一条可见提示。 */
-	onTerminalFailure?: (entry: OutboxEntry) => void;
+	/**
+	 * 条目进入 failed（永久失败）时回调；final/error 类由调用方给用户一条可见提示。
+	 *
+	 * `info.siblings` 是同一 dedupeKey 的其它条目数（长回答会拆成多条）—— 有兄弟说明
+	 * 失败的是「回复的一部分」，提示文案要说「内容可能不完整」，不能说「回复发送失败」。
+	 */
+	onTerminalFailure?: (entry: OutboxEntry, info?: { siblings: number }) => void;
 	/** 每次投递结果（喂给共享预算的熔断器：连续限频/网络错误时让流式更新通道让路）。 */
 	onResult?: (result: SendResult) => void;
 }
@@ -301,7 +306,10 @@ export class Outbox {
 			if (entry.errorClass === "fatal" || entry.attempts >= this.maxAttempts) {
 				entry.status = "failed";
 				this.deps.log?.("error", "feishu.outbox.failed", { envelopeId: entry.id, conversationKey: entry.laneKey, kind: entry.kind, attempts: entry.attempts, errorClass: entry.errorClass, lastError: entry.lastError });
-				try { this.deps.onTerminalFailure?.(entry); } catch { /* 通知失败不影响待处理记录 */ }
+				try {
+					const siblings = [...this.entries.values()].filter((other) => other.id !== entry.id && other.dedupeKey === entry.dedupeKey).length;
+					this.deps.onTerminalFailure?.(entry, { siblings });
+				} catch { /* 通知失败不影响待处理记录 */ }
 				return;
 			}
 			entry.status = "pending";

@@ -358,3 +358,36 @@ test("outbox：落盘失败不把 drain 变成未处理 rejection（定时器回
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("outbox：长回答里一段永久失败时，回调带上兄弟条目数（提示要说「可能不完整」）", async () => {
+	const { dir, file } = tempOutbox();
+	// 按 "|" 拆成多条 chunk，模拟长回答分片
+	const chunked = (chatId: string, content: string): PreparedSend[] => content.split("|").map((text) => ({
+		chatId, msgType: "text", payload: JSON.stringify({ text }), plainTextPayload: JSON.stringify({ text }), opts: {},
+		uuid: `uuid-${text}`, contentFallbackUuid: `cf-${text}`, routeFallbackUuid: `rf-${text}`,
+	}));
+	const delivered: string[] = [];
+	const failures: Array<{ kind: string; siblings: number | undefined }> = [];
+	const outbox = new Outbox({
+		file,
+		prepare: chunked,
+		send: async (request) => {
+			const text = JSON.parse((request as unknown as { payload: string }).payload).text as string;
+			if (text === "第一段") return { success: false, retryable: false, error: "230002: bot not in chat" };
+			delivered.push(text);
+			return { success: true, messageId: `om_${text}` };
+		},
+		onTerminalFailure: (entry, info) => failures.push({ kind: entry.kind, siblings: info?.siblings }),
+	});
+	try {
+		outbox.enqueue("oc", "第一段|第二段", {}, { dedupeKey: "k:final", laneKey: "l", kind: "final" });
+		// 同一 lane 每次只发队首一条（顺序保证），所以两次 drain
+		await outbox.drainDue();
+		await outbox.drainDue();
+		assert.deepEqual(delivered, ["第二段"], "其它段照常送达");
+		assert.equal(failures.length, 1);
+		assert.equal(failures[0].siblings, 1, "同一 dedupeKey 还有一条，说明只有一段失败");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
