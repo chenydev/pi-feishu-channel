@@ -114,9 +114,19 @@ test("allowlist 策略：非白名单群拒绝", () => {
 	assert.equal(admit(c, groupMsg(), true, false, new LastSentCache(8)).ok, false);
 });
 
-test("allowlist 策略：白名单群 + mention 放行", () => {
-	const c = cfg({ groupPolicy: "allowlist", allowChats: ["oc_group"] });
-	assert.equal(admit(c, groupMsg(), true, false, new LastSentCache(8)).ok, true);
+test("allowlist 策略：名单里的人在白名单群 @ 一下放行；**空名单 = 拒绝所有人**", () => {
+	// 空名单不等于「不限制」：与 allowChats / allowUsers 一样默认拒绝。
+	// `/feishu policy allowlist` 的回执也会说明这一点，否则「已设置」读起来像限制已生效。
+	const empty = cfg({ groupPolicy: "allowlist", allowChats: ["oc_group"] });
+	const rejected = admit(empty, groupMsg(), true, false, new LastSentCache(8));
+	assert.equal(verdictOf(rejected), "not_allowlisted");
+	assert.match((rejected as { hint?: string }).hint ?? "", /名单是空的/);
+
+	const filled = cfg({ groupPolicy: "allowlist", allowChats: ["oc_group"], groupRules: { oc_group: { policy: "allowlist", allowlist: ["ou_user"] } } });
+	assert.equal(admit(filled, groupMsg(), true, false, new LastSentCache(8)).ok, true);
+	// 名单里没有的人照样拒绝，管理员豁免
+	assert.equal(verdictOf(admit(filled, groupMsg({ senderId: "ou_other" }), true, false, new LastSentCache(8))), "not_allowlisted");
+	assert.equal(admit({ ...filled, admins: ["ou_other"] }, groupMsg({ senderId: "ou_other" }), true, false, new LastSentCache(8)).ok, true);
 });
 
 test("groupPolicyByChat 覆盖全局（open）——策略层 open 但仍需 @（mention 层独立）", () => {

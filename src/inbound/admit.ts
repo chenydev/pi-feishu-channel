@@ -155,12 +155,17 @@ export function admit(
 					+ `放行方式：把 "${msg.senderId}" 加入 config.json 的 admins，或把群策略改成 mention/open。`,
 			);
 		} else if (policy === "allowlist") {
-			// 用户白名单（rule.allowlist）；群维度的准入已由上方 allowChats 闸完成
+			// 用户白名单（rule.allowlist）；群维度的准入已由上方 allowChats 闸完成。
+			// 空名单 = 谁都不允许（与 allowChats / allowUsers 一致，默认拒绝）：
+			// 以前空名单被当成「不限制」，`/feishu policy allowlist` 的回执却说名单生效 —— 事实上谁都能用。
 			const allowlist = rule?.allowlist ?? [];
-			if (allowlist.length > 0 && !allowlist.includes(msg.senderId) && !allGroupsUser) {
+			if (!allowlist.includes(msg.senderId) && !allGroupsUser) {
+				const why = allowlist.length === 0
+					? "本群策略是 allowlist，但名单是空的（空名单 = 拒绝所有人）。"
+					: "本群策略是 allowlist 且该用户不在名单里。";
 				return withHint(
 					"not_allowlisted",
-					`本群策略是 allowlist 且该用户不在名单里。`
+					why
 						+ `放行方式：在 config.json 的 groupRules["${msg.chatId}"].allowlist 里加 "${msg.senderId}"，或加进 allowUsersAllGroups（所有群都放行）。`,
 				);
 			}

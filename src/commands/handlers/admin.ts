@@ -6,6 +6,7 @@ import type { CommandHandler } from "../dispatch.js";
 import type { CommandServices } from "./services.js";
 import { formatTimeInZone, resolveFooterEnabled, resolvePaths, saveConfigFields } from "../../config.js";
 import { reloadConfig } from "../../config/reload.js";
+import { ruleForChat } from "../../inbound/admit.js";
 import { buildDiagnosticsBundle, writeDiagnosticsBundle } from "../../runtime/diagnostics.js";
 import { runDoctor } from "../../runtime/doctor.js";
 import { APPROVAL_MODE_LABEL, effectiveApprovalMode, globalApprovalMode, parseApprovalMode } from "../../approval/mode.js";
@@ -38,7 +39,19 @@ export function adminCommands(svc: CommandServices): Record<string, CommandHandl
 			if (msg.chatType === "p2p") { reply("群策略只能在群聊或话题中修改"); return; }
 			const policy = args[0] as GroupPolicy | undefined;
 			if (!policy || !VALID_POLICIES.includes(policy)) { reply(`用法：/feishu policy <${VALID_POLICIES.join("|")}>`); return; }
-			reply(setChatPolicy(svc, msg.chatId, policy) ? `已设置本群策略：${policy}` : "策略落盘失败，运行态未修改");
+			if (!setChatPolicy(svc, msg.chatId, policy)) { reply("策略落盘失败，运行态未修改"); return; }
+			// allowlist / blacklist 靠 groupRules 里的名单生效，名单为空时策略等于全拒 / 全放：
+			// 回执只说「已设置」会让人以为限制已生效。
+			const rule = ruleForChat(svc.rt.config, msg.chatId);
+			if (policy === "allowlist" && (rule?.allowlist?.length ?? 0) === 0) {
+				reply(`已设置本群策略：allowlist\n注意：名单为空 = 现在**谁都触发不了**（管理员除外）。加人：config.json 的 groupRules["${msg.chatId}"].allowlist`);
+				return;
+			}
+			if (policy === "blacklist" && (rule?.blacklist?.length ?? 0) === 0) {
+				reply(`已设置本群策略：blacklist\n注意：名单为空 = 现在**谁都能触发**（等于不按名单限制）。加人：config.json 的 groupRules["${msg.chatId}"].blacklist`);
+				return;
+			}
+			reply(`已设置本群策略：${policy}`);
 		},
 		"/feishu config": async ({ msg, args, isAdmin, reply }) => {
 			if (!isAdmin) { reply("仅管理员或应用归属人可重新读取配置"); return; }

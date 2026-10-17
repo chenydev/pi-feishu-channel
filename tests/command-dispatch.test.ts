@@ -202,3 +202,19 @@ test("模型类命令：/model -g 对非管理员只提示需要管理员", asyn
 		assert.equal(replies.at(-1), "已切换模型：p/m\n（--global/-g 需要管理员或应用归属人）");
 	} finally { cleanup(); }
 });
+
+test("/feishu policy：切到 allowlist / blacklist 但名单为空时必须说清实际效果", async () => {
+	const { send, replies, rt, cleanup } = setup();
+	try {
+		await send("/feishu policy allowlist", { senderId: "ou_admin" });
+		assert.match(replies.at(-1) ?? "", /已设置本群策略：allowlist/);
+		assert.match(replies.at(-1) ?? "", /谁都触发不了/, "空名单 = 全拒，回执不能只说已设置");
+		assert.equal(rt.config.groupPolicyByChat.oc_g, "allowlist");
+
+		await send("/feishu policy blacklist", { senderId: "ou_admin" });
+		assert.match(replies.at(-1) ?? "", /谁都能触发/, "空黑名单 = 全放");
+
+		await send("/feishu policy open", { senderId: "ou_admin" });
+		assert.equal(replies.at(-1), "已设置本群策略：open", "无名单依赖的策略照旧简洁");
+	} finally { cleanup(); }
+});

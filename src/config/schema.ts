@@ -40,7 +40,7 @@ const TOOLS_HELP = "`readonly`（只读工具：read/grep/find/ls/网页搜索�
 
 const groupRule = z.object({
 	policy: m(groupPolicy, "这个群的触发策略，取值同 `groupPolicy`"),
-	allowlist: m(strList, "`allowlist` 策略下允许触发的用户 open_id"),
+	allowlist: m(strList, "`allowlist` 策略下允许触发的用户 open_id（**空名单 = 谁都不允许**，与 allowChats / allowUsers 一致）"),
 	blacklist: m(strList, "`blacklist` 策略下不允许触发的用户 open_id"),
 	requireMention: m(bool, "这个群是否必须 @ 机器人才触发"),
 	prompt: m(str, "这个群的设定（会话开始时告诉 agent 一次，之后留在会话历史里）"),

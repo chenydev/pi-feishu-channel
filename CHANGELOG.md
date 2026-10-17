@@ -4,6 +4,12 @@
 
 ## 未发布
 
+- **行为变更（准入）**：`allowlist` 策略下**空名单现在等于拒绝所有人**（与 `allowChats` / `allowUsers` 一致）。
+  此前空名单被当成「不限制」—— 管理员发 `/feishu policy allowlist` 得到的回执是「已设置」，
+  但实际谁都能触发。配置里已有 `groupRules.<id>.allowlist` 的部署不受影响；只设了全局
+  `groupPolicy: "allowlist"` 却没有任何名单的部署，升级后会拒绝所有人的群消息（管理员仍豁免，
+  可用 `/feishu policy <策略>` 改回，或补上名单）。`/feishu policy allowlist|blacklist` 的回执现在会说明实际效果。
+
 - 修复（运维）：会话归档只在**启动**时跑一次 —— 长驻实例（几周不重启）永远归档不了新变旧的文件；
   长回答导出的 `exports/reply-*.md` 也从不回收，每次长回答留一个文件。现在每 6 小时巡一次，
   并只保留最近 200 份导出附件（日志 `feishu.retention` 带 `prunedExports`）。

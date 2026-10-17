@@ -60,7 +60,7 @@
 | 字段 | 类型 | 默认 | 环境变量 | 改后 | 说明 |
 |---|---|---|---|---|---|
 | `groupRules.<id>.policy` | "open" \| "mention" \| "disabled" \| "allowlist" \| "blacklist" \| "admin_only" | — |  | 热加载 | 这个群的触发策略，取值同 `groupPolicy` |
-| `groupRules.<id>.allowlist` | string[] | — |  | 热加载 | `allowlist` 策略下允许触发的用户 open_id |
+| `groupRules.<id>.allowlist` | string[] | — |  | 热加载 | `allowlist` 策略下允许触发的用户 open_id（**空名单 = 谁都不允许**，与 allowChats / allowUsers 一致） |
 | `groupRules.<id>.blacklist` | string[] | — |  | 热加载 | `blacklist` 策略下不允许触发的用户 open_id |
 | `groupRules.<id>.requireMention` | boolean | — |  | 热加载 | 这个群是否必须 @ 机器人才触发 |
 | `groupRules.<id>.prompt` | string | — |  | 热加载 | 这个群的设定（会话开始时告诉 agent 一次，之后留在会话历史里） |
