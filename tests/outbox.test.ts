@@ -391,3 +391,28 @@ test("outbox：长回答里一段永久失败时，回调带上兄弟条目数�
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("outbox：status 里能看到投递耗时 p50/p95（排队时间不算在内）", async () => {
+	let clock = 0;
+	const sent: string[] = [];
+	const outbox = new Outbox({
+		file: join(mkdtempSync(join(tmpdir(), "pi-feishu-outbox-latency-")), "outbox.jsonl"),
+		prepare: (chatId: string, text: string) => prepared(chatId, text),
+		now: () => clock,
+		// 每次「发送」耗时不同：模拟真实接口延迟（时钟在 send 内部推进）
+		send: async () => { clock += durations.shift() ?? 0; sent.push("ok"); return { success: true }; },
+		log: () => {},
+	} as never);
+	const durations = [100, 300];
+	outbox.start();
+	outbox.enqueue("oc", "一", {}, { dedupeKey: "a:final", laneKey: "l1", kind: "final" });
+	await outbox.drainDue();
+	outbox.enqueue("oc", "二", {}, { dedupeKey: "b:final", laneKey: "l2", kind: "final" });
+	await outbox.drainDue();
+	const stats = outbox.stats();
+	assert.equal(sent.length, 2);
+	assert.equal(stats.latencySamples, 2);
+	assert.equal(stats.latencyP50Ms, 100);
+	assert.equal(stats.latencyP95Ms, 300);
+	await outbox.stop();
+});

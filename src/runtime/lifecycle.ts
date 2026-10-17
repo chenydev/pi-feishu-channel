@@ -14,6 +14,7 @@ import { checkPiPermissionSystem } from "../approval/ps-authorizer.js";
 import { resolveAppLockFile, resolvePaths } from "../config.js";
 import type { FeatureContext, FeatureHost } from "../features/feature.js";
 import { enabledFeatures } from "../features/switches.js";
+import { installProcessGuards } from "./process-guards.js";
 import { AppLock } from "./app-lock.js";
 import { loadAppAdmins } from "./app-admins.js";
 import type { BridgeRuntime } from "./bridge-runtime.js";
@@ -123,6 +124,9 @@ export class BridgeLifecycle {
 		}
 		rt.started = true;
 		rt.stopping = false;
+		// 进程级兜底：漏 await 的路径不该把整个桥带走（计数进 status，doctor 会报警）
+		rt.processGuards?.dispose();
+		rt.processGuards = installProcessGuards(log);
 		rt.reportedConnState = "connecting";
 		rt.lastError = undefined;
 		rt.status.startedAt = Date.now();
@@ -166,6 +170,10 @@ export class BridgeLifecycle {
 	private async stopUnlocked(): Promise<string> {
 		const { rt, status, features } = this.deps;
 		rt.stopping = true;
+		// 摘掉进程级兜底：桥停了之后不该再替别的东西吞 rejection
+		rt.processGuards?.dispose();
+		rt.processGuards = undefined;
+		rt.unhandledRejections = 0;
 		this.supervisor.cancel();
 		this.stopHeartbeat();
 		await features.stop();

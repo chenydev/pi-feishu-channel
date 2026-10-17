@@ -36,6 +36,8 @@ export function runDoctor(input: {
 		lastErrorClass?: string;
 		outbox?: { pending: number; failed: number; oldestAgeMs?: number };
 		pendingApprovals?: number;
+		/** 进程级兜底拦下的未处理 rejection 数。 */
+		unhandledRejections?: number;
 		budget?: { open: boolean; resumeAt?: number; failures: number };
 		piVersion?: string;
 		/** 近 5 分钟重连次数（≥10 视为抖动）。 */
@@ -85,6 +87,13 @@ export function runDoctor(input: {
 			name: "pending_work",
 			ok: (diag.pendingApprovals ?? 0) === 0,
 			detail: diag.pendingApprovals ? `${diag.pendingApprovals} 个审批等待处理` : "无待审批",
+		});
+		// 兜底拦下的 rejection：> 0 说明某处漏了 await。兜底让桥继续跑，但这条必须一直亮着
+		const leaked = diag.unhandledRejections ?? 0;
+		backlogLines.push({
+			name: "unhandled_rejection",
+			ok: leaked === 0,
+			detail: leaked === 0 ? "无" : `${leaked} 次未处理的 rejection（已记日志并继续运行；查 feishu.process.unhandled_rejection）`,
 		});
 	}
 	const psLines: DoctorCheck[] = [];

@@ -62,7 +62,16 @@ export class StatusReporter {
 			compensatedMessages: rt.compensatedMessages,
 			compensationErrors: rt.compensationErrors,
 			compensationTruncated: rt.compensationTruncated,
+			unhandledRejections: rt.unhandledRejections,
 			features: enabledFeatures(rt.config),
+			caches: {
+				quotes: rt.pipeline?.cacheSizes().quotes,
+				dedupeEntries: rt.pipeline?.cacheSizes().dedupe,
+				liveChains: rt.convManager?.cacheSizes().liveChains,
+				clarifications: rt.clarificationStore?.pendingCount(),
+				pendingRecords: rt.convManager?.cacheSizes().pendingRecords,
+				pendingApprovals: rt.permissionBridge?.pendingCount(),
+			},
 		};
 		if (rt.homeDir) {
 			try { writeStatus(resolvePaths(rt.homeDir).statusFile, rt.status); } catch (error) {
@@ -83,6 +92,7 @@ export class StatusReporter {
 			budget: rt.convManager?.budgetSnapshot(),
 			piVersion: process.env.PI_VERSION,
 			reconnectsLast5m: this.deps.reconnects().last5m,
+			unhandledRejections: rt.unhandledRejections,
 			statusHeartbeatMs: rt.config.statusHeartbeatMs ?? 30_000,
 			uptimeMs: Math.round(process.uptime() * 1_000),
 			transport: { running: Boolean(rt.transport?.isRunning()), connected: Boolean(rt.transport?.isConnected()) },

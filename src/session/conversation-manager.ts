@@ -571,6 +571,11 @@ export class ConversationManager {
 	 * 调用方据此把这些消息退回桥自己的队列，而不是按「已并入」确认掉（那样消息就丢了）。
 	 * 老 SDK 没有 `clearQueue` 时返回 undefined，调用方退化为按 turn 边界判断。
 	 */
+	/** 常驻内存的条目数（status.json / 诊断用）：实时写入链 + 待处理记录。 */
+	cacheSizes(): { liveChains: number; pendingRecords: number } {
+		return { liveChains: this.liveChannel?.pendingWrites ?? 0, pendingRecords: this.pendingStore?.depth() ?? 0 };
+	}
+
 	drainPiSteerQueue(sess: BridgeSession): string[] | undefined {
 		const agent = sess.agent;
 		if (!agent?.clearQueue) return undefined;

@@ -77,6 +77,10 @@ export class BridgeRuntime {
 	lastError: string | undefined;
 	compensatedMessages = 0;
 	compensationErrors = 0;
+	/** 进程级兜底拦下的未处理 rejection（写进 status.json，doctor 会报警）。 */
+	unhandledRejections = 0;
+	/** 兜底监听句柄（桥停止时摘掉）。 */
+	processGuards?: { count(): number; dispose(): void };
 	compensationTruncated = 0;
 	compensationPromise: Promise<void> | undefined;
 	status: BridgeStatus = initialStatus();

@@ -71,6 +71,15 @@ export class InboundPipeline {
 	}
 
 	/**
+	 * 常驻内存的条目数（写进 status.json / `/feishu doctor`）。
+	 *
+	 * 这些结构原来完全没有出口：`quoteCache` 无上限那次事故就是「长驻进程慢慢涨、没人看得见」。
+	 */
+	cacheSizes(): { quotes: number; dedupe: number } {
+		return { quotes: this.quoteCache.size, dedupe: this.dedup.size() };
+	}
+
+	/**
 	 * 撤回的消息如果还在合批窗口里，直接从窗口移除（不会进入任何 turn）。
 	 * 窗口因此变空时连同定时器一起丢弃，并在待处理记录里落终态。
 	 */

@@ -26,6 +26,8 @@ export interface OutboxEntry {
 	nextRetryAt: number;
 	createdAt: number;
 	updatedAt: number;
+	/** 最近一次开始发送的时刻（算投递耗时用；排队时间不算在内）。 */
+	lastAttemptAt?: number;
 	lastError?: string;
 	errorClass?: OutboxErrorClass;
 }
@@ -37,6 +39,10 @@ export interface OutboxStats {
 	failed: number;
 	lanes: number;
 	oldestAgeMs: number;
+	/** 最近 200 次成功投递的耗时百分位（没有样本时缺省，不要编 0 出来）。 */
+	latencyP50Ms?: number;
+	latencyP95Ms?: number;
+	latencySamples?: number;
 }
 
 export interface EnqueueOptions {
@@ -222,6 +228,35 @@ export class Outbox {
 		entry.payload = { msgType: entry.payload.msgType, content: "" };
 	}
 
+	/**
+	 * 最近 N 次成功投递的耗时（毫秒），用来算 p50/p95。
+	 *
+	 * 为什么要它：`oldestAgeMs` 只说明「最老的一条等了多久」，看不出常态 —— 回复慢是普遍慢
+	 * 还是个别 lane 卡住，这两个百分位数一眼能分开。只保留最近 200 次（内存占用可忽略）。
+	 */
+	private latencies: number[] = [];
+
+	private recordLatency(entry: OutboxEntry): void {
+		const started = entry.lastAttemptAt ?? entry.createdAt;
+		const ms = this.now() - started;
+		if (!Number.isFinite(ms) || ms < 0) return;
+		this.latencies.push(ms);
+		if (this.latencies.length > 200) this.latencies.splice(0, this.latencies.length - 200);
+	}
+
+	/**
+	 * 投递耗时百分位（没有样本时返回 undefined，不要编 0 出来）。
+	 * 最近秩（nearest-rank）：`ceil(ratio × n) - 1`。样本数为偶数时 p50 落在较小的一侧，
+	 * 不把两个值平均成中间数 —— 平均值会掩盖长尾，而这里要看的就是长尾。
+	 */
+	private latencyPercentile(ratio: number): number | undefined {
+		const count = this.latencies.length;
+		if (count === 0) return undefined;
+		const sorted = [...this.latencies].sort((a, b) => a - b);
+		const index = Math.min(count - 1, Math.max(0, Math.ceil(ratio * count) - 1));
+		return sorted[index];
+	}
+
 	stats(): OutboxStats {
 		const values = [...this.entries.values()];
 		const active = values.filter((entry) => entry.status === "pending" || entry.status === "sending");
@@ -233,6 +268,10 @@ export class Outbox {
 			failed: values.filter((entry) => entry.status === "failed").length,
 			lanes: new Set(active.map((entry) => entry.laneKey)).size,
 			oldestAgeMs: Number.isFinite(oldest) ? Math.max(0, this.now() - oldest) : 0,
+			// 没有样本时不给字段（status.json 里也就不会出现「0ms」这种假数据）
+			...(this.latencies.length > 0
+				? { latencyP50Ms: this.latencyPercentile(0.5), latencyP95Ms: this.latencyPercentile(0.95), latencySamples: this.latencies.length }
+				: {}),
 		};
 	}
 
@@ -273,6 +312,8 @@ export class Outbox {
 			entry.status = "sending";
 			entry.attempts += 1;
 			entry.updatedAt = now;
+			// 投递耗时从「真正开始发」算起：排队等待是另一个指标（oldestAgeMs）
+			entry.lastAttemptAt = now;
 		}
 		this.persist();
 
@@ -291,6 +332,7 @@ export class Outbox {
 			try { this.deps.onResult?.(result); } catch { /* 诊断回调不影响投递 */ }
 			entry.updatedAt = this.now();
 			if (result.success) {
+				this.recordLatency(entry);
 				entry.status = "sent";
 				entry.lastError = undefined;
 				entry.errorClass = undefined;

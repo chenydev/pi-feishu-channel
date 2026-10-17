@@ -655,6 +655,30 @@ export interface BridgeStatus {
 		failed: number;
 		lanes: number;
 		oldestAgeMs: number;
+		/** 最近 200 次成功投递的耗时百分位（毫秒；样本不足时缺省）。 */
+		latencyP50Ms?: number;
+		latencyP95Ms?: number;
+		latencySamples?: number;
+	};
+	/**
+	 * 常驻内存的各类状态条目数。
+	 *
+	 * 这些结构原来都没有出口：`quoteCache` 无上限那次事故就是「长驻进程慢慢涨、没人看得见」。
+	 * 放进 status.json 之后，`/feishu doctor` 能对异常增长报警，巡检脚本也能画趋势。
+	 */
+	caches?: {
+		/** 被回复消息原文缓存（按条数封顶）。 */
+		quotes?: number;
+		/** 实时流式写入链（每条消息一条，收尾即释放）。 */
+		liveChains?: number;
+		/** 还能点的提问卡。 */
+		clarifications?: number;
+		/** 待处理记录（崩溃恢复用）。 */
+		pendingRecords?: number;
+		/** 入站去重表。 */
+		dedupeEntries?: number;
+		/** 未决审批。 */
+		pendingApprovals?: number;
 	};
 	lastMessageAt?: number;
 	messageTotal: number;
@@ -662,6 +686,8 @@ export interface BridgeStatus {
 	compensatedMessages: number;
 	compensationErrors: number;
 	compensationTruncated: number;
+	/** 进程级兜底拦下的未处理 rejection 数（> 0 说明某处漏了 await，doctor 会报警）。 */
+	unhandledRejections?: number;
 	/** 已打开的默认关闭能力（见 features/switches.ts）；默认配置下为空数组。 */
 	features?: string[];
 }
