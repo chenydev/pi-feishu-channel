@@ -294,3 +294,45 @@ test("outbox：永久失败回调；已送达条目裁掉正文", async () => {
 	assert.doesNotMatch(onDisk, /另一段机密/, "已送达条目不得保留正文");
 	assert.equal(outbox.hasDedupeKey("k2"), true, "裁剪后仍能去重");
 });
+
+test("outbox：新入队的回复不被其他 lane 的退避定时器拖住", async () => {
+	const { dir, file } = tempOutbox();
+	const delivered: string[] = [];
+	let firstAttempted = false;
+	const outbox = new Outbox({
+		file,
+		prepare: prepared,
+		send: async (request) => {
+			const content = (JSON.parse((request as unknown as { payload: string }).payload) as { text: string }).text;
+			if (content === "A" && !firstAttempted) {
+				firstAttempted = true;
+				// 服务端限频：这个 lane 要等 5 秒才能重试
+				return { success: false, retryable: true, error: "rate limited", retryAfterMs: 5_000 };
+			}
+			delivered.push(content);
+			return { success: true, messageId: `om_${content}` };
+		},
+	});
+	const waitUntil = async (predicate: () => boolean, timeoutMs: number): Promise<void> => {
+		const deadline = Date.now() + timeoutMs;
+		while (!predicate()) {
+			if (Date.now() > deadline) return;
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+	};
+	try {
+		outbox.start();
+		outbox.enqueue("oc_1", "A", {}, { dedupeKey: "a:final", laneKey: "lane-a", kind: "final" });
+		await waitUntil(() => firstAttempted, 1_000);
+		assert.equal(delivered.length, 0, "A 已进入退避");
+
+		// 另一会话的回复入队：不能等 lane-a 的 5 秒退避
+		outbox.enqueue("oc_2", "B", {}, { dedupeKey: "b:final", laneKey: "lane-b", kind: "final" });
+		await waitUntil(() => delivered.includes("B"), 800);
+		assert.deepEqual(delivered, ["B"], "B 应立即投递，A 仍在退避");
+		assert.equal(outbox.stats().pending, 1, "A 还在等重试");
+	} finally {
+		await outbox.stop();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});

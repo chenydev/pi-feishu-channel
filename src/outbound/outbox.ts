@@ -73,6 +73,8 @@ export class Outbox {
 	/** dedupeKey → 条目 id（enqueue 去重不再全表扫描）。 */
 	private byDedupeKey = new Map<string, Set<string>>();
 	private timer: ReturnType<typeof setTimeout> | undefined;
+	/** 当前定时器的到期时刻（`now()` 口径），用于判断新到期是否更早。 */
+	private timerAt: number | undefined;
 	private running: Promise<void> | undefined;
 	private started = false;
 	private readonly maxAttempts: number;
@@ -306,15 +308,27 @@ export class Outbox {
 	}
 
 	private schedule(delay?: number): void {
-		if (!this.started || this.timer || this.running) return;
+		if (!this.started || this.running) return;
 		const pending = [...this.entries.values()].filter((entry) => entry.status === "pending");
-		if (pending.length === 0) return;
+		const now = this.now();
+		if (pending.length === 0) {
+			// 没有等投递的条目就不占着定时器（否则一个空壳定时器会把下次入队拖到它到期）
+			if (this.timer) { clearTimeout(this.timer); this.timer = undefined; this.timerAt = undefined; }
+			return;
+		}
 		const nextAt = Math.min(...pending.map((entry) => entry.nextRetryAt));
-		const wait = delay ?? Math.max(0, Math.min(60_000, nextAt - this.now()));
+		// 到期时刻：显式 delay（入队/启动要尽快投递）优先，其次最近的退避到期，最长 60s。
+		const wakeAt = delay === undefined ? Math.min(now + 60_000, nextAt) : now + Math.max(0, delay);
+		// 已有定时器：它已经会在不晚于目标时刻醒来就不动（避免每次入队都重建定时器）；
+		// 否则必须提前重排 —— 否则新入队的回复要等另一个 lane 的退避（最长 60s）才被投递。
+		if (this.timer && this.timerAt !== undefined && this.timerAt <= wakeAt) return;
+		if (this.timer) clearTimeout(this.timer);
+		this.timerAt = wakeAt;
 		this.timer = setTimeout(() => {
 			this.timer = undefined;
+			this.timerAt = undefined;
 			void this.drainDue();
-		}, wait);
+		}, Math.max(0, wakeAt - now));
 		this.timer.unref?.();
 	}
 
@@ -369,6 +383,7 @@ export class Outbox {
 		this.started = false;
 		if (this.timer) clearTimeout(this.timer);
 		this.timer = undefined;
+		this.timerAt = undefined;
 		await this.running;
 	}
 }
