@@ -573,3 +573,13 @@ test("撤回：撤回仍在合批窗口里的消息 → 从窗口移除；窗口
 	assert.equal(dispatched.length, 1, "整个窗口被撤回后不派发");
 	await pipeline.stop();
 });
+
+test("stripInjectedPrompt：模型自己写的引用块属于回答，不能删", async () => {
+	const { stripInjectedPrompt } = await import("../src/session/conversation-manager.js");
+	const quoteBlock = "[正在回复的消息原文：\"这个接口为什么要加锁？\"]\n\n帮我看看";
+	// 以引用块开头是常见回答格式（先给结论再展开），整块删掉会把结论吃掉
+	assert.equal(stripInjectedPrompt("> 结论：应该加锁，因为并发写\n\n正文第二段", quoteBlock), "> 结论：应该加锁，因为并发写\n\n正文第二段");
+	// 但复述桥注入的引用块仍然要剥
+	assert.equal(stripInjectedPrompt("> 正在回复的消息原文：\"这个接口为什么要加锁？\"\n\n应该加锁", quoteBlock), "应该加锁");
+	assert.equal(stripInjectedPrompt("> 你正在回复自己上一条消息，原文：\"x\"\n\n好", quoteBlock), "好");
+});

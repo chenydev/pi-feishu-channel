@@ -1,18 +1,26 @@
+/** 注入的引用行里一定出现的特征词：只有复述这些内容的引用块才剥。 */
+const INJECTED_QUOTE_MARKERS = ["正在回复的消息原文", "你正在回复自己上一条消息", "以下是用户回复"];
+
 /**
  * 会话层的纯文本工具（RunExecutor 与 ConversationManager 共用，无状态）。
  */
 
 /**
  * 剥离模型复述的注入提示（引用块 + 空行 + 原始用户消息残留）：
- * - 删除开头的 `> 引用` 连续块
+ * - 删除**复述注入内容**的开头 `> 引用` 块（模型自己写的引用属于回答，不删）
  * - 删除"以下是用户回复…"等引导句残留
  */
 export function stripInjectedPrompt(text: string, quoteBlock: string): string {
 	let out = text;
 	// 精确剥离本次注入块（若被完整复述）
 	if (quoteBlock && out.includes(quoteBlock)) out = out.replace(quoteBlock, "");
-	// 兜底：剥离开头引用块行（> ...）及其后空行
-	out = out.replace(/^(> [^\n]*\n?)+/, "");
+	// 兜底：模型把注入的引用改写成引用块（`> 正在回复的消息原文：…`）时一并剥掉。
+	// 但只看「有没有复述注入内容」：模型自己以「> 结论：…」开头是正常的回答格式，
+	// 无条件删开头引用块会把结论那句吃掉（“> 结论：应该加锁” → 只剩正文）。
+	const leadingQuote = /^(?:> [^\n]*\n?)+/.exec(out)?.[0];
+	if (leadingQuote && INJECTED_QUOTE_MARKERS.some((marker) => leadingQuote.includes(marker))) {
+		out = out.slice(leadingQuote.length);
+	}
 	out = out.replace(/^\n+/, "");
 	// 兜底：剥离 hermes 式回复注入残留（[正在回复…] / [你正在回复…] / 旧格式引导句）
 	out = out.replace(/^\[(?:正在回复|你正在回复)[^\]]*\]\s*\n?/, "");
