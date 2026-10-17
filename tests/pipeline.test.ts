@@ -147,6 +147,43 @@ test("全链路：群批量合并后再 dispatch", async () => {
 	assert.equal(dispatched[0].text, "第一条\n第二条");
 });
 
+test("全链路：注入了 onCommand（生产接线）时合并仍然生效", async () => {
+	// onCommand 在生产总是提供（runtime/assemble.ts）。它只应该在**命令到来时**冲刷窗口，
+	// 否则普通消息会把上一条的窗口冲掉，合批完全失效。
+	const dispatched: FeishuInboundMessage[] = [];
+	const commands: string[] = [];
+	const pipeline = new InboundPipeline({
+		config: cfg({ groupPolicy: "open", requireMention: false, batch: BATCH }),
+		transport: {} as FeishuTransport,
+		lastSent: new LastSentCache(8),
+		onDispatch: async (m) => { dispatched.push(m); },
+		onCommand: async (m) => { commands.push(m.text); return false; },
+	});
+	await pipeline.handle(fakeMsg({ messageId: "om_c1", text: "第一条" }));
+	await pipeline.handle(fakeMsg({ messageId: "om_c2", text: "第二条" }));
+	await new Promise((r) => setTimeout(r, 120));
+	assert.equal(dispatched.length, 1, "两条普通消息应合成一轮");
+	assert.equal(dispatched[0].text, "第一条\n第二条");
+	assert.deepEqual(commands, ["第一条", "第二条"], "onCommand 仍要对每条消息响应一次（否则命令漏判）");
+});
+
+test("全链路：命令先于合并窗口执行，且窗口里的消息不会被命令吞掉", async () => {
+	const dispatched: FeishuInboundMessage[] = [];
+	const order: string[] = [];
+	const pipeline = new InboundPipeline({
+		config: cfg({ groupPolicy: "open", requireMention: false, batch: { ...BATCH, textWindowMs: 10_000 } }),
+		transport: {} as FeishuTransport,
+		lastSent: new LastSentCache(8),
+		onDispatch: async (m) => { order.push(`dispatch:${m.text}`); dispatched.push(m); },
+		onCommand: async (m) => { order.push(`command:${m.text}`); return m.text.startsWith("/"); },
+	});
+	await pipeline.handle(fakeMsg({ messageId: "om_o1", text: "改一下这里" }));
+	await pipeline.handle(fakeMsg({ messageId: "om_o2", text: "/new" }));
+	await pipeline.stop();
+	assert.deepEqual(order, ["command:改一下这里", "dispatch:改一下这里", "command:/new"], "先派发窗口，再执行命令");
+	assert.equal(dispatched.length, 1);
+});
+
 test("全链路：批处理开启时群非文本消息立即 dispatch", async () => {
 	for (const msgType of ["image", "post", "file"] as const) {
 		const dispatched: FeishuInboundMessage[] = [];

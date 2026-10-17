@@ -147,12 +147,15 @@ export class InboundPipeline {
 			}
 		}
 		if (this.deps.onCommand) {
-			if (this.batcher.peek(key)) await this.flushBatch(key);
 			// 命令类消息（/new、/stop…）在待处理记录里标为 never：重启后不重放。
 			// 依赖方不再重放一个 /new（会再清一次上下文）或 /stop（会打断新任务）。
 			// 在调用 onCommand 之前标记 —— 标记本身针对跨进程重放，与本进程内的
 			// 重试（dedup.forget 后重投）互不冲突。
 			const slash = prepared.text.trimStart().startsWith("/");
+			// 命令要先于合并窗口执行（/new、/stop 不能被并进普通消息那一轮），所以**只在命令到来时**
+			// 冲刷已有窗口。普通消息不能冲：`onCommand` 生产环境总是注入，无条件冲刷会让每条消息
+			// 都把上一条的窗口冲掉，`batch.*` 全部失效（实测连发两条各触发一轮）。
+			if (slash && this.batcher.peek(key)) await this.flushBatch(key);
 			if (slash) this.deps.intake?.markNever?.(prepared.messageId);
 			let consumed: boolean;
 			try {
