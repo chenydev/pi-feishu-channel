@@ -702,8 +702,14 @@ test("steer 与当前消息共同进入 pending 工具边界，成功 final 后�
 		await waitUntil(() => typeof resolvePrompt === "function");
 		assert.equal(await manager.route(message("pending-steer")), "steered");
 		manager.markPendingToolBoundary("sid-steer-pending");
-		const records = readFileSync(pendingFile, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { replayPolicy: string });
-		assert.deepEqual(records.map((record) => record.replayPolicy), ["manual", "manual"]);
+		// 追加式日志：同一条记录可能有多份快照，取每个 id 的最后一份（后写覆盖先写）
+		const latest = new Map<string, string>();
+		for (const line of readFileSync(pendingFile, "utf8").split("\n").filter(Boolean)) {
+			const row = JSON.parse(line) as { id: string; replayPolicy?: string; removed?: boolean };
+			if (row.removed) latest.delete(row.id);
+			else latest.set(row.id, row.replayPolicy ?? "auto");
+		}
+		assert.deepEqual([...latest.values()], ["manual", "manual"]);
 		resolvePrompt("done");
 		await waitUntil(() => new PendingStore(pendingFile).depth() === 0);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
@@ -1189,7 +1195,8 @@ test("恢复：同一条消息反复把进程带走时停止自动重放（防�
 		original.claim(message("poison"), "oc_real_chat");
 		// 模拟「每次启动都恢复一次」：recoverable() 每调用一次 attempts 加一
 		for (let i = 0; i < 4; i += 1) new PendingStore(pendingFile).recoverable();
-		const attempts = JSON.parse(readFileSync(pendingFile, "utf8").trim().split("\n")[0]!).attempts as number;
+		// 追加式日志：取最后一条快照（后写覆盖先写）
+		const attempts = JSON.parse(readFileSync(pendingFile, "utf8").split("\n").filter(Boolean).at(-1)!).attempts as number;
 		assert.ok(attempts > 3, `前置条件：attempts=${attempts}`);
 
 		let created = 0;
