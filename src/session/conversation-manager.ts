@@ -96,6 +96,11 @@ export interface ConversationManagerDeps {
 	now?: () => number;
 	/** pending 中断恢复文件路径（hermes resume_pending；不设则禁用）。 */
 	pendingFile?: string;
+	/**
+	 * 待处理记录终结（ack）时回调，参数是消息 id。入站去重层用它把「平台重投」
+	 * 与「准入前崩溃」分开：前者不得再执行一遍。
+	 */
+	onPendingDone?: (messageId: string) => void;
 	/** open_id → 姓名（可选；拿不到时退化为 open_id 尾号）。 */
 	resolveUserName?: (openId: string) => Promise<string | undefined>;
 	/** 非聊天目标的交付（云文档评论回复）。返回是否送达。 */
@@ -297,7 +302,9 @@ export class ConversationManager {
 		this.now = deps.now ?? Date.now;
 		this.pendingFile = deps.pendingFile ?? "";
 		this.pendingEnabled = Boolean(deps.pendingFile);
-		this.pendingStore = this.pendingEnabled ? new PendingStore(this.pendingFile, { now: this.now }) : undefined;
+		this.pendingStore = this.pendingEnabled
+			? new PendingStore(this.pendingFile, { now: this.now, onDone: (messageId) => this.deps.onPendingDone?.(messageId) })
+			: undefined;
 		this.conversationStore = deps.conversationFile
 			? new ConversationStore(deps.conversationFile, { now: this.now })
 			: undefined;

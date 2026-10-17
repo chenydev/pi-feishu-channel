@@ -56,3 +56,44 @@ test("入站去重：追加日志 —— check/forget 各追加一行，重启�
 		assert.equal(store.size(), 40, "容量上限生效");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("入站去重：markDone 后仍说「见过」，且 isDone 与 seen 状态互不覆盖", () => {
+	let now = 1_000;
+	const store = new DedupeStore({ capacity: 4, ttlMs: 100, now: () => now });
+	assert.equal(store.check("m1"), true);
+	store.markDone("m1");
+	assert.equal(store.check("m1"), false, "处理完的消息仍算「见过」（否则重投会被当成新消息）");
+	assert.equal(store.isDone("m1"), true);
+	assert.equal(store.isDone("m2"), false);
+	now += 101;
+	assert.equal(store.isDone("m1"), false, "过期后不再是「已处理完」");
+	// forget 要同时撤销两种标记
+	store.markDone("m3");
+	store.forget("m3");
+	assert.equal(store.isDone("m3"), false);
+	assert.equal(store.check("m3"), true);
+});
+
+test("入站去重：markDone 跨重启保留（追加日志与压缩两条路径）", async () => {
+	const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const dir = mkdtempSync(join(tmpdir(), "dedupe-done-"));
+	try {
+		const file = join(dir, "dedupe.jsonl");
+		let now = 1_000;
+		const store = new DedupeStore({ file, capacity: 40, ttlMs: 60_000, now: () => now });
+		store.check("m1");
+		store.markDone("m1");
+		const reloaded = new DedupeStore({ file, capacity: 40, ttlMs: 60_000, now: () => now });
+		assert.equal(reloaded.isDone("m1"), true, "重启后仍知道 m1 已处理完");
+		assert.equal(reloaded.check("m1"), false);
+
+		// 触发压缩（日志行数超过容量 2 倍），压缩后的快照也要带上 done 标记
+		for (let i = 0; i < 200; i++) { now += 1; store.check(`x${i}`); }
+		const lines = readFileSync(file, "utf8").trim().split("\n").length;
+		assert.ok(lines <= 80 + 1, `日志被压缩（实际 ${lines} 行）`);
+		const compacted = new DedupeStore({ file, capacity: 40, ttlMs: 60_000, now: () => now });
+		assert.equal(compacted.isDone("m1"), true, "压缩不能丢掉 done 标记");
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});

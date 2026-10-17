@@ -6,6 +6,8 @@ interface DedupeRecord {
 	seenAt: number;
 	/** 追加日志里的撤销记录（forget）。 */
 	forget?: boolean;
+	/** 追加日志里的「已处理完」记录（markDone）。 */
+	done?: boolean;
 }
 
 export interface DedupeStoreOptions {
@@ -25,6 +27,12 @@ export interface DedupeStoreOptions {
 export class DedupeStore {
 	/** Map 的插入顺序 = 首见时间顺序（只在首次/过期后插入），prune 可以从头部提前结束。 */
 	private seen = new Map<string, number>();
+	/**
+	 * 已处理完的消息（`markDone`）。用于把「平台重投」与「准入前崩溃」分开：
+	 * 两者都是「去重标记在、待处理记录没了」，但前者绝不能再执行一遍。
+	 * 与 `seen` 共用容量与 TTL。
+	 */
+	private done = new Map<string, number>();
 	private readonly now: () => number;
 	private logLines = 0;
 
@@ -48,8 +56,32 @@ export class DedupeStore {
 
 	/** 下游登记失败时撤销 reservation，使平台重投可再次处理。 */
 	forget(messageId: string): void {
-		if (!this.seen.delete(messageId)) return;
+		const hadSeen = this.seen.delete(messageId);
+		const hadDone = this.done.delete(messageId);
+		if (!hadSeen && !hadDone) return;
 		this.append({ messageId, seenAt: this.now(), forget: true });
+	}
+
+	/**
+	 * 标记「这条消息已经处理完」：平台再投同一条时按重复丢弃，不再重新准入。
+	 * 必须在消息真正终结时调用（待处理记录 ack 的地方），否则崩溃窗口的 orphan 恢复会失效。
+	 */
+	markDone(messageId: string): void {
+		const now = this.now();
+		this.prune(now);
+		// `seen` 必须保留：`check()` 仍要说「见过」，否则重投会被当成新消息处理。
+		this.seen.delete(messageId);
+		this.seen.set(messageId, now);
+		this.done.delete(messageId);
+		this.done.set(messageId, now);
+		this.prune(now);
+		this.append({ messageId, seenAt: now, done: true });
+	}
+
+	/** 是否已处理完（且记录未过期）。 */
+	isDone(messageId: string): boolean {
+		const at = this.done.get(messageId);
+		return at !== undefined && this.now() - at <= this.options.ttlMs;
 	}
 
 	size(): number {
@@ -61,11 +93,20 @@ export class DedupeStore {
 			if (now - seenAt <= this.options.ttlMs) break;
 			this.seen.delete(messageId);
 		}
-		let overflow = this.seen.size - Math.max(1, this.options.capacity);
+		for (const [messageId, seenAt] of this.done) {
+			if (now - seenAt <= this.options.ttlMs) break;
+			this.done.delete(messageId);
+		}
+		this.pruneOverflow(this.seen, Math.max(1, this.options.capacity));
+		this.pruneOverflow(this.done, Math.max(1, this.options.capacity));
+	}
+
+	private pruneOverflow(map: Map<string, number>, capacity: number): void {
+		let overflow = map.size - capacity;
 		if (overflow <= 0) return;
-		for (const messageId of this.seen.keys()) {
+		for (const messageId of map.keys()) {
 			if (overflow-- <= 0) break;
-			this.seen.delete(messageId);
+			map.delete(messageId);
 		}
 	}
 
@@ -83,7 +124,11 @@ export class DedupeStore {
 			records.sort((a, b) => a.seenAt - b.seenAt);
 			for (const record of records) {
 				this.seen.delete(record.messageId);
-				if (!record.forget) this.seen.set(record.messageId, record.seenAt);
+				this.done.delete(record.messageId);
+				if (record.forget) continue;
+				// done 记录也要进 seen：「已处理完」意味着「一定见过」，check() 必须仍返回 false
+				this.seen.set(record.messageId, record.seenAt);
+				if (record.done) this.done.set(record.messageId, record.seenAt);
 			}
 			this.logLines = records.length;
 			this.prune(this.now());
@@ -105,10 +150,13 @@ export class DedupeStore {
 	private compact(): void {
 		if (!this.options.file) return;
 		mkdirSync(dirname(this.options.file), { recursive: true });
-		const output = [...this.seen].map(([messageId, seenAt]) => JSON.stringify({ messageId, seenAt })).join("\n");
+		const output = [
+			[...this.seen].map(([messageId, seenAt]) => JSON.stringify({ messageId, seenAt })),
+			[...this.done].map(([messageId, seenAt]) => JSON.stringify({ messageId, seenAt, done: true })),
+		].flat().join("\n");
 		const tmp = `${this.options.file}.tmp`;
 		writeFileSync(tmp, output ? `${output}\n` : "", { encoding: "utf8", mode: 0o600 });
 		renameSync(tmp, this.options.file);
-		this.logLines = this.seen.size;
+		this.logLines = this.seen.size + this.done.size;
 	}
 }

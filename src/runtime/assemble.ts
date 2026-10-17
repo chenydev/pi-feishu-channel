@@ -299,6 +299,9 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 		sendLocalFile: ctx.sendLocalFile,
 		replyAsFile: (input) => ctx.features.first("replyAsFile")?.(input) ?? input.text,
 		pendingFile: join(paths.sessionDir, "..", "pending.jsonl"),
+		// 待处理记录终结时告知入站去重层（已处理完的）—— 否则平台重投同一条会被当成
+		// 「准入前崩溃」的 orphan 重新准入并再执行一遍。pipeline 在之后才装配，所以晚绑定。
+		onPendingDone: (messageId) => rt.pipeline?.markCompleted(messageId),
 		// 会话指针持久化 —— /new 后重启仍处于新会话，不回退到旧上下文。
 		conversationFile: join(paths.sessionDir, "..", "conversations.jsonl"),
 		modelUsageFile: paths.modelUsageFile,

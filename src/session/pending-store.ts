@@ -31,10 +31,13 @@ export class PendingStore {
 	private readonly owner = `${process.pid}:${randomUUID()}`;
 	private readonly now: () => number;
 	private readonly leaseMs: number;
+	/** 待处理记录终结（ack）时回调，参数是消息 id（批合并的成员逐个回调）。 */
+	private readonly onDone?: (messageId: string) => void;
 
-	constructor(private file: string, options: { now?: () => number; leaseMs?: number } = {}) {
+	constructor(private file: string, options: { now?: () => number; leaseMs?: number; onDone?: (messageId: string) => void } = {}) {
 		this.now = options.now ?? Date.now;
 		this.leaseMs = options.leaseMs ?? 5 * 60_000;
+		this.onDone = options.onDone;
 		this.load();
 	}
 
@@ -97,6 +100,12 @@ export class PendingStore {
 		if (!record || !this.records.delete(id)) return;
 		for (const member of record.sourceMessageIds ?? []) if (this.memberIndex.get(member) === id) this.memberIndex.delete(member);
 		this.persist();
+		// 终结时通知上游（入站去重层用它区分「已处理完」与「准入前崩溃」）：
+		// 待处理记录移除并落盘之后才通知，此时平台再重投同一条才能安全地按重复丢弃。
+		// 批合并的消息，每个成员 id 都要通知，否则重投成员会被当成 orphan 重新执行。
+		for (const messageId of new Set([id, ...(record.sourceMessageIds ?? [])])) {
+			try { this.onDone?.(messageId); } catch { /* 通知失败只影响重投去重，不影响本轮投递 */ }
+		}
 	}
 
 	/**

@@ -339,3 +339,72 @@ test("旧进程遗留的 never 记录在恢复时被清理并落盘", async () =
 		assert.equal(reloaded.has("normal"), true);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("入站持久化：已处理完（ack 过）的消息平台重投，按重复丢弃而不是当 orphan 重跑", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "intake-done-"));
+	try {
+		const dedupeFile = join(dir, "dedupe.jsonl");
+		const pendingFile = join(dir, "pending.jsonl");
+		const dispatched: string[] = [];
+		let pipeline: InboundPipeline | undefined;
+		// 生产接线：PendingStore.ack → 入站去重层 markDone
+		const store = new PendingStore(pendingFile, { onDone: (id) => pipeline?.markCompleted(id) });
+		pipeline = new InboundPipeline({
+			config: cfg({ groupPolicy: "open", requireMention: false, batch: NO_BATCH }),
+			transport: {} as FeishuTransport,
+			lastSent: new LastSentCache(8),
+			dedupeStore: new DedupeStore({ file: dedupeFile, capacity: 64, ttlMs: 60_000 }),
+			intake: ledgerFrom(store),
+			onDispatch: async (m) => { dispatched.push(m.messageId); },
+		});
+		await pipeline.handle(fakeMsg({ messageId: "om_done" }));
+		store.ack("om_done"); // 这一轮跑完，待处理记录终结
+
+		await pipeline.handle(fakeMsg({ messageId: "om_done" })); // 平台重投同一条
+		assert.equal(dispatched.length, 1, "已处理完的消息不得再执行一遍");
+		assert.equal(pipeline.getStats().duplicate, 1);
+		assert.equal(pipeline.getStats().recovered, 0, "不能再走 orphan 恢复分支");
+
+		// 重启后（新的去重层从文件回放）同样按重复丢弃
+		const restarted = new DedupeStore({ file: dedupeFile, capacity: 64, ttlMs: 60_000 });
+		assert.equal(restarted.isDone("om_done"), true, "done 标记必须落盘");
+		const pipeline2 = new InboundPipeline({
+			config: cfg({ groupPolicy: "open", requireMention: false, batch: NO_BATCH }),
+			transport: {} as FeishuTransport,
+			lastSent: new LastSentCache(8),
+			dedupeStore: restarted,
+			intake: ledgerFrom(new PendingStore(pendingFile)),
+			onDispatch: async (m) => { dispatched.push(m.messageId); },
+		});
+		await pipeline2.handle(fakeMsg({ messageId: "om_done" }));
+		assert.equal(dispatched.length, 1, "重启后重投也不得再执行");
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("入站持久化：批合并后每个成员被重投都按重复丢弃（不下推成 orphan）", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "intake-batch-done-"));
+	try {
+		const pendingFile = join(dir, "pending.jsonl");
+		const dispatched: FeishuInboundMessage[] = [];
+		let pipeline: InboundPipeline | undefined;
+		const store = new PendingStore(pendingFile, { onDone: (id) => pipeline?.markCompleted(id) });
+		pipeline = new InboundPipeline({
+			config: cfg({ groupPolicy: "open", requireMention: false, batch: BATCH }),
+			transport: {} as FeishuTransport,
+			lastSent: new LastSentCache(8),
+			dedupeStore: new DedupeStore({ file: join(dir, "dedupe.jsonl"), capacity: 64, ttlMs: 60_000 }),
+			intake: ledgerFrom(store),
+			onDispatch: async (m) => { dispatched.push(m); },
+		});
+		await pipeline.handle(fakeMsg({ messageId: "om_m1", text: "第一条" }));
+		await pipeline.handle(fakeMsg({ messageId: "om_m2", text: "第二条" }));
+		await pipeline.flushBatch(buildConversationKey(fakeMsg({ messageId: "om_m1" }), cfg({ groupPolicy: "open", requireMention: false })));
+		assert.equal(dispatched.length, 1, "两条应合成一轮");
+		store.ack(dispatched[0]!.messageId); // 主记录 ack：成员 id 也要标成已处理完
+
+		for (const id of ["om_m1", "om_m2"]) await pipeline.handle(fakeMsg({ messageId: id }));
+		assert.equal(dispatched.length, 1, "成员重投不得再执行");
+		assert.equal(pipeline.getStats().duplicate, 2);
+		assert.equal(pipeline.getStats().recovered, 0);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});

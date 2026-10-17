@@ -93,6 +93,15 @@ export class InboundPipeline {
 		return false;
 	}
 
+	/**
+	 * 标记一条消息已处理完（待处理记录 ack 时由会话层回调）。
+	 * 平台之后重投同一条时按重复丢弃：去重标记在、待处理记录也没了，但这次不能当 orphan 再跑一遍。
+	 */
+	markCompleted(messageId: string): void {
+		if (!messageId) return;
+		this.dedup.markDone(messageId);
+	}
+
 	/** 处理单条入站消息（transport 回调）。 */
 	handle(msg: FeishuInboundMessage): Promise<void> {
 		if (this.stopping) {
@@ -109,7 +118,7 @@ export class InboundPipeline {
 		this.stats.total += 1;
 		this.stats.lastMessageAt = Date.now();
 
-		// 1. 去重（区分“已持久登记”与“仅写过标记”两种命中）
+		// 1. 去重（区分三种命中：还在待处理记录里 / 已处理完 / 准入前崩了）
 		if (!this.dedup.check(msg.messageId)) {
 			if (!this.deps.intake || this.deps.intake.has(msg.messageId)) {
 				// 已进入持久待处理记录（或未启用待处理记录，退化旧行为）：启动恢复负责重放，重投按重复丢弃。
@@ -118,6 +127,14 @@ export class InboundPipeline {
 					messageId: msg.messageId,
 					ledgered: Boolean(this.deps.intake),
 				});
+				return;
+			}
+			// 去重标记在、待处理记录没了 —— 两种可能：
+			//   已处理完（ack 过，平台又重投）→ 按重复丢弃，不得再执行一次；
+			//   准入后到登记前崩溃（从未处理）→ 重新准入，避免静默丢失。
+			if (this.dedup.isDone(msg.messageId)) {
+				this.stats.duplicate += 1;
+				this.deps.log?.("debug", "feishu.pipeline.drop_duplicate", { messageId: msg.messageId, ledgered: true, completed: true });
 				return;
 			}
 			// orphan：待处理记录已启用但从未登记（崩溃窗口）→ 重新准入，避免静默丢失。
