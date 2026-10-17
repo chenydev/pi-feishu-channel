@@ -113,3 +113,22 @@ test("doctor：开启开通申请时报告审批策略；owner 策略缺归属�
 	assert.equal(ok?.ok, true);
 	assert.equal(runDoctor({ config: DEFAULT_CONFIG, paths: resolvePaths("/tmp/doctor-acc") }).some((c) => c.name === "access_approvers"), false, "未开启时不出现");
 });
+
+test("doctor：非管理员只看到结论，看不到宿主路径与放行规则名", () => {
+	const home = mkdtempSync(join(tmpdir(), "feishu-doctor-brief-"));
+	try {
+		const checks = runDoctor({
+			config: { ...DEFAULT_CONFIG, allowChats: ["oc_x"], appId: "app", appSecret: "secret", admins: [] },
+			paths: resolvePaths(home),
+			transport: { isRunning: () => true, isConnected: () => true, getBotIdentity: () => ({ openId: "ou_bot" }) },
+		});
+		const full = formatDoctor(checks);
+		const brief = formatDoctor(checks, { detail: false });
+		assert.match(full, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "管理员版本带宿主路径");
+		assert.doesNotMatch(brief, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "非管理员版本不得带宿主路径");
+		assert.doesNotMatch(brief, /session_dir: /, "非管理员版本不带 detail");
+		assert.match(brief, /✅ credentials/);
+		const failed = checks.filter((check) => !check.ok).length;
+		if (failed > 0) assert.match(brief, new RegExp(`有 ${failed} 项异常`), "异常数量要告诉提问的人");
+	} finally { rmSync(home, { recursive: true, force: true }); }
+});

@@ -24,8 +24,10 @@ export function infoCommands(svc: CommandServices): Record<string, CommandHandle
 		"/feishu status": ({ msg, reply }) => {
 			reply(`${svc.statusText()}\n本群工具档位: ${svc.rt.convManager?.toolPolicyFor(msg.chatId) ?? "?"}`);
 		},
-		"/feishu doctor": ({ reply }) => {
-			reply(formatDoctor(runDoctor({ config: svc.rt.config, paths: resolvePaths(svc.rt.homeDir), transport: svc.rt.transport, diagnostics: svc.diagnosticsContext() })));
+		"/feishu doctor": ({ reply, isAdmin }) => {
+			const checks = runDoctor({ config: svc.rt.config, paths: resolvePaths(svc.rt.homeDir), transport: svc.rt.transport, diagnostics: svc.diagnosticsContext() });
+			// detail 里有宿主路径、配置字段、放行规则名：只给管理员看，其他人只看结论
+			reply(formatDoctor(checks, { detail: isAdmin }));
 		},
 		"/feishu usage": async ({ msg, args, isAdmin, reply, trySendCard }) => {
 			if (args[0]?.toLowerCase() === "week") {

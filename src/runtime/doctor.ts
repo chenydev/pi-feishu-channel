@@ -196,6 +196,21 @@ export function runDoctor(input: {
 	];
 }
 
-export function formatDoctor(checks: DoctorCheck[]): string {
+/**
+ * 诊断报告。
+ *
+ * `detail: false` 是给**非管理员**看的：检查项的 detail 里有宿主绝对路径、配置字段名、
+ * 放行规则名（`session_dir`、`ps_always_approved` 等），不该给群里任何被准入的人看到。
+ * 结论（哪项异常）仍然给，附一句「详情请管理员看」。
+ */
+export function formatDoctor(checks: DoctorCheck[], options: { detail?: boolean } = {}): string {
+	if (options.detail === false) {
+		const failed = checks.filter((check) => !check.ok);
+		return [
+			"飞书桥诊断：",
+			...checks.map((check) => `${check.ok ? "✅" : "❌"} ${check.name}`),
+			...(failed.length > 0 ? [`\n有 ${failed.length} 项异常，详情请管理员发送 /feishu doctor`] : []),
+		].join("\n");
+	}
 	return ["飞书桥诊断：", ...checks.map((check) => `${check.ok ? "✅" : "❌"} ${check.name}: ${check.detail}`)].join("\n");
 }

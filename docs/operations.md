@@ -44,6 +44,9 @@
 | `ps_link`、`ps_always_approved` | 模式为 pi-permission-system 时：它的版本是否 ≥ 27.0.0、`authorizerChain` 里有没有 `feishu-channel`、挂上了几个会话；「始终批准」的规则 |
 | `session_dir`、`outbox_dir`、`runtime` | 目录可写、运行环境 |
 
+**谁看得到详情**：`detail` 里有宿主绝对路径、配置字段名、「始终批准」的规则名，所以只有管理员能看到；
+其他被准入的人发 `/feishu doctor` 只拿到「✅/❌ 检查项 + 异常条数」，排查具体问题要找管理员。
+
 ### 1.3 改了 config.json 之后
 
 管理员在飞书里发 `/feishu config reload`，不用重启：
