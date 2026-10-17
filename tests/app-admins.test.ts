@@ -12,9 +12,11 @@ function setup(responses: Record<string, unknown | Error>) {
 	const rt = new BridgeRuntime();
 	rt.config = { ...DEFAULT_CONFIG, appId: "cli_test" };
 	rt.transport = {
-		rawRequest: async ({ url }: { url: string }) => {
+		rawRequest: async ({ url, params }: { url: string; params?: Record<string, unknown> }) => {
 			const key = url.endsWith("/collaborators") ? "collaborators" : "app";
-			const value = responses[key];
+			let value = responses[key];
+			// 协作者支持多页：传数组时按 page_token 取页（page_token 就是页码字符串）
+			if (Array.isArray(value)) value = value[Number(params?.page_token ?? 0)] ?? { data: { collaborators: [] } };
 			if (value instanceof Error) throw value;
 			return value;
 		},
@@ -58,4 +60,20 @@ test("应用管理员：应用信息也查不到时没有隐式管理员，只�
 	await loadAppAdmins(rt, log);
 	assert.deepEqual(rt.config.implicitAdmins, []);
 	assert.ok(logs.some((l) => l.event === "feishu.config.app_owner_hydrate_failed"));
+});
+
+test("应用管理员：协作者超过一页时继续翻页（第 51 位之后的管理员也要认出来）", async () => {
+	const firstPage = Array.from({ length: 50 }, (_, i) => ({ type: "developer", user_id: `ou_dev_${i}` }));
+	const { rt, logs, log } = setup({
+		app: APP,
+		collaborators: [
+			{ data: { collaborators: [...firstPage, { type: "administrator", user_id: "ou_page1_admin" }], has_more: true, page_token: "1" } },
+			{ data: { collaborators: [{ type: "administrator", user_id: "ou_page2_admin" }], has_more: false } },
+		],
+	});
+	await loadAppAdmins(rt, log);
+	assert.deepEqual(rt.config.appAdminIds, ["ou_page1_admin", "ou_page2_admin"], "第二页的管理员也要算");
+	assert.deepEqual(rt.config.implicitAdmins, ["ou_owner", "ou_page1_admin", "ou_page2_admin"]);
+	const info = logs.find((entry) => entry.event === "feishu.config.app_owner_hydrated")?.meta as { appAdminCount?: number };
+	assert.equal(info.appAdminCount, 2);
 });

@@ -13,6 +13,15 @@ import type { BridgeLogger } from "./logger.js";
 /** 协作者里算作应用管理员的角色。 */
 const APP_ADMIN_TYPE = "administrator";
 
+/**
+ * 协作者列表最多翻多少页（每页 50）。
+ *
+ * 原来只读第一页：协作者超过 50 人时，第 51 位之后的管理员不算隐式管理员 ——
+ * 他们在群里点审批卡会被拒（回「仅管理员」），而配置里往往没写 `admins`。
+ * 上限只是防呆（接口异常时把 page_token 一直吐回来），1000 人足够覆盖任何团队。
+ */
+const MAX_COLLABORATOR_PAGES = 20;
+
 export async function loadAppAdmins(rt: BridgeRuntime, log: BridgeLogger): Promise<void> {
 	try {
 		const info = await rt.transport?.rawRequest({
@@ -28,20 +37,35 @@ export async function loadAppAdmins(rt: BridgeRuntime, log: BridgeLogger): Promi
 		let appAdminIds: string[] = [];
 		const excluded: Record<string, number> = {};
 		try {
-			const collab = await rt.transport?.rawRequest({
-				url: `/open-apis/application/v6/applications/${rt.config.appId}/collaborators`,
-				method: "GET",
-				params: { user_id_type: "open_id", page_size: 50 },
-			});
-			const list = ((collab as { data?: { collaborators?: unknown[] } })?.data?.collaborators ?? []) as Array<Record<string, unknown>>;
-			for (const item of list) {
-				const id = typeof item.user_id === "string" ? item.user_id : undefined;
-				if (!id) continue;
-				if (item.type === APP_ADMIN_TYPE) appAdminIds.push(id);
-				else {
-					const type = typeof item.type === "string" && item.type ? item.type : "unknown";
-					excluded[type] = (excluded[type] ?? 0) + 1;
+			let pageToken: string | undefined;
+			let pages = 0;
+			for (;;) {
+				const collab = await rt.transport?.rawRequest({
+					url: `/open-apis/application/v6/applications/${rt.config.appId}/collaborators`,
+					method: "GET",
+					params: { user_id_type: "open_id", page_size: 50, ...(pageToken ? { page_token: pageToken } : {}) },
+				});
+				const data = ((collab as { data?: Record<string, unknown> })?.data ?? {}) as Record<string, unknown>;
+				const list = (data.collaborators ?? []) as Array<Record<string, unknown>>;
+				pages += 1;
+				for (const item of list) {
+					const id = typeof item.user_id === "string" ? item.user_id : undefined;
+					if (!id) continue;
+					if (item.type === APP_ADMIN_TYPE) appAdminIds.push(id);
+					else {
+						const type = typeof item.type === "string" && item.type ? item.type : "unknown";
+						excluded[type] = (excluded[type] ?? 0) + 1;
+					}
 				}
+				const next = typeof data.page_token === "string" && data.page_token ? data.page_token : undefined;
+				if (data.has_more !== true || !next || next === pageToken) break;
+				if (pages >= MAX_COLLABORATOR_PAGES) {
+					log.warn("feishu.config.app_collaborators_page_limit", {
+						pages, hint: `协作者超过 ${pages * 50} 人，未继续翻页；漏掉的管理员请写进 config.admins`,
+					});
+					break;
+				}
+				pageToken = next;
 			}
 		} catch (collabError) {
 			log.warn("feishu.config.app_collaborators_hydrate_failed", {
