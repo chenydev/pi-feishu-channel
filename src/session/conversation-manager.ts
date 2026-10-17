@@ -443,13 +443,34 @@ export class ConversationManager {
 		await boundedWait(task, this.shutdownTimeoutMs);
 	}
 
+	/**
+	 * 同一条消息被「启动恢复」重复接管的最大次数。超过就停止自动重放：
+	 * 一条消息如果每次跑到一半就把进程带走，重放它是无限重启循环 —— 桥梁重启频率比消息本身更糟。
+	 */
+	private static readonly MAX_AUTO_REPLAYS = 3;
+
 	/** 启动时恢复上次中断的未完成消息（hermes resume_pending）。 */
 	async recoverPending(): Promise<number> {
 		if (!this.pendingEnabled) return 0;
 		const entries = this.pendingStore?.recoverable() ?? [];
 		// 命令类消息（never）不会出现在这里：PendingStore.recoverable() 在待处理记录层已排除并清理。
 		for (const e of entries) {
-			this.deps.log?.("warn", "feishu.conv.recover_pending", { chatId: e.message.chatId, messageId: e.message.messageId });
+			const exhausted = e.replayPolicy !== "manual" && e.attempts > ConversationManager.MAX_AUTO_REPLAYS;
+			this.deps.log?.(exhausted ? "error" : "warn", exhausted ? "feishu.conv.recover_pending_exhausted" : "feishu.conv.recover_pending", {
+				chatId: e.message.chatId, messageId: e.message.messageId, attempts: e.attempts,
+			});
+			if (exhausted) {
+				const handled = await this.notify(
+					e.message.chatId,
+					`这条消息已经 ${e.attempts - 1} 次在启动恢复时中断（可能是它触发的任务让进程退出）。为避免反复重启，不再自动重跑；请确认现场后重新发送。`,
+					{ replyTo: replyTargetOf(e.message), threadId: e.message.threadId },
+					`${e.message.messageId}:recovery-exhausted`,
+					e.conversationKey,
+					"error",
+				);
+				if (handled) this.pendingStore?.ack(e.id);
+				continue;
+			}
 			if (e.replayPolicy === "manual") {
 				const handled = await this.notify(
 					e.message.chatId,

@@ -1136,3 +1136,32 @@ test("失败表情：处理失败时在原消息上加失败表情（先撤 Typi
 	await waitUntil(() => ops.some((op) => op.includes("CrossMark")));
 	assert.deepEqual(ops, ["add:fail-1:Typing", "remove:fail-1:r-Typing", "add:fail-1:CrossMark"]);
 });
+
+test("恢复：同一条消息反复把进程带走时停止自动重放（防重启循环）", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "feishu-recover-exhausted-"));
+	const pendingFile = join(dir, "pending.jsonl");
+	try {
+		const original = new PendingStore(pendingFile);
+		original.claim(message("poison"), "oc_real_chat");
+		// 模拟「每次启动都恢复一次」：recoverable() 每调用一次 attempts 加一
+		for (let i = 0; i < 4; i += 1) new PendingStore(pendingFile).recoverable();
+		const attempts = JSON.parse(readFileSync(pendingFile, "utf8").trim().split("\n")[0]!).attempts as number;
+		assert.ok(attempts > 3, `前置条件：attempts=${attempts}`);
+
+		let created = 0;
+		const durable: Array<{ text: string; kind: string }> = [];
+		const manager = new ConversationManager({
+			config: config(), sessionDir: join(dir, "sessions"), pendingFile,
+			sessionBackend: { async createSession() { created += 1; throw new Error("poison pending must not rerun"); } },
+			sender: sender([]) as never,
+			durableOutbox: {
+				enqueue(_chatId, text, _opts, meta) { durable.push({ text, kind: meta.kind }); return ["recovery-exhausted"]; },
+			},
+		});
+		assert.equal(await manager.recoverPending(), 1);
+		assert.equal(created, 0, "不能再重跑");
+		assert.equal(durable.length, 1);
+		assert.match(durable[0].text, /不再自动重跑/);
+		assert.equal(new PendingStore(pendingFile).depth(), 0, "记录要终结，否则下次启动又重来");
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
