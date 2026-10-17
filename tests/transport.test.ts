@@ -141,19 +141,20 @@ test("transport：按 chat 有界拉取历史并映射为标准消息", async ()
 	}]);
 	const instance = transport(fake.sdk);
 	await instance.start();
-	const messages = await instance.listChatHistory("oc_chat", 1_500, 9_100, 100);
+	const { messages, hasMore } = await instance.listChatHistory("oc_chat", 1_500, 9_100, 100);
 	assert.equal(messages.length, 1);
 	assert.equal(messages[0].messageId, "om_history");
 	assert.equal(messages[0].senderId, "ou_user");
 	assert.equal(messages[0].text, "补收消息");
 	assert.equal(messages[0].threadId, "om_thread");
+	assert.equal(hasMore, false, "接口没给 has_more 时按未截断处理");
 	const historyRequest = fake.requests.find((request) => request.url === "/open-apis/im/v1/messages");
 	assert.deepEqual(historyRequest?.params, {
 		container_id_type: "chat",
 		container_id: "oc_chat",
 		start_time: "1",
 		end_time: "10",
-		sort_type: "ByCreateTimeAsc",
+		sort_type: "ByCreateTimeDesc",
 		page_size: 50,
 	});
 });
@@ -336,6 +337,48 @@ test("transport：取不到 bot open_id 时明确告警（否则群里 @ 全被�
 		assert.ok(warn, "必须显式告警");
 		assert.equal(warn.level, "warn");
 		assert.match(JSON.stringify(warn.meta), /botOpenId/, "hint 要指出怎么修");
+	} finally {
+		await instance.stop();
+	}
+});
+
+test("transport：补收按倒序取、翻回升序，并透传 has_more（截断时保留最新消息）", async () => {
+	const historyItem = (id: string, text: string) => ({
+		message_id: id, chat_id: "oc_chat", chat_type: "group", msg_type: "text",
+		body: { content: JSON.stringify({ text }) },
+		sender: { id: "ou_user", id_type: "open_id", sender_type: "user" },
+	});
+	let seenParams: Record<string, unknown> | undefined;
+	const sdk = {
+		Domain: { Feishu: "feishu", Lark: "lark" },
+		Client: class {
+			im = { v1: { messageResource: { get: async () => ({ getReadableStream: () => Readable.from([Buffer.from("")]), headers: {} }) } } };
+			async request(opts: { url: string; params?: Record<string, unknown> }) {
+				if (opts.url === "/open-apis/bot/v3/info") return { bot: { open_id: "ou_bot", bot_name: "Bot" } };
+				// 接口按 sort_type 返回：倒序就是最新在前
+				seenParams = opts.params;
+				return { code: 0, data: { items: [historyItem("om_new", "新"), historyItem("om_old", "旧")], has_more: true } };
+			}
+		},
+		WSClient: class {
+			status = "connected";
+			constructor(readonly opts: WsOptions) {}
+			start() { this.opts.onReady?.(); }
+			close() { this.status = "idle"; }
+			getConnectionStatus() { return this.status; }
+		},
+		EventDispatcher: class { register() { return this; } },
+	} as unknown as LarkSdkLike;
+	const instance = new FeishuTransport({
+		config: { ...DEFAULT_CONFIG, appId: "app", appSecret: "secret", allowChats: ["oc_chat"] },
+		sdk, onMessage: async () => {}, onStatus: () => {}, now: () => 0,
+	});
+	try {
+		await instance.start();
+		const page = await instance.listChatHistory("oc_chat", 0, 1_000, 50);
+		assert.equal(seenParams?.sort_type, "ByCreateTimeDesc", "取数必须倒序：截断时保留最新的");
+		assert.deepEqual(page.messages.map((m) => m.messageId), ["om_old", "om_new"], "交给调用方的是时间升序");
+		assert.equal(page.hasMore, true, "has_more 要透传，否则截断计数永远为 0");
 	} finally {
 		await instance.stop();
 	}

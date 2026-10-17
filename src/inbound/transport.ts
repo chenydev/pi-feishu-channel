@@ -424,7 +424,19 @@ export class FeishuTransport {
 	}
 
 	/** 获取单个 chat 的有界历史消息，供短时断线补收。 */
-	async listChatHistory(chatId: string, startTimeMs: number, endTimeMs: number, limit = 50): Promise<FeishuInboundMessage[]> {
+	/**
+	 * 按 chat 拉取时间窗内的历史消息（断线补收用）。
+	 *
+	 * 返回 `hasMore`：接口在这一页之后还有记录 —— 调用方据此判断补收是否被截断。
+	 * 取数按**时间倒序**（`ByCreateTimeDesc`）再翻回升序：接口单页最多 50 条，
+	 * 超出时丢掉的是更早的消息，用户最后问的那几条一定在里面。
+	 */
+	async listChatHistory(
+		chatId: string,
+		startTimeMs: number,
+		endTimeMs: number,
+		limit = 50,
+	): Promise<{ messages: FeishuInboundMessage[]; hasMore: boolean }> {
 		const res = (await this.authedRequest({
 			url: "/open-apis/im/v1/messages",
 			method: "GET",
@@ -434,12 +446,14 @@ export class FeishuTransport {
 				container_id: chatId,
 				start_time: String(Math.floor(startTimeMs / 1000)),
 				end_time: String(Math.ceil(endTimeMs / 1000)),
-				sort_type: "ByCreateTimeAsc",
+				sort_type: "ByCreateTimeDesc",
+				// 接口单页上限 50；超出时按倒序保留最新的（`hasMore` 会告诉调用方被截断了）
 				page_size: Math.max(1, Math.min(50, limit)),
 			},
 		})) as Record<string, unknown>;
 		const data = (res.data ?? res) as Record<string, unknown>;
 		const items = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : [];
+		const hasMore = data.has_more === true;
 		const output: FeishuInboundMessage[] = [];
 		for (const item of items.slice(0, limit)) {
 			const body = (item.body ?? {}) as Record<string, unknown>;
@@ -462,7 +476,9 @@ export class FeishuTransport {
 			});
 			if (normalized) output.push(normalized);
 		}
-		return output;
+		// 倒序取回、翻成升序交给调用方：补收按时间顺序处理
+		output.reverse();
+		return { messages: output, hasMore };
 	}
 
 	async downloadResource(ref: ResourceRef, maxBytes: number): Promise<{ buffer: Buffer; mimeType?: string }> {

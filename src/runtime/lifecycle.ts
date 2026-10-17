@@ -209,7 +209,7 @@ export class BridgeLifecycle {
 				now: endTime,
 				maxWindowMs: 5 * 60_000,
 				maxPerChat: 50,
-				list: (chatId, startTime, finishTime, limit) => rt.transport?.listChatHistory(chatId, startTime, finishTime, limit) ?? Promise.resolve([]),
+				list: (chatId, startTime, finishTime, limit) => rt.transport?.listChatHistory(chatId, startTime, finishTime, limit) ?? Promise.resolve({ messages: [], hasMore: false }),
 				handle: (message) => rt.pipeline?.handle(message) ?? Promise.resolve(),
 				onError: (chatId, error) => log.warn("history compensation failed", { chatId, error: error instanceof Error ? error.message : String(error) }),
 			});
