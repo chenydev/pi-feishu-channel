@@ -40,7 +40,7 @@ description: pi-feishu-channel（pi 的飞书 / Lark 通道扩展）的配置与
 | 群里每人一份上下文 | 全局 `groupSessionsPerUser: true`（默认 false：全群共用一个会话；话题始终按话题共用）；只改某个群用 `groupRules.<id>.sessionsPerUser: true / false`，`/feishu config reload` 即生效 |
 | 回复机器人的消息不用 @ | `groupAlsoOnReply: true`（默认关）。全实例生效，不分群和人；只认最近 `lastSentCacheSize` 条（默认 64）机器人消息，重启清空 |
 | 让某人在所有群都能用（含没放行的群） | 把 open_id 加进 `allowUsersAllGroups`。不放开私聊；群策略 `disabled` / `admin_only` / `blacklist` 仍然生效 |
-| 只让部分人在某群使用 | `groupRules.<群id>.policy: "allowlist"` + `allowlist` |
+| 只让部分人在某群使用 | `groupRules.<群id>.policy: "allowlist"` + `allowlist`（**名单为空 = 谁都不允许**，与 allowChats/allowUsers 一致） |
 | 让其它机器人 / webhook 触发 | `allowBots` 加 `"mentions"`（任何 @ 了本机器人的 bot 都放行，不依赖 id，换应用不失效）；或加对方 `app_id` |
 | 指定管理员 | `admins`（open_id）。应用归属人和应用管理员启动时自动识别（开发者、运营不算），**不用写** |
 | 进度里每次工具调用都显示一行 | `progress.mode: "all"`（默认 `new`：只在换了工具时加一行；`off` 不显示） |
