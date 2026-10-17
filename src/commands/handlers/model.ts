@@ -6,6 +6,17 @@ import type { CommandServices } from "./services.js";
 import { splitModelTarget, writeGlobalDefaults } from "../../config/global-defaults.js";
 import { buildModelStatusCard, buildModelsTable } from "../models-card.js";
 
+/**
+ * 从 `/model` 的回执里取出实际切换到的模型。
+ *
+ * 回执有两种形态：`已切换模型：provider/id` 和 `已切换模型：provider/id（按「片段」匹配）`。
+ * 后者带全角括号（不是空白），直接按 `\S+` 取会把「（按「…」匹配）」一起当成模型名 ——
+ * 写进 `settings.json` 后所有新会话都会用一个不存在的模型启动。
+ */
+export function parseSwitchedModel(reply: string): string | undefined {
+	return /^已切换模型：(\S+?)(?:（|$)/.exec(reply)?.[1];
+}
+
 export function modelCommands(svc: CommandServices): Record<string, CommandHandler> {
 	return {
 		"/model": async ({ msg, args, rest, isAdmin, reply, trySendCard }) => {
@@ -20,7 +31,7 @@ export function modelCommands(svc: CommandServices): Record<string, CommandHandl
 			if (!wantsGlobal || !target) { reply(result); return; }
 			if (!isAdmin) { reply(`${result}\n（--global/-g 需要管理员或应用归属人）`); return; }
 			// 模糊匹配后以实际切换到的模型为准（回执里 "已切换模型：provider/id"）
-			const switched = /^已切换模型：(\S+)/.exec(result)?.[1];
+			const switched = parseSwitchedModel(result);
 			if (!switched) { reply(result); return; }
 			const { model, provider } = splitModelTarget(switched);
 			const written = writeGlobalDefaults(svc.rt.homeDir, { defaultModel: model, ...(provider ? { defaultProvider: provider } : {}) });

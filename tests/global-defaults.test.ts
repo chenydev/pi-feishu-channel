@@ -15,6 +15,7 @@ import {
 	splitModelTarget,
 	writeGlobalDefaults,
 } from "../src/config/global-defaults.js";
+import { parseSwitchedModel } from "../src/commands/handlers/model.js";
 
 function tmpHome(initial?: string): string {
 	const dir = mkdtempSync(join(tmpdir(), "global-defaults-"));
@@ -129,4 +130,12 @@ test("flag 解析：模型名里的 -g 不能被误当成开关", () => {
 	assert.equal(re.test("openai/gpt-4"), false, "gpt-4 里的 -g 是名字的一部分");
 	assert.equal(re.test("--globalx"), false, "前缀相同但不是这个开关");
 	assert.equal(re.test("some-m-g-flag"), false);
+});
+
+test("回执解析：模糊匹配的提示文案不能混进模型名", () => {
+	assert.equal(parseSwitchedModel("已切换模型：google/gemini-2.5-flash"), "google/gemini-2.5-flash");
+	// 模糊匹配成功时回执带全角括号后缀（见 conversation-commands.ts 的 switchModel）
+	assert.equal(parseSwitchedModel("已切换模型：google/gemini-2.5-flash（按「flash」匹配）"), "google/gemini-2.5-flash");
+	assert.equal(parseSwitchedModel("「flash」匹配到 2 个模型，请写得更具体："), undefined);
+	assert.equal(parseSwitchedModel("找不到已认证模型：flash（/models 查看全部）"), undefined);
 });
