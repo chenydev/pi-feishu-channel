@@ -275,10 +275,11 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 					question: input.question, options: input.options,
 					...(input.questions?.length
 						? { questions: input.questions }
-						: input.multiSelect || input.recommended || input.reason
+						: input.multiSelect || input.allowOther || input.recommended || input.reason
 							? { questions: [{
 								id: "q1", question: input.question, options: input.options,
 								...(input.multiSelect ? { multiSelect: true } : {}),
+								...(input.allowOther ? { allowOther: true } : {}),
 								...(input.recommended ? { recommended: input.recommended } : {}),
 								...(input.reason ? { reason: input.reason } : {}),
 							}] }

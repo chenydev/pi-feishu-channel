@@ -24,7 +24,10 @@ export interface ClarificationQuestion {
 	recommended?: number[];
 	/** 为什么推荐这些（一两句，显示在题目标题下面）。 */
 	reason?: string;
-	/** @deprecated 表单现在每题都带自填框；该字段仅为兼容旧记录保留。 */
+	/**
+	 * 允许自填（表单里的输入框）。表单卡本来就每题都带自填框；
+	 * 这个字段的作用是**把单题单选也拉进表单**（否则它就是「点一下即答」的按钮卡）。
+	 */
 	allowOther?: boolean;
 }
 
@@ -66,8 +69,9 @@ export interface ClarificationRequest {
 	askerId?: string;
 	question?: string;
 	options?: string[];
-	/** 单题形态下的多选 / 推荐（等价于把它们写在 questions[0] 上）。 */
+	/** 单题形态下的多选 / 自填 / 推荐（等价于把它们写在 questions[0] 上）。 */
 	multiSelect?: boolean;
+	allowOther?: boolean;
 	recommended?: number[];
 	reason?: string;
 	/** 用折叠面板收纳每道题（飞书客户端 ≥ 7.9；`false` = 平铺）。 */
@@ -350,6 +354,7 @@ function normalizeQuestions(input: ClarificationRequest): ClarificationQuestion[
 			question: input.question ?? "",
 			options: input.options ?? [],
 			...(input.multiSelect ? { multiSelect: true } : {}),
+			...(input.allowOther ? { allowOther: true } : {}),
 			...(input.recommended ? { recommended: input.recommended } : {}),
 			...(input.reason ? { reason: input.reason } : {}),
 		}]) as ClarificationQuestion[];
@@ -485,7 +490,10 @@ export function clarificationTextFallback(record: Pick<ClarificationRecord, "que
 	const questions = record.questions?.length ? record.questions : [{ id: "q1", question: record.question, options: record.options, multiSelect: false }];
 	const blocks = questions.map((question, index) => {
 		const head = questions.length > 1 ? `${index + 1}. ${question.question}${question.multiSelect ? "（可多选）" : ""}` : question.question;
-		const lines = question.options.map((option, optionIndex) => `   ${optionIndex + 1}. ${option}`);
+		const recommended = new Set(question.recommended ?? []);
+		const lines = question.options.map((option, optionIndex) => `   ${optionIndex + 1}. ${recommended.has(optionIndex) ? `⭐ ${option}（推荐）` : option}`);
+		// 没法打按钮的形态也要能看出「建议选哪个」，否则用户只能凭感觉
+		if (recommended.size > 0 && question.reason) lines.push(`   💡 ${question.reason}`);
 		return [head, ...lines].join("\n");
 	});
 	return `**需要你确认**\n\n${blocks.join("\n\n")}\n\n（直接回复选项编号或文字即可）`;

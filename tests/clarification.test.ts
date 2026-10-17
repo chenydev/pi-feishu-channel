@@ -373,3 +373,29 @@ test("澄清提问（新版）：单题多选也走表单卡（单题形态的�
 	assert.match(json, /（多选）/, "标题要标多选");
 	assert.ok(!json.includes('"op":"clarify"'), "不能再降级成点一下即答的按钮卡");
 });
+
+test("澄清提问（新版）：单题单选 + allowOther 走表单（可自填、可反悔）", () => {
+	const { store } = makeStore();
+	const record = store.create({
+		conversationKey: "oc:u:ou", chatId: "oc_g", chatType: "group",
+		question: "用哪个方案？", options: ["方案 A", "方案 B"], allowOther: true, recommended: [1], reason: "B 少改三处",
+	});
+	const json = JSON.stringify(buildClarificationCard(record));
+	assert.match(json, /"tag":"form"/, "要能提交（可反悔）");
+	assert.match(json, /"tag":"input"/, "要有自填框");
+	assert.match(json, /⭐ 方案 B（推荐）/, "推荐项要打标");
+	assert.match(json, /B 少改三处/, "理由要显示");
+	assert.ok(!json.includes('"op":"clarify"'), "不能再是点一下即答的按钮卡");
+});
+
+test("澄清提问（新版）：文字回退也带推荐标记与理由（没有卡片权限时同样能决策）", () => {
+	const { store } = makeStore();
+	const record = store.create({
+		conversationKey: "oc:u:ou", chatId: "oc_g", chatType: "group",
+		question: "用哪个方案？", options: ["方案 A", "方案 B"], recommended: [1], reason: "B 少改三处",
+	});
+	const text = clarificationTextFallback(record);
+	assert.match(text, /2\. ⭐ 方案 B（推荐）/);
+	assert.match(text, /1\. 方案 A\n/, "没推荐的选项保持原样");
+	assert.match(text, /💡 B 少改三处/);
+});

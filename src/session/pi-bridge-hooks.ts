@@ -91,9 +91,11 @@ export interface BridgeHookContext {
 		options: string[];
 		route: BridgeRoute;
 		/** 一卡多题（1-4 题）；给了这个就忽略 question/options。 */
-		questions?: Array<{ id?: string; question: string; options: string[]; multiSelect?: boolean; recommended?: number[]; reason?: string }>;
+		questions?: Array<{ id?: string; question: string; options: string[]; multiSelect?: boolean; allowOther?: boolean; recommended?: number[]; reason?: string }>;
 		/** 单题多选。 */
 		multiSelect?: boolean;
+		/** 单题也让用户自己填（会把单题拉进表单卡）。 */
+		allowOther?: boolean;
 		/** 单题推荐选项下标（卡片上打 ⭐）。 */
 		recommended?: number[];
 		/** 单题推荐理由。 */
@@ -255,14 +257,15 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 		pi.registerTool({
 			name: "feishu_ask",
 			label: "向用户提出选择题",
-			description: "在飞书会话中提澄清问题：单题（2-4 个选项，点一下就答）或一次问多题（1-4 题，每题可多选/可自填，用户提交一次全部作答）。调用后本轮立即结束；用户的作答会以「[选择] …」的新消息发来，用户也可能直接打字回复。有明确更优的选项时用 recommended（下标）+ reason（一句理由）标出推荐，卡片上会打 ⭐ 并说明为什么。不授予任何工具权限",
-			promptSnippet: "需要用户选择或确认时用 feishu_ask（单独调用，不要和其他工具一起），调用后本轮就结束，等用户的作答作为新消息发来再继续；一次要问多件事就用 questions（最多 4 题），能一次问清就别分多轮；不要用它请求工具授权。",
+			description: "在飞书会话中提澄清问题：单题（2-4 个选项，点一下就答）或一次问多题（1-4 题，每题可多选/可自填，用户提交一次全部作答）。调用后本轮立即结束；用户的作答会以「[选择] …」的新消息发来，用户也可能直接打字回复。**有更优的选项就给推荐**：recommended（下标）+ reason（一句理由），所有形态（单题按钮卡、表单卡、文字回退）都会打 ⭐ 并说明为什么 —— 用户通常只想确认你选哪个。不授予任何工具权限",
+			promptSnippet: "需要用户选择或确认时用 feishu_ask（单独调用，不要和其他工具一起），调用后本轮就结束，等用户的作答作为新消息发来再继续；一次要问多件事就用 questions（最多 4 题），能一次问清就别分多轮；每题都可以给 recommended + reason 标明推荐；不要用它请求工具授权。",
 			parameters: {
 				type: "object",
 				properties: {
 					question: { type: "string", description: "单题时的问题（与 options 一起用；要问多题请改用 questions）" },
 					options: { type: "array", items: { type: "string" }, description: "单题时的 2-4 个选项。14 字以内会做成整行按钮（点一下即答），更长的自动改成编号按钮" },
 					multiSelect: { type: "boolean", description: "单题时允许多选（会变成「勾选 + 提交」的卡片）" },
+					allowOther: { type: "boolean", description: "单题时也让用户自己填一段（会变成「勾选 + 自填 + 提交」的卡片，适合还想让用户补一句的情况）" },
 					recommended: { type: "array", items: { type: "number" }, description: "单题时推荐哪几个选项（从 0 开始的下标）" },
 					reason: { type: "string", description: "单题时为什么推荐（显示在题目下面）" },
 					questions: {
@@ -274,6 +277,7 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 								question: { type: "string", description: "这一题的问题" },
 								options: { type: "array", items: { type: "string" }, description: "2-4 个选项" },
 								multiSelect: { type: "boolean", description: "这题可以多选" },
+								allowOther: { type: "boolean", description: "这题除选项外还让用户自己填一段（默认表单卡每题都有自填框，这个字段用于单题也强制走表单）" },
 								recommended: { type: "array", items: { type: "number" }, description: "推荐哪几个选项（从 0 开始的下标）。卡片上会打 ⭐ 并标「推荐」" },
 								reason: { type: "string", description: "为什么推荐（一两句，显示在题目下面）。只在给了 recommended 时显示" },
 							},
@@ -292,6 +296,7 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 					question: typeof item.question === "string" ? item.question.trim() : "",
 					options: Array.isArray(item.options) ? (item.options as unknown[]).map((option) => String(option).trim()).filter(Boolean) : [],
 					multiSelect: item.multiSelect === true,
+					allowOther: item.allowOther === true,
 					...(Array.isArray(item.recommended) ? { recommended: item.recommended as number[] } : {}),
 					...(typeof item.reason === "string" ? { reason: item.reason } : {}),
 				}));
@@ -314,6 +319,7 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 					toolCallId, question, options, route,
 					...(questions.length > 0 ? { questions } : {}),
 					...(params.multiSelect === true ? { multiSelect: true } : {}),
+					...(params.allowOther === true ? { allowOther: true } : {}),
 					...(Array.isArray(params.recommended) ? { recommended: params.recommended as number[] } : {}),
 					...(typeof params.reason === "string" ? { reason: params.reason } : {}),
 
