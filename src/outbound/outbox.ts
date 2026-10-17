@@ -234,7 +234,14 @@ export class Outbox {
 	/** 测试和调度器共用的单次到期处理。 */
 	async drainDue(): Promise<void> {
 		if (this.running) return this.running;
-		this.running = this.doDrainDue();
+		this.running = this.doDrainDue().catch((error) => {
+			// 落盘失败（磁盘满/只读）而不已经投递失败的条目：异常不能往上冒。
+			// 定时器里是 `void this.drainDue()`，未处理的 rejection 在 Node 默认策略下会让进程退出，
+			// 而已经送达的条目状态可能还没落盘。记一条错误，队列与定时器在下面的 finally 里照旧恢复。
+			this.deps.log?.("error", "feishu.outbox.drain_failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		});
 		try {
 			await this.running;
 		} finally {

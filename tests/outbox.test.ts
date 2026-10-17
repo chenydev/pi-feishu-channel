@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -333,6 +333,28 @@ test("outbox：新入队的回复不被其他 lane 的退避定时器拖住", as
 		assert.equal(outbox.stats().pending, 1, "A 还在等重试");
 	} finally {
 		await outbox.stop();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("outbox：落盘失败不把 drain 变成未处理 rejection（定时器回调是 void）", async () => {
+	const { dir, file } = tempOutbox();
+	const logs: string[] = [];
+	const outbox = new Outbox({
+		file,
+		prepare: prepared,
+		send: async () => ({ success: true, messageId: "om" }),
+		log: (_level, event) => logs.push(event),
+	});
+	try {
+		outbox.enqueue("oc", "答案", {}, { dedupeKey: "k1", laneKey: "l", kind: "final" });
+		// 把 outbox 文件换成同名目录：persist 的 rename 必然失败（模拟磁盘满/只读）
+		rmSync(file, { force: true });
+		mkdirSync(file);
+		await outbox.drainDue(); // 不得抛错
+		assert.ok(logs.includes("feishu.outbox.drain_failed"), "落盘失败必须有日志");
+		await outbox.stop(); // 收尾也不得抛错
+	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
