@@ -301,3 +301,42 @@ test("语音时长：Ogg Opus 时长解析（最后一页 granule / 48k）", asy
 	assert.equal(oggOpusDurationMs(Buffer.concat([page(0n), page(48_000n * 3n)])), 3_000);
 	assert.equal(oggOpusDurationMs(Buffer.from("not ogg")), undefined);
 });
+
+test("transport：取不到 bot open_id 时明确告警（否则群里 @ 全被判成「没 @ 我」）", async () => {
+	const logs: Array<{ level: string; event: string; meta?: unknown }> = [];
+	const sdk = {
+		Domain: { Feishu: "feishu", Lark: "lark" },
+		Client: class {
+			im = { v1: { messageResource: { get: async () => ({ getReadableStream: () => Readable.from([Buffer.from("")]), headers: {} }) } } };
+			async request(opts: { url: string }) {
+				// 应用信息接口拿不到 open_id（缺权限 / 换应用 / 网络异常时的降级形态）
+				return opts.url === "/open-apis/bot/v3/info" ? { bot: {} } : { code: 0 };
+			}
+		},
+		WSClient: class {
+			status = "connected";
+			constructor(readonly opts: WsOptions) {}
+			start() { this.opts.onReady?.(); }
+			close() { this.status = "idle"; }
+			getConnectionStatus() { return this.status; }
+		},
+		EventDispatcher: class { register() { return this; } },
+	} as unknown as LarkSdkLike;
+	const instance = new FeishuTransport({
+		config: { ...DEFAULT_CONFIG, appId: "app", appSecret: "secret", allowChats: ["oc_group"] },
+		sdk,
+		onMessage: async () => {},
+		onStatus: () => {},
+		log: (level, event, meta) => { logs.push({ level, event, meta }); },
+		now: () => 0,
+	});
+	try {
+		await instance.start();
+		const warn = logs.find((entry) => entry.event === "feishu.transport.bot_identity_missing");
+		assert.ok(warn, "必须显式告警");
+		assert.equal(warn.level, "warn");
+		assert.match(JSON.stringify(warn.meta), /botOpenId/, "hint 要指出怎么修");
+	} finally {
+		await instance.stop();
+	}
+});

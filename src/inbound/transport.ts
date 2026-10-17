@@ -256,6 +256,16 @@ export class FeishuTransport {
 		if (!this.botIdentity.openId && config.botOpenId) this.botIdentity.openId = config.botOpenId;
 		if (!this.botIdentity.name && config.botName) this.botIdentity.name = config.botName;
 		this.deps.log?.("info", "feishu.transport.bot_identity", this.botIdentity);
+		// 身份没取到 = 「@ 了本 bot」永远判不出来（两个 ID 都没有，名字也匹配不上），
+		// 群里的消息会全部以 reason=bot_not_mentioned 静默丢掉 —— 现场看起来像「机器人不回应任何人」。
+		// 这一条必须显式告警，否则要等有人去翻 bot_probe_failed 才发现。
+		if (!this.botIdentity.openId) {
+			this.deps.log?.("warn", "feishu.transport.bot_identity_missing", {
+				probe: "/open-apis/bot/v3/info 没返回 open_id",
+				consequence: "群里 @ 机器人无法识别，按 mention 策略会被当作「没 @ 我」丢掉",
+				hint: "配 config.botOpenId（可从开放平台或换应用后的 /bot/v3/info 取），或恢复应用信息读取权限",
+			});
+		}
 
 		const dispatcher = new sdk.EventDispatcher({}).register({
 			// 立即返回，后台按 chat 串行处理（SDK 等回调返回后才回 ACK，慢命令会拖到飞书重投）。

@@ -4,6 +4,10 @@
 
 ## 未发布
 
+- 修复（入站）：`/bot/v3/info` 取不到 `open_id` 时只在 info 级打一条空身份，症状是「群里 @ 机器人
+  完全没反应」—— 每个 @ 都被判成「没 @ 我」丢掉，而日志里只有 `reason: bot_not_mentioned`。
+  现在显式告警 `feishu.transport.bot_identity_missing`，写明后果与修法（配 `botOpenId` / 恢复读应用信息权限）。
+
 - 修复（会话）：一条消息如果每次跑到一半就把进程带走，启动恢复会无限重放它（重启循环）。
   现在同一条消息第 3 次被恢复接管后不再自动重跑，改为给会话发一条说明（日志
   `feishu.conv.recover_pending_exhausted`）并终结这条记录。
