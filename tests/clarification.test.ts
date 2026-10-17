@@ -194,3 +194,16 @@ test("澄清卡片按钮：能在这里 @ 机器人的人就能作答；点击�
 	assert.deepEqual(routed, [{ text: "[选择] 方案B\n（回答你的提问：选哪个方案？）", senderId: "ou_peer", conversationKey: "oc_chat#ou_user" }], "进入发起人的会话");
 	assert.match(String(press("ou_user").toast?.content), /已过期/, "答过一次就失效");
 });
+
+test("澄清提问：过期记录在新建提问时清掉（没人点的提问不会一直留在内存里）", () => {
+	let now = 1_000;
+	const { store, audits } = makeStore({ ttlMs: 1_000, now: () => now });
+	const first = store.create(request({ conversationKey: "oc_a#ou_user" }));
+	assert.equal(store.pendingCount(), 1);
+
+	now = 2_500; // 第一条已过期
+	store.create(request({ conversationKey: "oc_b#ou_user" }));
+	assert.equal(store.pendingCount(), 1, "过期的旧提问应被清掉，只剩新的");
+	assert.ok(audits.some((event) => event.decision === "expired"), "清理要留审计");
+	assert.equal(click(store, first).ok, false, "旧卡依然点不了");
+});

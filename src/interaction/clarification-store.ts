@@ -69,6 +69,7 @@ export class ClarificationStore {
 		for (const old of [...this.records.values()]) {
 			if (old.conversationKey === input.conversationKey) this.drop(old, "superseded");
 		}
+		this.pruneExpired();
 		const now = this.now();
 		const record: ClarificationRecord = {
 			id: randomUUID(), token: randomUUID(),
@@ -145,6 +146,24 @@ export class ClarificationStore {
 		return [...this.records.values()].map((record) => ({
 			id: record.id, conversationKey: record.conversationKey, options: record.options.length, expiresAt: record.expiresAt,
 		}));
+	}
+
+	/**
+	 * 清掉已过期的提问。
+	 *
+	 * 过期记录原来只在下一次访问到它时（点卡片）才删：没人点的提问会一直留在内存里，
+	 * 长驻进程按「每天提过几次问」累积。`load()` 在启动时会滤掉过期项，这里补上运行期的清理。
+	 */
+	private pruneExpired(): void {
+		const now = this.now();
+		let pruned = 0;
+		for (const record of [...this.records.values()]) {
+			if (record.expiresAt >= now) continue;
+			this.records.delete(record.id);
+			pruned += 1;
+			this.deps.onAudit?.({ clarificationId: record.id, conversationKey: record.conversationKey, question: record.question, decision: "expired" });
+		}
+		if (pruned > 0) this.persist();
 	}
 
 	private drop(record: ClarificationRecord, reason: string): void {
