@@ -113,3 +113,20 @@ test("开通申请卡：三种申请的按钮；按钮带申请类型", () => {
 	assert.deepEqual(ops(dm), ["user.allow_dm", "user.deny"]);
 	assert.match(JSON.stringify(dm), /私聊开通申请/);
 });
+
+test("开通申请：找不到审批人时也要冷却并计入配额（否则每个人的每条消息都重复打扰）", () => {
+	let now = 0;
+	const tracker = new AccessRequestTracker({ cooldownMs: 3_600_000, maxPerHour: 2, now: () => now });
+	const key = accessRequestKey("chat", "oc_g", "ou_user");
+	assert.equal(tracker.decide(key, "ou_user").action, "request");
+	tracker.markNoApprover(key);
+	assert.deepEqual(tracker.decide(key, "ou_user"), { action: "silent", reason: "ignored" }, "冷却期内保持安静");
+
+	// 另一个群、另一个人：仍要能发（只是受每小时总量限制）
+	const other = accessRequestKey("chat", "oc_other", "ou_peer");
+	assert.equal(tracker.decide(other, "ou_peer").action, "request");
+	tracker.markNoApprover(other);
+	assert.deepEqual(tracker.decide(accessRequestKey("chat", "oc_third", "ou_x"), "ou_x"), { action: "silent", reason: "rate_limited" }, "no_approver 也要计入每小时配额");
+	now += 3_600_001;
+	assert.equal(tracker.decide(key, "ou_user").action, "request", "冷却结束后可以再提醒");
+});

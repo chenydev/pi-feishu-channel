@@ -112,6 +112,19 @@ export class AccessRequestTracker {
 		this.chats.set(key, { requestedAt: now, mode: plan.mode, approvers: plan.approvers, reminded: new Map([[requesterId, now]]) });
 	}
 
+	/**
+	 * 没有任何可审批的人：按冷却期静默，并计入每小时配额。
+	 *
+	 * 这条路径原来什么都不记 —— 部署里没有可审批的人（没配 `admins`、也查不到应用归属人）时，
+	 * 每个被挡的人每发一条消息都会收到一次「暂时找不到可以审批的人」，而且不消耗配额，
+	 * 群里有几个人就能把通知刷满。
+	 */
+	markNoApprover(key: string): void {
+		const now = this.now();
+		this.sentAt.push(now);
+		this.chats.set(key, { ignoredUntil: now + this.cooldownMs, reminded: new Map() });
+	}
+
 	/** 管理员"暂不放行"：忽略期内这一项不再发申请。 */
 	markIgnored(key: string, forMs = 24 * 3_600_000): void {
 		this.chats.set(key, { ignoredUntil: this.now() + forMs, reminded: new Map() });

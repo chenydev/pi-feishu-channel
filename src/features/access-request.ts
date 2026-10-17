@@ -213,6 +213,8 @@ async function requestAccess({ rt, log, onboarding }: FeatureContext, tracker: A
 				? "accessApprovers=owner 但没有查到应用归属人（需要 application:application:readonly 权限）；或把 onboarding.accessApprovers 放宽"
 				: "按 onboarding.accessApprovers 没有任何可审批的人（查询归属人/应用管理员失败且 config.admins 为空）",
 		});
+		// 记下来：冷却期内不再重复打扰（否则每个人的每条消息都会再发一次），并计入每小时配额
+		tracker.markNoApprover(key);
 		await onboarding.sendChatCard(msg.chatId, buildAccessNoticeCard(`${toRequester}${subject.blocked}，暂时找不到可以审批的人，请联系应用归属人开通。`, "grey", title), replyOpts, "no_approver");
 		return;
 	}
