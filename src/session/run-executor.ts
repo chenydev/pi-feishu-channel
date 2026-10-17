@@ -49,6 +49,10 @@ export class RunExecutor {
 	constructor(private readonly deps: ConversationManagerDeps, private readonly host: RunHost) {}
 
 	async run(sess: BridgeSession, item: QueuedMessage): Promise<void> {
+		// `/stop` 只对它按下时那一轮有效（回执也是这么说的：排队中的后续任务照常执行）。
+		// 上一轮收尾期间（记用量、撤销审批卡、清理资源）到达的 `/stop` 会把标记留在会话上，
+		// 下一条排队任务就会被当成「用户主动停止」—— 不加完成表情、错误路径按已取消处理。
+		sess.stopRequested = false;
 		const logMeta = (meta: Record<string, unknown> = {}): Record<string, unknown> => ({
 			messageId: item.messageId,
 			conversationKey: sess.conversationKey,
