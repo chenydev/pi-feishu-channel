@@ -8,6 +8,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { LiveChannel, SerialWriter } from "../src/outbound/live-channel.js";
+import { ProgressTracker } from "../src/session/progress-tracker.js";
+import { DEFAULT_CONFIG } from "../src/types.js";
 import { holdEventLoop } from "./hold-event-loop.js";
 
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -149,4 +151,30 @@ test("最终回复交接：drain 等待全部在队写入，不含未入队的�
 	assert.deepEqual(written, ["a", "b"]);
 	assert.equal(drained.ok, true);
 	assert.equal(writer.isUncertain("m1"), false);
+});
+
+test("SerialWriter：final 接手后释放写入链，长驻进程不按轮次增长", async () => {
+	const edited: string[] = [];
+	const live = new LiveChannel({ edit: async (id: string) => { edited.push(id); return true; }, throttleMs: 0, now: () => Date.now() });
+	live.open("oc:u:ou", "om_1");
+	live.append("oc:u:ou", "streamed");
+	await waitFor(() => edited.length > 0);
+	await waitFor(() => live.pendingWrites === 1);
+	assert.equal(await live.claimFinalTarget("oc:u:ou"), "om_1", "有内容、已 drain：可以复用为 final 目标");
+	assert.equal(live.pendingWrites, 0, "claim 之后不能再留着这条链（final 走 durable 通道编辑）");
+	assert.equal(live.hasContent("oc:u:ou"), false, "会话的实时状态也要清掉");
+
+	// 进度消息同理：收尾写完终态后释放自己那条链
+	const writer = new SerialWriter({ edit: async () => true });
+	const tracker = new ProgressTracker({
+		config: DEFAULT_CONFIG,
+		sender: { send: async () => ({ success: true, messageId: "om_progress" }) } as never,
+		editMessage: async () => true,
+		writer,
+	});
+	const st = tracker.state("oc:u:ou");
+	st.messageId = "om_progress";
+	st.lines.push({ text: "💻 运行 ls", count: 1 });
+	await tracker.finish({ chatId: "oc", conversationKey: "oc:u:ou" }, st, "ok");
+	assert.equal(writer.size, 0, "进度收尾后同样要释放");
 });

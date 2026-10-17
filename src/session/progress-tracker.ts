@@ -317,6 +317,11 @@ export class ProgressTracker {
 		}
 	}
 
+	/** 串行写入器里的这条链在收尾后释放（否则每个进度消息留一条，长驻进程按轮次增长）。 */
+	private release(messageId: string): void {
+		this.deps.writer?.discard(messageId);
+	}
+
 	/**
 	 * 收尾进度消息。
 	 *
@@ -339,7 +344,10 @@ export class ProgressTracker {
 				// terminal=true：终态页脚拿到剩余编辑配额，配额也耗尽时 `writeProgressText`
 				// 会新发一条把结果写进去 —— 长任务的「✅/⏹/⚠️ 结论」绝不允许被编辑上限吞掉。
 				await this.writeProgressText(sess, st, true, { outcome });
-				if (st.messageId) await this.deps.writer?.drain(st.messageId);
+				if (st.messageId) {
+					await this.deps.writer?.drain(st.messageId);
+					this.release(st.messageId);
+				}
 				return;
 			}
 			st.messageId = undefined;
@@ -347,6 +355,7 @@ export class ProgressTracker {
 				// 撤回前先 drain，避免迟到写入落在撤回之后（撤回后内容不可控）。
 				await this.deps.writer?.drain(messageId);
 				await this.deps.recallMessage(messageId);
+				this.release(messageId);
 			}
 		} finally {
 			this.states.delete(sess.conversationKey);

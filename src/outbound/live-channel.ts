@@ -85,6 +85,11 @@ export class SerialWriter {
 		return await new Promise<{ ok: boolean }>((resolve) => { chain.waiters.push(resolve); });
 	}
 
+	/** 当前持有写入状态的 messageId 数（诊断用：长驻进程里这个数应当维持在很小的量级）。 */
+	get size(): number {
+		return this.chains.size;
+	}
+
 	/** 是否存在未确认（超时）写入。 */
 	isUncertain(messageId: string): boolean {
 		return this.chains.get(messageId)?.uncertain ?? false;
@@ -183,6 +188,11 @@ export class LiveChannel {
 		this.schedule(key, state);
 	}
 
+	/** 写入串行器里还留着几条链（诊断/测试用：长驻进程应当维持在很小的量级）。 */
+	get pendingWrites(): number {
+		return this.writer.size;
+	}
+
 	hasContent(key: string): boolean {
 		return Boolean(this.states.get(key)?.text);
 	}
@@ -203,6 +213,10 @@ export class LiveChannel {
 		// ② drain 全部在途写入（不只是最后一次）。
 		const drained = await this.writer.drain(state.messageId);
 		if (this.states.get(key) === state) this.states.delete(key);
+		// 释放写入串行器里的这条链：此后 final 由 durable 通道编辑同一个 messageId，
+		// 不再经 SerialWriter。不释放的话 chains 每个 messageId 留一条，长驻进程按轮次线性增长
+		// （`discard(key)` 因为状态已删而提前返回，永远走不到这里的清理）。
+		this.writer.discard(state.messageId);
 		// ③ 只有内容存在、未熔断、且无超时未确认写入时才复用该消息。
 		const reusable = Boolean(state.text) && state.failures < this.maxFailures && drained.ok;
 		return reusable ? state.messageId : undefined;
