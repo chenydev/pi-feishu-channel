@@ -343,3 +343,46 @@ test("入口·启动：没设 FEISHU_CHANNEL_ENABLED 时 RPC 模式也不自动�
 		await h.stop();
 	}
 });
+
+test("入口·启动：切会话再次触发 session_start 不换掉运行中组件的配置对象（热加载仍生效）", T, async () => {
+	// 关掉开通申请：群被准入拒绝时会去发申请卡，干扰「有没有回复」的判定
+	const h = await startHarness({ ...baseConfig, onboarding: { accessRequest: false } }, { mode: "tui" });
+	// 用命令而不是模型驱动：回复即时，且只看「这条群消息有没有被处理」。
+	// 发送走持久 outbox，落定时间不固定，所以等「计数连续两次不变」而不是固定睡一觉。
+	const settle = async () => {
+		let last = -1;
+		while (last !== h.sent(GROUP).length) {
+			last = h.sent(GROUP).length;
+			await new Promise((resolve) => setTimeout(resolve, 200));
+		}
+	};
+	try {
+		await h.pi.commands.get("feishu:start")?.handler("", undefined as never, []);
+		assert.ok(h.hasLog("bridge started"));
+
+		const before = h.sent(GROUP).length;
+		await h.message({ chatId: GROUP, chatType: "group", sender: USER, text: "/queue" });
+		await settle();
+		assert.ok(h.sent(GROUP).length > before, "热加载前群命令有回复");
+
+		// TUI 里切换/恢复会话会再触发一次 session_start：桥已在运行，不能重建配置对象
+		await h.pi.emit("session_start", { type: "session_start" }, { ui: h.pi.ctxUi, mode: "tui" });
+
+		// 改配置文件里的准入名单，再用命令热加载
+		const configFile = join(h.home, "feishu-channel", "config.json");
+		const onDisk = JSON.parse(readFileSync(configFile, "utf8")) as Record<string, unknown>;
+		onDisk.allowChats = [];
+		writeFileSync(configFile, `${JSON.stringify(onDisk, null, 1)}\n`);
+		await h.message({ chatId: GROUP, chatType: "group", sender: ADMIN, text: "/feishu config reload" });
+		await settle();
+
+		// 热加载必须作用在运行中的组件上：新名单（空）立即生效，群消息被准入拒绝
+		const afterReload = h.sent(GROUP).length;
+		await h.message({ chatId: GROUP, chatType: "group", sender: USER, text: "/queue" });
+		await settle();
+		assert.equal(h.sent(GROUP).length, afterReload, "reload 后的准入名单应对运行中的流水线生效");
+		assert.ok(h.hasLog("feishu.pipeline.drop"), "被准入拒绝的消息必须留下 drop 日志");
+	} finally {
+		await h.stop();
+	}
+});

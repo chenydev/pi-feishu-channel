@@ -4,6 +4,12 @@
 
 ## 未发布
 
+- 修复（运行时）：桥已启动后再次触发 `session_start`（TUI 里切换/恢复会话）会把运行中的配置对象换成新读的一份，
+  后果有两个：① 各组件持有的还是旧对象，`/feishu config reload`、`/feishu policy`、`/feishu budget`、
+  `/feishu footer`、`/feishu prompt` 回执说「已生效」但实际仍按旧值跑；
+  ② 启动时查询到的应用归属人与应用管理员（隐式管理员）不会从文件读回来，换掉就丢 —— 之后所有管理命令、
+  审批卡都回「仅管理员」。现在桥已在运行时不重建配置对象；改配置走 `/feishu config reload`。
+
 - 修复（命令）：`/model <片段> -g` 在模糊匹配成功时，会把回执里的提示文案一起写进 pi 的 `settings.json`
   （`defaultModel` 变成 `gemini-2.5-flash（按「flash」匹配）`）—— 之后所有新会话都用一个不存在的模型启动，
   只能手改文件恢复。现在只取 `已切换模型：provider/id` 这一段；回执文案不变。

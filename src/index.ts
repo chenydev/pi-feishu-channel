@@ -208,7 +208,11 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 		setReportedAgentDir(agentDir);
 		rt.homeDir = channelEnv(process.env, "HOME") ?? agentDir;
 		if (!prepareRuntimeDir(rt.homeDir, process.env, log)) return;
-		rt.config = loadConfig(rt.homeDir);
+		// 桥已经在跑就不再换配置对象。各组件（Sender / Pipeline / ConversationManager）持有的是启动时
+		// 那个引用，换掉之后 `/feishu config reload` 改的是新对象而运行中的组件永远读旧值（回执却说已生效）；
+		// 而且 implicitAdmins / appOwnerId 这类只在启动时查询、从不落盘的字段换掉就丢了，
+		// 后果是所有管理命令和审批卡都回「仅管理员」。改配置走 `/feishu config reload`。
+		if (!rt.started) rt.config = loadConfig(rt.homeDir);
 		// 只有设了 FEISHU_CHANNEL_ENABLED 的 RPC 进程自动启动，其余进程连上会和部署的实例抢同一个应用的长连接（见 runtime/autostart.ts）。
 		// 配置照样读进来，/feishu:start 手动启动时要用。
 		const blocker = autoStartBlocker(ctx?.mode, process.env);
