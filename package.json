@@ -1,6 +1,6 @@
 {
   "name": "pi-feishu-channel",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Feishu/Lark channel extension for Pi agent — hermes-grade messaging: per-chat group policy, robust @mention (ID+name+@_all), real reply chain with quoted-text fetch, dedup/batching, WS long-connection daemon.",
   "type": "module",
   "main": "src/index.ts",

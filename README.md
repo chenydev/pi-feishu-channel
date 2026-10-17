@@ -85,7 +85,8 @@
 # 装到用户级设置（~/.pi/agent/settings.json）
 pi install git:github.com/chenydev/pi-feishu-channel
 
-# 生产建议钉到具体 commit（仓库当前不打 tag；若以后有 tag，可直接写 @v0.2.0）
+# 生产建议钉到 tag 或具体 commit（tag 见仓库 Releases / git tag）
+pi install git:github.com/chenydev/pi-feishu-channel@v0.3.0
 pi install git:github.com/chenydev/pi-feishu-channel@<commit-sha>
 
 # 装到项目级设置（.pi/settings.json，可随仓库共享）
