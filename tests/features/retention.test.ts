@@ -35,3 +35,19 @@ test("会话归档·开：超过保留天数的会话归档为 .gz，并记录 f
 	assert.ok(existsSync(join(resolvePaths(rt.homeDir).sessionDir, "archive", "a.jsonl.gz")));
 	assert.ok(logs.includes("feishu.retention"));
 });
+
+test("会话归档·开：启动时顺带清理长回答导出的附件", async () => {
+	const { host, rt } = await featureHostFor([retentionFeature], { retention: { sessionDays: 30 } });
+	const exportsDir = resolvePaths(rt.homeDir).exportsDir;
+	mkdirSync(exportsDir, { recursive: true });
+	const base = Date.now() - 86_400_000;
+	for (let i = 0; i < 5; i += 1) {
+		const file = join(exportsDir, `reply-${i}.md`);
+		writeFileSync(file, "内容");
+		utimesSync(file, new Date(base + i * 1_000), new Date(base + i * 1_000));
+	}
+	await host.start();
+	assert.equal(existsSync(join(exportsDir, "reply-0.md")), true, "只有 5 份，远低于保留上限");
+	// 关掉后不再有定时器残留（unref + clearInterval）
+	await host.stop();
+});

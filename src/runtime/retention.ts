@@ -24,6 +24,31 @@ export function tightenSessionPermissions(dir: string): number {
 	return changed;
 }
 
+/**
+ * 清理导出的长回答文件（`exports/reply-*.md`）：只保留最近 `keep` 份。
+ *
+ * 这些文件是「回答太长，改成附件发」的副产物，内容在会话记录里也有；不清理的话
+ * 每次长回答都会在运行时目录留一份，几个月就是几万个小文件。
+ */
+export function pruneExports(input: { dir: string; keep: number }): number {
+	if (!existsSync(input.dir)) return 0;
+	const keep = Math.max(1, input.keep);
+	let files: Array<{ name: string; mtime: number }> = [];
+	try {
+		files = readdirSync(input.dir)
+			.filter((name) => name.startsWith("reply-") && name.endsWith(".md"))
+			.map((name) => ({ name, mtime: statSync(join(input.dir, name)).mtimeMs }))
+			.sort((a, b) => b.mtime - a.mtime);
+	} catch {
+		return 0;
+	}
+	let removed = 0;
+	for (const file of files.slice(keep)) {
+		try { unlinkSync(join(input.dir, file.name)); removed += 1; } catch { /* 单个文件失败不影响其余 */ }
+	}
+	return removed;
+}
+
 export function archiveOldSessions(input: { dir: string; keep: ReadonlySet<string>; days: number; now?: number }): string[] {
 	if (!input.days || input.days <= 0 || !existsSync(input.dir)) return [];
 	const cutoff = (input.now ?? Date.now()) - input.days * 86_400_000;
