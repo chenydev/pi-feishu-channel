@@ -563,6 +563,10 @@ test("撤回：撤回仍在合批窗口里的消息 → 从窗口移除；窗口
 	while (dispatched.length === 0 && Date.now() - started < 1_000) await new Promise((r) => setTimeout(r, 5));
 	assert.equal(dispatched.length, 1);
 	assert.equal(dispatched[0].text, "第一句");
+	// 撤掉的正是窗口里最后一条（carrier）：合并后的消息必须回退到剩下那条，
+	// 否则回复会挂到已撤回的消息上（飞书拒绝），待处理记录合并的主记录也已 ack。
+	assert.equal(dispatched[0].messageId, "om_r1", "合并消息不得以已撤回的消息为载体");
+	assert.deepEqual(dispatched[0].sourceMessageIds, ["om_r1"]);
 	await pipeline.handle(fakeMsg({ messageId: "om_r3", text: "只有一句" }));
 	assert.equal(pipeline.cancelBatched("om_r3"), true);
 	await new Promise((r) => setTimeout(r, 400));

@@ -79,7 +79,13 @@ export class InboundPipeline {
 			if (index < 0) continue;
 			window.messageIds.splice(index, 1);
 			window.parts.splice(index, 1);
+			window.messages.splice(index, 1);
 			window.resources = window.resources.filter((resource) => resource.messageId !== messageId);
+			// carrier 是合并后消息的模板（messageId / replyTo / threadId / 发送者都取自它）：
+			// 撤掉的如果正是窗口里最后一条，必须回退到剩下那条，否则回复会挂到已撤回的消息上，
+			// 待处理记录合并也会因为主记录已被 ack 而丢掉成员记录（重启后重复重放）。
+			const survivor = window.messages[window.messages.length - 1];
+			if (survivor) window.carrier = survivor;
 			this.deps.intake?.ack?.(messageId);
 			if (window.messageIds.length === 0) {
 				this.batcher.flush(key);

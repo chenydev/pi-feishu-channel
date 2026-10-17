@@ -25,6 +25,8 @@ export interface BatchWindow {
 	chatId: string;
 	parts: string[];
 	messageIds: string[];
+	/** 与 parts / messageIds 一一对应的原始消息：某条被撤回时要把 carrier 回退到剩下最后一条。 */
+	messages: FeishuInboundMessage[];
 	/** 窗口内所有消息的资源（媒体合批时非空）。 */
 	resources: ResourceRef[];
 	carrier: FeishuInboundMessage;
@@ -55,14 +57,15 @@ export class TextBatcher {
 		if (existing && now - existing.lastTs <= windowMs) {
 			existing.parts.push(msg.text);
 			existing.messageIds.push(msg.messageId);
+			existing.messages.push(msg);
 			existing.resources.push(...(msg.resources ?? []));
 			existing.carrier = msg;
 			existing.lastTs = now;
 			return true;
 		}
 		this.windows.set(key, {
-			key, chatId: msg.chatId, parts: [msg.text], messageIds: [msg.messageId], resources: [...(msg.resources ?? [])],
-			carrier: msg, firstTs: now, lastTs: now,
+			key, chatId: msg.chatId, parts: [msg.text], messageIds: [msg.messageId], messages: [msg],
+			resources: [...(msg.resources ?? [])], carrier: msg, firstTs: now, lastTs: now,
 		});
 		return false;
 	}
