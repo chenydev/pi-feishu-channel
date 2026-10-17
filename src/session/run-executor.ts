@@ -43,7 +43,7 @@ export interface RunHost {
 	removeProcessingReaction(sess: BridgeSession, item: QueuedMessage): Promise<void>;
 	clearPending(item: QueuedMessage): void;
 	/** 取出 pi 侧尚未执行的 steer 文本（并清空）；老 SDK 不支持时返回 undefined。 */
-	drainPiSteerQueue(sess: BridgeSession): string[] | undefined;
+	drainPiSteerQueue?(sess: BridgeSession): string[] | undefined;
 	notify(chatId: string, text: string, opts?: { replyTo?: string; threadId?: string }, dedupeKey?: string, laneKey?: string, kind?: "error" | "notify"): Promise<boolean>;
 }
 
@@ -472,7 +472,7 @@ export class RunExecutor {
 			// - 老 SDK 拿不到队列时按 turn 边界，但要求这轮**确实有过** turn 结束事件：
 			//   一个事件都没有的会话（老 SDK、不吐事件的实现）看不出真假，保守按「已消费」处理，
 			//   宁可维持旧行为也不要凭猜测重复执行。
-			const leftoverSteers = this.host.drainPiSteerQueue(sess);
+			const leftoverSteers = this.host.drainPiSteerQueue?.(sess);
 			const turnEndsAtEnd = sess.run?.turnEnds ?? 0;
 			const unconsumed = (steeredItem: QueuedMessage): boolean => leftoverSteers !== undefined
 				? Boolean(steeredItem.steerText && leftoverSteers.includes(steeredItem.steerText))

@@ -42,6 +42,8 @@ test("/stop 的标记不会毒化下一轮：新一轮开始就清掉", async ()
 		prepareAgentInput: async (item: QueuedMessage) => ({ text: item.text }),
 		touchRunActivity: () => {}, footerFor: () => "", rememberSentFooter: () => {},
 		recordRunUsage: async () => {}, removeProcessingReaction: async () => {}, clearPending: () => {},
+		// 老 SDK 没有 clearQueue：这里模拟「拿不到队列」，让收尾走保守分支
+		drainPiSteerQueue: () => undefined,
 		notify: async () => true,
 	} as unknown as RunHost;
 	const executor = new RunExecutor({
