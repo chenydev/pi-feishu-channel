@@ -138,6 +138,11 @@ export interface CardAction {
 	/** 回调 token（每次点击唯一）：用于去重。 */
 	token?: string;
 	value?: Record<string, unknown>;
+	/**
+	 * 表单提交的控件值（`action.form_value`，键是控件的 `name`）。
+	 * 普通按钮回调没有这个字段。
+	 */
+	formValue?: Record<string, unknown>;
 }
 
 export interface BotProbeResult {
@@ -650,16 +655,22 @@ export class FeishuTransport {
 		this.deps.log?.("debug", "feishu.transport.card_action", {
 			messageId,
 			hasValue: action.value !== undefined, op: (action.value as Record<string, unknown> | undefined)?.op,
+			// 表单提交不带 value，值在 action.form_value 里：记字段名（不记内容）
+			hasFormValue: action.form_value !== undefined,
+			formFields: action.form_value && typeof action.form_value === "object" ? Object.keys(action.form_value).slice(0, 20) : undefined,
 		});
 		const rawChatId = context.open_chat_id ?? context.chat_id ?? outer.open_chat_id;
 		if (!this.deps.onCardAction) return undefined;
 		const token = typeof outer.token === "string" ? outer.token : typeof context.token === "string" ? context.token : undefined;
+		// 表单提交：控件值在 action.form_value（键 = 控件 name）。普通按钮没有这个字段。
+		const formValue = action.form_value && typeof action.form_value === "object" ? action.form_value as Record<string, unknown> : undefined;
 		const work = this.deps.onCardAction({
 			messageId,
 			chatId: typeof rawChatId === "string" ? rawChatId : undefined,
 			operatorOpenId,
 			token,
 			value: action.value && typeof action.value === "object" ? action.value as Record<string, unknown> : undefined,
+			...(formValue ? { formValue } : {}),
 		});
 		// 飞书卡片回调 3s 内必须应答，否则用户看到"操作失败"而状态其实已经改了。
 		// 超出预算先回 toast，算完后用 PATCH 把结果卡刷上去（同步回卡是首选，异步刷卡兜底）。

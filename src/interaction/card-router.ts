@@ -37,7 +37,18 @@ export class CardRouter {
 	private readonly routes = new Map<string, { owner: string; spec: CardOpSpec }>();
 	private readonly tokens: CardTokenDedupe;
 
-	constructor(private readonly opts: { log: CardRouterLog; admins: () => readonly string[]; tokens?: CardTokenDedupe }) {
+	constructor(private readonly opts: {
+		log: CardRouterLog;
+		admins: () => readonly string[];
+		tokens?: CardTokenDedupe;
+		/**
+		 * 没有 `op` 的回调兜底解析。
+		 *
+		 * 飞书表单提交**不回传按钮的 value**（实测：`action.value` 为空），所以「提交」这类
+		 * 表单按钮的回调里只有卡片消息 id 和 `form_value`。这里让模块自己按消息 id 认领。
+		 */
+		fallbackOp?: (action: CardAction) => string | undefined;
+	}) {
 		this.tokens = opts.tokens ?? new CardTokenDedupe();
 	}
 
@@ -69,7 +80,8 @@ export class CardRouter {
 	/** 处理一次卡片回调；返回给飞书的应答（toast / 新卡片），不处理时返回 undefined。 */
 	async handle(action: CardAction): Promise<unknown> {
 		const value = action.value ?? {};
-		const op = typeof value.op === "string" ? value.op : null;
+		const declared = typeof value.op === "string" ? value.op : null;
+		const op = declared ?? (action.formValue ? this.opts.fallbackOp?.(action) ?? null : null);
 		this.opts.log.info("feishu.card.action", {
 			messageId: action.messageId, op, operator: action.operatorOpenId, hasValue: action.value !== undefined,
 		});

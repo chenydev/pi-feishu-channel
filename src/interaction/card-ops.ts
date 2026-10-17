@@ -13,9 +13,10 @@ import { buildApprovalCard, type ApprovalCardResolution } from "../approval/card
 import { buildModelStatusCard } from "../commands/models-card.js";
 import { resolveCommand } from "../commands/registry.js";
 import { LastSentCache, admit } from "../inbound/admit.js";
+import type { CardAction } from "../inbound/transport.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
 import type { FeishuInboundMessage } from "../types.js";
-import { buildClarificationResultCard, clarificationAnswerText, type ClarificationRecord } from "./clarification-store.js";
+import { buildClarificationAnswersResultCard, buildClarificationResultCard, clarificationAnswerText, clarificationAnswersText, type ClarificationRecord } from "./clarification-store.js";
 import type { CardOps, CardRouterLog } from "./card-router.js";
 
 export interface CardOpsContext {
@@ -126,20 +127,50 @@ export function commandCardOps({ log, admins, runCommand }: CardOpsContext): Car
  */
 export function clarifyCardOps({ rt, log }: CardOpsContext): CardOps {
 	return {
+		/**
+		 * 表单提交（多题 / 多选 / 自填）。
+		 *
+		 * 回调里 `action.formValue` 是「控件 name → 值」的映射；身份在提交按钮的 value 里，
+		 * 万一平台没带回 value（不同版本行为有差异），按卡片消息 id 找回记录再校验。
+		 */
+		clarify_submit: (action, value) => {
+			const values = action.formValue ?? {};
+			log.info("feishu.clarify.form_submit", {
+				messageId: action.messageId,
+				fields: Object.keys(values).slice(0, 20),
+				filled: Object.entries(values).filter(([, v]) => v === true || (typeof v === "string" && v.trim())).length,
+			});
+			const decided = rt.clarificationStore?.decideForm({
+				id: typeof value.clarificationId === "string" ? value.clarificationId : undefined,
+				token: typeof value.token === "string" ? value.token : undefined,
+				messageId: action.messageId, chatId: action.chatId ?? "", operatorOpenId: action.operatorOpenId,
+				values,
+			}, (record) => admitRefusal(rt, record, action, clarificationAnswersText([]), action.token));
+			if (!decided?.ok || !decided.record || !decided.answers) {
+				// 没答全/选超了不消费卡片：用户改一下还能再提交
+				return { toast: { type: "warning", content: decided?.reason ?? "这个提问已过期，直接回复文字即可" } };
+			}
+			const record = decided.record;
+			const text = clarificationAnswersText(decided.answers);
+			void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, text, action.token), { conversationKey: record.conversationKey }))
+				.then((result) => log.info("feishu.clarify.answered", { conversationKey: record.conversationKey, clarificationId: record.id, operator: action.operatorOpenId, result: result ?? "unavailable" }))
+				.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
+			return {
+				toast: { type: "success", content: "已提交" },
+				card: { type: "raw", data: buildClarificationAnswersResultCard(decided.answers, action.operatorOpenId) },
+			};
+		},
 		clarify: (action, value) => {
 			if (typeof value.clarificationId !== "string" || typeof value.token !== "string" || typeof value.choice !== "string") return undefined;
 			const choice = value.choice;
 			const decided = rt.clarificationStore?.decide({
 				id: value.clarificationId, token: value.token, messageId: action.messageId,
 				chatId: action.chatId ?? "", operatorOpenId: action.operatorOpenId, choice,
-			}, (record) => {
-				const verdict = admit(rt.config, answerMessage(record, action.messageId, action.operatorOpenId, choice, action.token), true, false, rt.lastSent ?? new LastSentCache(0));
-				return verdict.ok ? undefined : "你在这里没有使用机器人的权限，不能作答";
-			});
+			}, (record) => admitRefusal(rt, record, action, clarificationAnswerText(record.question, choice), action.token));
 			if (!decided?.ok || !decided.record) return { toast: { type: "warning", content: decided?.reason ?? "这个提问已过期，直接回复文字即可" } };
 			const record = decided.record;
 			// 后台进入会话：首次可能要建会话（几秒），不占卡片回调的 3 秒时限
-			void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, choice, action.token), { conversationKey: record.conversationKey }))
+			void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, clarificationAnswerText(record.question, choice), action.token), { conversationKey: record.conversationKey }))
 				.then((result) => log.info("feishu.clarify.answered", { conversationKey: record.conversationKey, clarificationId: record.id, operator: action.operatorOpenId, result: result ?? "unavailable" }))
 				.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
 			return {
@@ -150,13 +181,22 @@ export function clarifyCardOps({ rt, log }: CardOpsContext): CardOps {
 	};
 }
 
+/**
+ * 作答人的准入校验：谁能点 = 谁能在这里 @ 机器人（和在群里 @ 的规则一致，不另看管理员名单）。
+ * 用一条「假设他要发的消息」过 admit，保证私聊/群/话题三种形态走同一套判定。
+ */
+function admitRefusal(rt: CardOpsContext["rt"], record: ClarificationRecord, action: CardAction, choiceOrText: string, token: string | undefined): string | undefined {
+	const verdict = admit(rt.config, answerMessage(record, action.messageId, action.operatorOpenId, choiceOrText, token), true, false, rt.lastSent ?? new LastSentCache(0));
+	return verdict.ok ? undefined : "你在这里没有使用机器人的权限，不能作答";
+}
+
 /** 点击选项对应的合成消息：发送人是点击人，会话是提问所在的会话。 */
-function answerMessage(record: ClarificationRecord, cardMessageId: string, operatorOpenId: string, choice: string, token: string | undefined): FeishuInboundMessage {
+function answerMessage(record: ClarificationRecord, cardMessageId: string, operatorOpenId: string, text: string, token: string | undefined): FeishuInboundMessage {
 	const nonce = `#${token ?? randomBytes(6).toString("hex")}`;
 	return {
 		messageId: `${cardMessageId}${nonce}`, dedupeNonce: nonce, replyTarget: cardMessageId, synthetic: true,
 		chatId: record.chatId, chatType: record.chatType, ...(record.threadId ? { threadId: record.threadId } : {}),
-		senderId: operatorOpenId, isBot: false, msgType: "text", text: clarificationAnswerText(record.question, choice),
+		senderId: operatorOpenId, isBot: false, msgType: "text", text,
 		mentions: [], resources: [], raw: undefined, ts: Date.now(),
 	};
 }

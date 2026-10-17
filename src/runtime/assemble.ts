@@ -273,6 +273,17 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 					conversationKey: input.route.conversationKey, chatId: input.route.chatId, threadId: input.route.threadId,
 					chatType: input.route.chatType, askerId: input.route.senderId,
 					question: input.question, options: input.options,
+					...(input.questions?.length
+						? { questions: input.questions }
+						: input.multiSelect || input.recommended || input.reason
+							? { questions: [{
+								id: "q1", question: input.question, options: input.options,
+								...(input.multiSelect ? { multiSelect: true } : {}),
+								...(input.recommended ? { recommended: input.recommended } : {}),
+								...(input.reason ? { reason: input.reason } : {}),
+							}] }
+							: {}),
+					...(rt.config.clarify?.panels === false ? { panels: false } : {}),
 				});
 				try {
 					const messageId = await rt.transport?.sendCard(input.route.chatId, buildClarificationCard(record), {

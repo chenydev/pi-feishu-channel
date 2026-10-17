@@ -207,3 +207,159 @@ test("澄清提问：过期记录在新建提问时清掉（没人点的提问�
 	assert.ok(audits.some((event) => event.decision === "expired"), "清理要留审计");
 	assert.equal(click(store, first).ok, false, "旧卡依然点不了");
 });
+
+test("澄清提问（新版）：一卡多题走表单，选项是平铺复选框，提交一次回传", () => {
+	const { store } = makeStore();
+	const record = store.create({
+		conversationKey: "oc:u:ou", chatId: "oc_g", chatType: "group",
+		questions: [
+			{ question: "需要包含哪些字段？", options: ["产品名称", "价格区间", "库存状态"], multiSelect: true },
+			{ question: "处理范围？", options: ["仅当前聊天", "群内最近 7 天"] },
+		],
+	});
+	store.attachCard(record.id, "om_card");
+	const card = buildClarificationCard(record) as { body: { elements: Array<Record<string, unknown>> } };
+	const json = JSON.stringify(card);
+	assert.match(json, /"tag":"collapsible_panel"/, "每题一个折叠面板");
+	assert.match(json, /"tag":"checker"/, "选项是复选框而不是下拉");
+	assert.ok(!json.includes("multi_select_static") && !json.includes("select_static"), "不再用下拉控件");
+	assert.match(json, /"name":"q1__opt0"/, "复选框按位置命名，服务端据此还原选项");
+	assert.match(json, /"form_action_type":"submit"/);
+	assert.match(json, /"form_action_type":"reset"/, "带一个重置按钮（客户端本地清空，不花后端）");
+	assert.equal((json.match(/"tag":"input"/g) ?? []).length, 2, "每道题都带一个自填框");
+	assert.match(json, /单选，勾一个/, "单选题的标题要说明只能勾一个");
+
+	// 按位置回传勾选结果
+	const decided = store.decideForm({
+		messageId: "om_card", chatId: "oc_g", operatorOpenId: "ou_user",
+		values: { q1__opt0: true, q1__opt2: true, q2__opt1: true },
+	});
+	assert.equal(decided.ok, true);
+	assert.deepEqual(decided.answers, [
+		{ question: "需要包含哪些字段？", choices: ["产品名称", "库存状态"] },
+		{ question: "处理范围？", choices: ["群内最近 7 天"] },
+	]);
+	assert.equal(store.pendingCount(), 0, "提交后卡片消费掉");
+});
+
+test("澄清提问（新版）：漏答/单选勾了多个/自填都按规则校验，被拒时不消费卡片", () => {
+	let now = 0;
+	const { store } = makeStore({ now: () => now });
+	const record = store.create({
+		conversationKey: "oc:u:ou", chatId: "oc_g", chatType: "group",
+		questions: [
+			{ question: "范围？", options: ["A", "B"] },
+			{ question: "补充", options: ["无", "仅冒烟"] },
+		],
+	});
+	store.attachCard(record.id, "om_card");
+	const submit = (values: Record<string, unknown>) => store.decideForm({ messageId: "om_card", chatId: "oc_g", operatorOpenId: "ou_user", values });
+
+	assert.equal(submit({ q1__opt0: true }).reason.includes("还有问题没作答"), true, "第二题漏答要拒绝");
+	assert.equal(submit({ q1__opt0: true, q1__opt1: true, q2__opt0: true }).reason.includes("只能选一个"), true);
+	assert.equal(store.pendingCount(), 1, "被拒后卡片仍可继续作答");
+
+	const ok = submit({ q1__other: "自定义范围", q2__other: " 只跑冒烟 " });
+	assert.equal(ok.ok, true);
+	assert.deepEqual(ok.answers?.[0], { question: "范围？", choices: [], other: "自定义范围" }, "可以只自填不选");
+	assert.deepEqual(ok.answers?.[1], { question: "补充", choices: [], other: "只跑冒烟" }, "每题都有自填框");
+	assert.equal(store.pendingCount(), 0);
+	now = 0;
+});
+
+test("澄清提问（新版）：panels=false 时平铺（老客户端没有折叠面板）", () => {
+	const { store } = makeStore();
+	const record = store.create({
+		conversationKey: "oc:u:ou", chatId: "oc_g", chatType: "group", panels: false,
+		questions: [{ question: "范围？", options: ["A", "B"] }, { question: "格式？", options: ["表格", "文档"] }],
+	});
+	const json = JSON.stringify(buildClarificationCard(record));
+	assert.ok(!json.includes("collapsible_panel"), "不能出现折叠面板");
+	assert.match(json, /"tag":"checker"/, "复选框保留");
+});
+
+test("澄清表单提交：整卡作答进会话、卡片变结果；被拒时不消费也不改卡", async () => {
+	const { BridgeRuntime } = await import("../src/runtime/bridge-runtime.js");
+	const { DEFAULT_CONFIG } = await import("../src/types.js");
+	const { clarifyCardOps } = await import("../src/interaction/card-ops.js");
+	const rt = new BridgeRuntime();
+	rt.config = { ...DEFAULT_CONFIG, allowChats: ["oc_chat"] };
+	rt.clarificationStore = new ClarificationStore();
+	const routed: string[] = [];
+	rt.convManager = { route: async (msg: { text: string }) => { routed.push(msg.text); return "queued"; } } as never;
+	const logs: string[] = [];
+	const log = { info(event: string) { logs.push(event); }, warn() {}, error() {} };
+	const ops = clarifyCardOps({ rt, log, admins: () => [], runCommand: async () => undefined });
+	const submit = ops.clarify_submit as (action: unknown, value: Record<string, unknown>) => { toast?: { type: string; content: string }; card?: unknown };
+	const record = rt.clarificationStore.create({
+		conversationKey: "oc_chat", chatId: "oc_chat", chatType: "group",
+		questions: [
+			{ question: "需要包含哪些字段？", options: ["产品名称", "价格库存"], multiSelect: true },
+			{ question: "处理范围？", options: ["仅当前聊天", "群内最近 7 天"] },
+		],
+	});
+	rt.clarificationStore.attachCard(record.id, "om_card");
+	const action = { messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_user", token: "tok", formValue: {} };
+
+	// 单选勾了两个 → 拒绝，卡片不消费
+	const rejected = submit({ ...action, formValue: { q1__opt0: true, q2__opt0: true, q2__opt1: true } }, { op: "clarify_submit", clarificationId: record.id, token: record.token });
+	assert.equal(rejected.toast?.type, "warning");
+	assert.equal(rejected.card, undefined, "被拒不回结果卡");
+	assert.equal(rt.clarificationStore.pendingCount(), 1, "还能继续作答");
+
+	const ok = submit({ ...action, formValue: { q1__opt0: true, q1__opt1: true, q2__opt1: true } }, { op: "clarify_submit", clarificationId: record.id, token: record.token });
+	assert.equal(ok.toast?.type, "success");
+	assert.ok(ok.card, "提交后卡片变成结果卡");
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.deepEqual(routed, ["[选择] 共 2 题\n- 需要包含哪些字段：产品名称、价格库存\n- 处理范围：群内最近 7 天\n（以上是用户对提问的作答）"]);
+	assert.ok(logs.includes("feishu.clarify.form_submit"), "提交要留痕（排障时能看到平台回传了哪些字段）");
+	assert.equal(rt.clarificationStore.pendingCount(), 0);
+});
+
+test("澄清提问（新版）：推荐的选项打 ⭐，理由写在题目下面", () => {
+	const { store } = makeStore();
+	const record = store.create({
+		conversationKey: "oc:u:ou", chatId: "oc_g", chatType: "group",
+		questions: [{
+			question: "输出成什么格式？", options: ["Markdown 表格", "飞书文档", "多维表格"],
+			multiSelect: true, recommended: [0], reason: "群里直接看，表格最快",
+		}],
+	});
+	const json = JSON.stringify(buildClarificationCard(record));
+	assert.match(json, /⭐ Markdown 表格（推荐）/, "推荐项要打标");
+	assert.ok(!json.includes("⭐ 飞书文档"), "只标推荐的");
+	assert.match(json, /群里直接看，表格最快/, "理由要显示出来");
+});
+
+test("澄清表单提交：飞书不回传按钮 value 时，按卡片消息 id 认领并正常作答", async () => {
+	const { CardRouter } = await import("../src/interaction/card-router.js");
+	const { BridgeRuntime } = await import("../src/runtime/bridge-runtime.js");
+	const { DEFAULT_CONFIG } = await import("../src/types.js");
+	const { clarifyCardOps } = await import("../src/interaction/card-ops.js");
+	const rt = new BridgeRuntime();
+	rt.config = { ...DEFAULT_CONFIG, allowChats: ["oc_chat"] };
+	rt.clarificationStore = new ClarificationStore();
+	const routed: string[] = [];
+	rt.convManager = { route: async (msg: { text: string }) => { routed.push(msg.text); return "queued"; } } as never;
+	const log = { info() {}, warn() {}, error() {} };
+	const record = rt.clarificationStore.create({
+		conversationKey: "oc_chat", chatId: "oc_chat", chatType: "group",
+		questions: [{ question: "范围？", options: ["仅当前聊天", "群内最近 7 天"] }],
+	});
+	rt.clarificationStore.attachCard(record.id, "om_card");
+	const router = new CardRouter({
+		log, admins: () => [],
+		// 真机行为：表单提交的 value 为空，只有 formValue；靠这张卡属于哪个提问来认领
+		fallbackOp: (action) => (action.formValue && rt.clarificationStore?.findByMessage(action.messageId) ? "clarify_submit" : undefined),
+	}).register("clarify", clarifyCardOps({ rt, log, admins: () => [], runCommand: async () => undefined }));
+
+	const result = await router.handle({
+		messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_user", token: "tok-1",
+		formValue: { q1__opt1: true },
+	}) as { toast?: { type: string } } | undefined;
+	assert.equal(result?.toast?.type, "success", "没有 op 也要认领成功");
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.equal(routed.length, 1);
+	assert.match(routed[0]!, /群内最近 7 天/);
+	assert.equal(rt.clarificationStore.pendingCount(), 0);
+});

@@ -90,6 +90,14 @@ export interface BridgeHookContext {
 		question: string;
 		options: string[];
 		route: BridgeRoute;
+		/** 一卡多题（1-4 题）；给了这个就忽略 question/options。 */
+		questions?: Array<{ id?: string; question: string; options: string[]; multiSelect?: boolean; recommended?: number[]; reason?: string }>;
+		/** 单题多选。 */
+		multiSelect?: boolean;
+		/** 单题推荐选项下标（卡片上打 ⭐）。 */
+		recommended?: number[];
+		/** 单题推荐理由。 */
+		reason?: string;
 	}): Promise<{ status: "card" | "text" } | { status: "unavailable"; detail: string }>;
 
 	/**
@@ -247,37 +255,76 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 		pi.registerTool({
 			name: "feishu_ask",
 			label: "向用户提出选择题",
-			description: "在飞书会话中提出 2-4 个选项的澄清问题。调用后本轮立即结束；用户的选择会以「[选择] 选项」的新消息发来，用户也可能直接打字回复。不授予任何工具权限",
-			promptSnippet: "需要用户在几个方案中选择时，用 feishu_ask 提问（单独调用，不要和其他工具一起），调用后本轮就结束，等用户的选择作为新消息发来再继续；不要用它请求工具授权。",
+			description: "在飞书会话中提澄清问题：单题（2-4 个选项，点一下就答）或一次问多题（1-4 题，每题可多选/可自填，用户提交一次全部作答）。调用后本轮立即结束；用户的作答会以「[选择] …」的新消息发来，用户也可能直接打字回复。有明确更优的选项时用 recommended（下标）+ reason（一句理由）标出推荐，卡片上会打 ⭐ 并说明为什么。不授予任何工具权限",
+			promptSnippet: "需要用户选择或确认时用 feishu_ask（单独调用，不要和其他工具一起），调用后本轮就结束，等用户的作答作为新消息发来再继续；一次要问多件事就用 questions（最多 4 题），能一次问清就别分多轮；不要用它请求工具授权。",
 			parameters: {
 				type: "object",
 				properties: {
-					question: { type: "string", description: "要确认的问题" },
-					options: { type: "array", items: { type: "string" }, description: "2-4 个互斥选项。尽量写成 14 字以内的短语（会直接做成按钮）；理由、路径等细节放进 question" },
+					question: { type: "string", description: "单题时的问题（与 options 一起用；要问多题请改用 questions）" },
+					options: { type: "array", items: { type: "string" }, description: "单题时的 2-4 个选项。14 字以内会做成整行按钮（点一下即答），更长的自动改成编号按钮" },
+					multiSelect: { type: "boolean", description: "单题时允许多选（会变成「勾选 + 提交」的卡片）" },
+					recommended: { type: "array", items: { type: "number" }, description: "单题时推荐哪几个选项（从 0 开始的下标）" },
+					reason: { type: "string", description: "单题时为什么推荐（显示在题目下面）" },
+					questions: {
+						type: "array",
+						description: "一次问多题（1-4 题）：一张卡片里逐题作答，用户提交一次。给了这个就不要再用 question/options",
+						items: {
+							type: "object",
+							properties: {
+								question: { type: "string", description: "这一题的问题" },
+								options: { type: "array", items: { type: "string" }, description: "2-4 个选项" },
+								multiSelect: { type: "boolean", description: "这题可以多选" },
+								recommended: { type: "array", items: { type: "number" }, description: "推荐哪几个选项（从 0 开始的下标）。卡片上会打 ⭐ 并标「推荐」" },
+								reason: { type: "string", description: "为什么推荐（一两句，显示在题目下面）。只在给了 recommended 时显示" },
+							},
+							required: ["question", "options"],
+						},
+					},
 				},
-				required: ["question", "options"],
 			},
 			execute: async (toolCallId, params, _signal, _onUpdate, runtimeCtx: ExtensionRuntimeContext) => {
 				if (!ctx.askChoice) {
 					return { content: [{ type: "text", text: "当前桥版本不支持交互提问，请直接用文字说明你的选择" }], isError: true } as ExtensionToolResult;
 				}
+				const rawQuestions = Array.isArray(params.questions) ? params.questions as Array<Record<string, unknown>> : [];
+				const questions = rawQuestions.map((item, index) => ({
+					id: `q${index + 1}`,
+					question: typeof item.question === "string" ? item.question.trim() : "",
+					options: Array.isArray(item.options) ? (item.options as unknown[]).map((option) => String(option).trim()).filter(Boolean) : [],
+					multiSelect: item.multiSelect === true,
+					...(Array.isArray(item.recommended) ? { recommended: item.recommended as number[] } : {}),
+					...(typeof item.reason === "string" ? { reason: item.reason } : {}),
+				}));
 				const question = typeof params.question === "string" ? params.question.trim() : "";
 				const options = Array.isArray(params.options) ? params.options.map((option) => String(option).trim()).filter(Boolean) : [];
-				if (!question) return { content: [{ type: "text", text: "问题不能为空" }], isError: true } as ExtensionToolResult;
-				if (options.length < 2 || options.length > 4) {
-					return { content: [{ type: "text", text: "选项数量必须是 2-4 个" }], isError: true } as ExtensionToolResult;
+				if (questions.length > 0) {
+					if (questions.length > 4) return { content: [{ type: "text", text: "一次最多问 4 个问题" }], isError: true } as ExtensionToolResult;
+					const bad = questions.find((item) => !item.question || item.options.length < 2 || item.options.length > 4);
+					if (bad) return { content: [{ type: "text", text: `第 ${questions.indexOf(bad) + 1} 题需要问题文本和 2-4 个选项` }], isError: true } as ExtensionToolResult;
+				} else {
+					if (!question) return { content: [{ type: "text", text: "问题不能为空" }], isError: true } as ExtensionToolResult;
+					if (options.length < 2 || options.length > 4) {
+						return { content: [{ type: "text", text: "选项数量必须是 2-4 个" }], isError: true } as ExtensionToolResult;
+					}
 				}
 				const sessionId = runtimeCtx.sessionManager.getSessionId();
 				const route = ctx.routeForSessionId(sessionId);
 				if (!route) return { content: [{ type: "text", text: "当前没有活动的飞书会话，无法提问" }], isError: true } as ExtensionToolResult;
-				const result = await ctx.askChoice({ toolCallId, question, options, route });
+				const result = await ctx.askChoice({
+					toolCallId, question, options, route,
+					...(questions.length > 0 ? { questions } : {}),
+					...(params.multiSelect === true ? { multiSelect: true } : {}),
+					...(Array.isArray(params.recommended) ? { recommended: params.recommended as number[] } : {}),
+					...(typeof params.reason === "string" ? { reason: params.reason } : {}),
+
+				});
 				if (result.status === "unavailable") {
 					return { content: [{ type: "text", text: `无法提问：${result.detail}` }], isError: true } as ExtensionToolResult;
 				}
 				// 不等待：本轮到此结束（terminate），用户的选择会作为新消息进入会话
 				const how = result.status === "card" ? "选择题卡片" : "文字选择题（卡片发送失败）";
 				return {
-					content: [{ type: "text", text: `已向用户发出${how}。本轮到此结束：不要替用户做选择，也不要继续做依赖这个选择的事；用户的选择会以「[选择] 选项」的新消息发来，也可能直接打字回复。` }],
+					content: [{ type: "text", text: `已向用户发出${how}。本轮到此结束：不要替用户做选择，也不要继续做依赖这个选择的事；用户的选择会以「[选择] …」的新消息发来，也可能直接打字回复。` }],
 					terminate: true,
 				} as ExtensionToolResult;
 			},

@@ -146,6 +146,7 @@ export const fileConfigSchema = z.object({
 	}).partial(), "回复反馈"),
 	clarify: m(z.object({
 		ttlMs: m(nonNegative, "`feishu_ask` 提问卡片的有效期（毫秒；0 = 不设上限）。提问不阻塞会话，同一会话发出新提问或 /new 时旧卡也会失效", { default: "86400000" }),
+		panels: m(bool, "把每道题收进可折叠面板（飞书客户端 ≥ 7.9；低版本会显示「升级客户端」占位，此时改成 `false` 用平铺布局）", { default: "true" }),
 	}).partial(), "澄清提问（feishu_ask）"),
 	cardTool: m(z.object({
 		enabled: m(bool, "给 agent 一个 `feishu_card` 工具，用来发自定义交互卡片", { default: "false" }),

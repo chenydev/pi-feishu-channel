@@ -67,7 +67,11 @@ export default function feishuBridgeExtension(pi: ExtensionAPI, deps: BridgeDeps
 
 	// ---- 卡片按钮与斜杠命令 ----
 	const cardOpsContext = { rt, log, admins, runCommand: (msg: FeishuInboundMessage) => commandDispatcher.dispatch(msg) };
-	const cardRouter = new CardRouter({ log, admins })
+	const cardRouter = new CardRouter({
+		log, admins,
+		// 表单提交不回传按钮 value：按「这张卡是不是某个还没答的提问」认领
+		fallbackOp: (action) => (action.formValue && rt.clarificationStore?.findByMessage(action.messageId) ? "clarify_submit" : undefined),
+	})
 		.register("model", modelCardOps(cardOpsContext))
 		.register("command", commandCardOps(cardOpsContext))
 		.register("clarify", clarifyCardOps(cardOpsContext))
