@@ -123,6 +123,8 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 审批卡点不动 | 点的人不是管理员（协作者里的开发者、运营不算） | 加进 `admins`，或由归属人 / 应用管理员点 |
 | 点过「始终批准」后再也不弹卡 | 规则表里有这条规则名（`/feishu always` 查看）；PS 用 `*` 作默认规则时，通配规则名**不会落盘**，只在当个会话有效 | 撤销：`/feishu always revoke <规则名>`；切回本会话级授权需要 `/new` |
 | 归属人 / 应用管理员没被识别 | 缺 `application:application:readonly` 或协作者接口失败 | 看 `feishu.config.app_owner_hydrated` / `*_hydrate_failed`；开权限后重启，或写进 `admins` |
+| 群里 @ 机器人完全没反应，日志只有 `reason: bot_not_mentioned` | 取不到 bot open_id（`feishu.transport.bot_identity_missing`）→ 任何 @ 都判不出「是 @ 我」 | 配 `config.botOpenId`，或恢复应用信息读取权限 |
+| 长回答只到了一部分，末尾说「内容可能不完整」 | 某一段（分片）永久失败，其它段照常发出 | 按提示重发这一句；`feishu.outbox.failed` 里的 `lastError` 说明原因 |
 | 点卡片提示「已失效」 | 超时（默认 5 分钟）或这一轮已结束 | 尽快点；或调大 `approval.timeoutMs` |
 | PS 的「询问」全被拒绝，不弹卡 | PS 的 `authorizerChain` 没写 `feishu-channel`，或 PS 版本 < 27.0.0 | `/feishu doctor` 的 `ps_link`；在 PS 配置加 `"authorizerChain": ["feishu-channel"]` 后重启 |
 | 读写工作目录外的文件总被拒，不弹卡 | PS 不允许授权链放行路径类请求 | 日志 `feishu.approval.ps_link_capped`；在 PS 配置里放行这些路径 |

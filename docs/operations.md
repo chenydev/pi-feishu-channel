@@ -69,14 +69,14 @@
 
 | 环节 | 正常事件 | 异常事件 |
 |---|---|---|
-| 连接 | `feishu.transport.ws_ready`、`ws_reconnected` | `ws_reconnecting`、`ws_error` |
+| 连接 | `feishu.transport.ws_ready`、`ws_reconnected`、`bot_identity` | `ws_reconnecting`、`ws_error`、**`bot_identity_missing`**（取不到 open_id → 群里 @ 全判成「没 @ 我」） |
 | 收到 | `feishu.conv.event` | `feishu.transport.drop_malformed`、`drop_self_echo` |
 | 去重 / 合批 | `feishu.pipeline.batched` | `feishu.pipeline.drop_duplicate` |
-| 准入 | —— | **`feishu.pipeline.drop`**（见 §3） |
+| 准入 | —— | **`feishu.pipeline.drop`**（见 §3）；启动恢复：`feishu.conv.recover_pending`（重放）、`recover_pending_exhausted`（同一条消息第 3 次被恢复 → 不再自动重跑） |
 | 命令 | `feishu.command` | `feishu.card.command_failed` |
-| 执行 | `feishu.session.resource_loader_ready`（`strippedGateways` 正常为 1）、`feishu.session.created`、`feishu.conv.send_reply_start` | `feishu.conv.run_error`、`run_idle_timeout`（`phase`：`tool` 卡在工具，带 `tool` / `toolMs`；`model` 卡在等模型）、`model_retry`（pi 自动重试，带 `attempt` / `error`）、`model_quiet`（等模型 1 分钟没有输出）、`budget_exceeded` |
+| 执行 | `feishu.session.resource_loader_ready`（`strippedGateways` 正常为 1）、`feishu.session.created`、`feishu.conv.send_reply_start` | `feishu.conv.run_error`、`run_idle_timeout`（`phase`：`tool` 卡在工具，带 `tool` / `toolMs`；`model` 卡在等模型）、`model_retry`（pi 自动重试，带 `attempt` / `error`）、`model_quiet`（等模型 1 分钟没有输出）、`budget_exceeded`、`pump_failed`（一轮收尾抛错，队列继续）、`notify_failed` / `notify_not_queued`（出错提示没送出去） |
 | 审批 | `feishu.approval.mode`（启动时的全局模式）、`mode_changed`、`audit`、`command_allow` / `command_ask` / `command_deny`；pi-permission-system 模式：`ps_link`、`ps_link_decision`、`ps_always_approved`、`ps_session_approved` | `feishu.approval.invalidated`、`card_terminal_failed`、`plugin_unavailable`、`ps_link_not_in_chain`、`ps_version_unsupported`、`ps_link_capped`、`ps_link_unavailable` |
-| 回复 | `feishu.conv.reply_sent`、`feishu.outbox.delivered`、`feishu.stream_card.finished`；卡片超过 10 分钟后 `streaming_closed`（改用整组件替换，正常） | `feishu.outbox.failed`、`feishu.sender.*_fallback`、`feishu.stream_card.update_failed`、`fallback_to_text` |
+| 回复 | `feishu.conv.reply_sent`、`feishu.outbox.delivered`、`feishu.stream_card.finished`；卡片超过 10 分钟后 `streaming_closed`（改用整组件替换，正常） | `feishu.outbox.failed`、`feishu.outbox.drain_failed`（落盘失败，队列继续）、`feishu.sender.*_fallback`、`feishu.stream_card.update_failed`、`fallback_to_text` |
 
 **以最终效果为准**：看到 `tool_execution_*` 只说明过程发生了；要确认功能可用，得看 agent 的回复里有没有命令的真实输出。
 
