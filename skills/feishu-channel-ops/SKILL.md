@@ -121,6 +121,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 审批卡没弹，命令直接执行 | 审批模式是关闭（默认）；用 pi-permission-system 时没配「询问」规则；或内置分级判为只读 | 查 `/feishu approvals` 的模式和来源、PS 规则 |
 | 审批已关闭，仍有调用被拒 | 装了 pi-permission-system，不受本扩展模式影响 | 卸插件或在它的配置里放行 |
 | 审批卡点不动 | 点的人不是管理员（协作者里的开发者、运营不算） | 加进 `admins`，或由归属人 / 应用管理员点 |
+| 点过「始终批准」后再也不弹卡 | 规则表里有这条规则名（`/feishu always` 查看）；PS 用 `*` 作默认规则时，通配规则名**不会落盘**，只在当个会话有效 | 撤销：`/feishu always revoke <规则名>`；切回本会话级授权需要 `/new` |
 | 归属人 / 应用管理员没被识别 | 缺 `application:application:readonly` 或协作者接口失败 | 看 `feishu.config.app_owner_hydrated` / `*_hydrate_failed`；开权限后重启，或写进 `admins` |
 | 点卡片提示「已失效」 | 超时（默认 5 分钟）或这一轮已结束 | 尽快点；或调大 `approval.timeoutMs` |
 | PS 的「询问」全被拒绝，不弹卡 | PS 的 `authorizerChain` 没写 `feishu-channel`，或 PS 版本 < 27.0.0 | `/feishu doctor` 的 `ps_link`；在 PS 配置加 `"authorizerChain": ["feishu-channel"]` 后重启 |

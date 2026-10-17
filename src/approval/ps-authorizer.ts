@@ -25,7 +25,7 @@ import type { ExtensionAPI } from "../pi-types.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
 import type { BridgeLogger } from "../runtime/logger.js";
 import type { BridgeRoute } from "../session/pi-bridge-hooks.js";
-import type { AlwaysApprovedStore } from "./always-approved-store.js";
+import { isWildcardPattern, type AlwaysApprovedStore } from "./always-approved-store.js";
 import { type ApprovalMode, effectiveApprovalMode, globalApprovalMode } from "./mode.js";
 import type { ApprovalChoice, ApprovalVerdict, PendingApprovalInput } from "./permission-bridge.js";
 import { redactParams } from "./permission-bridge.js";
@@ -301,12 +301,25 @@ export class PsAuthorizer {
 			this.rememberSession(sessionId, patterns);
 			return;
 		}
+		// 通配规则名（PS 配置里的 "*"）不能永久化：它匹配任何值，落盘后任何会话、任何工具都直接放行。
+		// 退化为本会话批准 —— 管理员这一次的选择仍然有效，/new 之后重新询问。
+		const wildcard = patterns.filter(isWildcardPattern);
+		const persistable = patterns.filter((pattern) => !isWildcardPattern(pattern));
+		if (wildcard.length > 0) {
+			this.deps.log("warn", "feishu.approval.ps_always_degraded", {
+				conversationKey: route.conversationKey,
+				reason: "规则名是通配符，永久放行会跳过全部审批",
+				patterns: wildcard,
+			});
+			this.rememberSession(sessionId, wildcard);
+		}
+		if (persistable.length === 0) return;
 		try {
-			for (const pattern of patterns) store.add({ pattern, approvedBy: operatorId, conversationKey: route.conversationKey });
-			this.deps.log("info", "feishu.approval.ps_always_recorded", { conversationKey: route.conversationKey, patterns, approvedBy: operatorId ?? null });
+			for (const pattern of persistable) store.add({ pattern, approvedBy: operatorId, conversationKey: route.conversationKey });
+			this.deps.log("info", "feishu.approval.ps_always_recorded", { conversationKey: route.conversationKey, patterns: persistable, approvedBy: operatorId ?? null });
 		} catch (error) {
 			this.deps.log("error", "feishu.approval.always_persist_failed", {
-				patterns, error: error instanceof Error ? error.message : String(error),
+				patterns: persistable, error: error instanceof Error ? error.message : String(error),
 			});
 		}
 	}

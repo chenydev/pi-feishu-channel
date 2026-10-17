@@ -192,6 +192,23 @@ test("PS 环节：复合命令要每段的规则都批准过才自动放行", as
 	} finally { cleanup(); }
 });
 
+test("PS 环节：通配规则名（PS 的 \"*\"）不能永久放行，退化为本会话批准", async () => {
+	const { authorizer, cards, store, logs, cleanup } = setup({ answer: { verdict: "approved", choice: "always" } });
+	try {
+		// PS 用 "*" 作为默认 ask 规则（{"bash":{"*":"ask"}}）：批准后不能把整张审批规则表关掉
+		await authorizer.authorize("s1", bashAsk("npm test", "*"), QUERY);
+		assert.equal(store?.size, 0, "通配规则不得落盘");
+		assert.ok(logs.includes("feishu.approval.ps_always_degraded"));
+		assert.equal(cards.length, 1, "这一次已批准");
+		// 本次会话内仍然有效（管理员的选择不该作废）
+		await authorizer.authorize("s1", bashAsk("npm run build", "*"), QUERY);
+		assert.equal(cards.length, 1, "同一会话内不再问");
+		// /new（新会话 id）之后重新询问：永久放行只对非通配规则生效
+		await authorizer.authorize("s2", bashAsk("npm test", "*"), QUERY);
+		assert.equal(cards.length, 2, "换会话要重新问");
+	} finally { cleanup(); }
+});
+
 test("PS 环节：没有规则名时「始终批准」退化为本会话批准；规则表关闭时卡片只有三档", async () => {
 	const noPattern = setup({ answer: { verdict: "approved", choice: "always" } });
 	try {

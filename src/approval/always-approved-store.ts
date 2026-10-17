@@ -30,6 +30,17 @@ interface StoreFile {
 
 const STORE_VERSION = 1;
 
+/**
+ * 纯通配的规则名（PS 配置里的 `"*"`）不能进「始终批准」表。
+ *
+ * 它匹配的是「任何值」：落盘后**任何会话、任何工具**命中该规则都会被直接放行，
+ * 而卡片上只显示「命中规则：*」—— 管理员点一次「始终批准」等于把整个审批关掉，
+ * 且重启后仍然生效。这类规则退化为本会话批准（见 `ps-authorizer.ts`）。
+ */
+export function isWildcardPattern(pattern: string): boolean {
+	return /^\*+$/.test(pattern.trim());
+}
+
 export class AlwaysApprovedStore {
 	private readonly file: string;
 	private rules = new Map<string, AlwaysApprovedRule>();
@@ -46,6 +57,8 @@ export class AlwaysApprovedStore {
 			const raw = JSON.parse(readFileSync(this.file, "utf8")) as StoreFile;
 			for (const rule of raw?.rules ?? []) {
 				if (typeof rule?.pattern === "string" && rule.pattern) {
+					// 旧版本可能把通配规则名落了盘（那时不拦）：不再受它影响，下次落盘时顺手清掉
+					if (isWildcardPattern(rule.pattern)) continue;
 					this.rules.set(rule.pattern, {
 						pattern: rule.pattern,
 						approvedBy: typeof rule.approvedBy === "string" ? rule.approvedBy : undefined,
@@ -69,14 +82,15 @@ export class AlwaysApprovedStore {
 		renameSync(tmp, this.file);
 	}
 
-	/** 规则是否已被「始终批准」。pattern 为空时一律返回 false（没有依据就不自动放行）。 */
+	/** 规则是否已被「始终批准」。pattern 为空或纯通配时一律返回 false（没有依据就不自动放行）。 */
 	has(pattern: string | null | undefined): boolean {
-		if (!pattern) return false;
+		if (!pattern || isWildcardPattern(pattern)) return false;
 		return this.rules.has(pattern);
 	}
 
-	/** 记录一条「始终批准」。重复批准同一条规则只更新元信息。 */
+	/** 记录一条「始终批准」。重复批准同一条规则只更新元信息。通配规则名会被拒绝（会放行全部同类请求）。 */
 	add(rule: { pattern: string; approvedBy?: string; conversationKey?: string }): AlwaysApprovedRule {
+		if (isWildcardPattern(rule.pattern)) throw new Error(`「始终批准」不接受通配规则名：${rule.pattern}`);
 		const record: AlwaysApprovedRule = {
 			pattern: rule.pattern,
 			approvedBy: rule.approvedBy,

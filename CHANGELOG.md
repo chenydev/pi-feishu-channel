@@ -4,6 +4,10 @@
 
 ## 未发布
 
+- **行为变更（审批）**：PS 规则名是纯通配符（配置里的 `"*"`）时，「始终批准」不再落盘，只在本会话有效（日志 `feishu.approval.ps_always_degraded`）。
+  之前这种规则名会写进 `ps-always-approved.json`，而它匹配任何值 —— 管理员点一次就把所有工具、所有会话的审批永久关掉了，
+  卡片上却只写着「命中规则：*」。旧版本已经写进去的 `*` 不再生效，并在下次落盘时清掉。
+
 - 修复（审批）：只读命令白名单的「越权参数」只列了短选项，`git grep --open-files-in-pager=…`、`sort --compress-program=…`
   能在**不弹审批卡**的情况下执行任意命令（`git grep -O`、`sort -o` 一直是拦住的）。现在长选项同样收回白名单，
   `git diff|show|log` 的 `--ext-diff` / `--textconv`、`rg --hostname-bin`、`find -fprint0` 一并覆盖。
