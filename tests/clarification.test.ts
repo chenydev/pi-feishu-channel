@@ -363,3 +363,13 @@ test("澄清表单提交：飞书不回传按钮 value 时，按卡片消息 id 
 	assert.match(routed[0]!, /群内最近 7 天/);
 	assert.equal(rt.clarificationStore.pendingCount(), 0);
 });
+
+test("澄清提问（新版）：单题多选也走表单卡（单题形态的顶层参数不能丢）", () => {
+	const { store } = makeStore();
+	const record = store.create({ conversationKey: "oc:u:ou", chatId: "oc_g", chatType: "group", question: "覆盖哪些？", options: ["登录", "下单"], multiSelect: true });
+	const json = JSON.stringify(buildClarificationCard(record));
+	assert.match(json, /"tag":"checker"/, "多选要有复选框");
+	assert.match(json, /"tag":"form"/, "要有提交按钮");
+	assert.match(json, /（多选）/, "标题要标多选");
+	assert.ok(!json.includes('"op":"clarify"'), "不能再降级成点一下即答的按钮卡");
+});

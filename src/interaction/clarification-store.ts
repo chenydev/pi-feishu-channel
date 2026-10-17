@@ -66,6 +66,10 @@ export interface ClarificationRequest {
 	askerId?: string;
 	question?: string;
 	options?: string[];
+	/** 单题形态下的多选 / 推荐（等价于把它们写在 questions[0] 上）。 */
+	multiSelect?: boolean;
+	recommended?: number[];
+	reason?: string;
 	/** 用折叠面板收纳每道题（飞书客户端 ≥ 7.9；`false` = 平铺）。 */
 	panels?: boolean;
 	/** 一卡多题（1-4 题）。给了这个就忽略上面的 question/options；`id` 缺省按 q1、q2… 生成。 */
@@ -337,9 +341,18 @@ function pickedOptions(values: Record<string, unknown>, question: ClarificationQ
  * 校验放在这里，工具层只负责把用户输入转成结构化形式。
  */
 function normalizeQuestions(input: ClarificationRequest): ClarificationQuestion[] {
+	// 单题形态（question + options）也要带上顶层的 multiSelect / recommended / reason，
+	// 否则「单题多选」会被悄悄降级成按钮卡。
 	const raw = (input.questions?.length
 		? input.questions
-		: [{ id: "q1", question: input.question ?? "", options: input.options ?? [] }]) as ClarificationQuestion[];
+		: [{
+			id: "q1",
+			question: input.question ?? "",
+			options: input.options ?? [],
+			...(input.multiSelect ? { multiSelect: true } : {}),
+			...(input.recommended ? { recommended: input.recommended } : {}),
+			...(input.reason ? { reason: input.reason } : {}),
+		}]) as ClarificationQuestion[];
 	if (raw.length > MAX_QUESTIONS) throw new Error(`一次最多问 ${MAX_QUESTIONS} 个问题`);
 	const seen = new Set<string>();
 	return raw.map((item, index) => {
