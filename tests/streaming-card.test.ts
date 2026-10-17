@@ -378,3 +378,32 @@ test("流式卡片：未声明页脚元素时（footer 关闭）不写 metrics",
 	const bodyWrites = calls.filter((c) => c.url.endsWith("/elements/stream/content"));
 	assert.equal(String((bodyWrites.at(-1)!.data as { content: string }).content), "最终答案\n\n本轮 页脚");
 });
+
+test("流式卡片：收尾写入期间到达的增量不得覆盖最终正文", async () => {
+	const calls: Array<{ url: string; method: string; data?: unknown }> = [];
+	let release: () => void = () => {};
+	let released = false;
+	const holdFirstContent = new Promise<void>((resolve) => { release = () => { released = true; resolve(); }; });
+	const request = async (opts: { url: string; method: string; data?: unknown }) => {
+		calls.push({ url: opts.url, method: opts.method, data: opts.data });
+		if (opts.url.includes("/elements/stream/content") && !released) await holdFirstContent;
+		if (opts.url === "/open-apis/cardkit/v1/cards") return { data: { card_id: "card-1" } };
+		if (opts.url.startsWith("/open-apis/im/v1/messages")) return { data: { message_id: "om-card-1" } };
+		return { data: {} };
+	};
+	const card = new StreamingCard({ rawRequest: request, throttleMs: 0, now: () => 1_000 });
+	assert.equal(await card.start({ chatId: "oc_x" }, "处理中…"), true);
+
+	const finishing = card.finish("最终答案");
+	// finish 已经串上最终正文（写入还没回来），此时来一次增量更新：
+	// 不拦住的话它会排在最终写入之后，把卡片正文改回中间态，而 finish 仍返回成功。
+	card.update("中间态内容");
+	release();
+	assert.equal(await finishing, true);
+
+	const contents = calls
+		.filter((call) => call.url.includes("/elements/stream/content"))
+		.map((call) => (call.data as { content: string }).content);
+	assert.equal(contents.at(-1), "最终答案", `最后一次写入必须是最终正文（实际：${JSON.stringify(contents)}）`);
+	assert.ok(!contents.includes("中间态内容"), "收尾期间的增量不应写入");
+});

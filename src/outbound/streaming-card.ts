@@ -169,7 +169,9 @@ export class StreamingCard {
 
 	/** 节流提交增量文本（累积态，非增量片段）。 */
 	update(text: string): void {
-		if (!this.available) return;
+		// 收尾进行中（`finalizing`）不再接增量：finish 已经串上最终正文，而这次写入会排到它之后，
+		// 把卡片改回旧内容（且 finish 仍返回成功，调用方不会走文本兜底）。
+		if (!this.available || this.finalizing) return;
 		this.pendingText = text;
 		const elapsed = this.now() - this.lastFlushAt;
 		if (elapsed >= this.throttleMs) {
