@@ -1165,7 +1165,8 @@ export class ConversationManager {
 		if (!emoji || !this.deps.config.reaction?.enabled || !this.deps.reactions) return;
 		await this.removeProcessingReaction(sess, item);
 		if (item.synthetic) return;
-		try { await this.deps.reactions.add(item.messageId, emoji); } catch { /* 表情失败不影响注入 */ }
+		// 记下 id：这一轮结束时和「处理中」一样撤掉，换成完成 / 失败表情
+		try { item.emojiReactionId = await this.deps.reactions.add(item.messageId, emoji) ?? ""; } catch { /* 表情失败不影响注入 */ }
 	}
 
 	/**

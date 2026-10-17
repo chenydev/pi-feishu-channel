@@ -106,6 +106,7 @@ export const fileConfigSchema = z.object({
 		enabled: m(bool, "处理消息时在原消息上加表情"),
 		failureEmoji: m(str, "处理失败时加的表情；空字符串 = 不加"),
 		steerEmoji: m(str, "忙碌时被并入当前任务的消息加的表情；空字符串 = 用 `processingEmoji`"),
+		doneEmoji: m(str, "处理完成后加的表情（替换处理中 / 并入表情，`/stop` 中止的不加）；空字符串 = 不加，处理完只撤掉处理中表情"),
 	}).partial(), "处理状态表情"),
 	queueNotice: m(bool, "忙碌时排队的消息回复一次「已排队」（同一会话 10 秒内只提示一次）；工具执行超过 1 分钟时收到的消息回复一次正在做什么（5 分钟内只提示一次）"),
 	longReply: m(z.object({

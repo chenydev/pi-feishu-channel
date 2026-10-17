@@ -195,6 +195,8 @@ export interface BridgeConfig {
 		failureEmoji?: string;
 		/** 忙碌时并入当前任务的消息改加这个表情（默认 JIAYI「+1」；空串 = 仍用 processingEmoji）。 */
 		steerEmoji?: string;
+		/** 成功处理完的消息换成这个表情（默认 DONE；空串 = 处理完只撤掉处理中表情）。 */
+		doneEmoji?: string;
 	};
 	/**
 	 * 忙碌时排队的消息回复一次"已排队，第 N 个"（同一会话 10 秒内只提示一次；默认开）。
@@ -396,7 +398,7 @@ export const DEFAULT_CONFIG: BridgeConfig = {
 		// 「始终批准」默认开：它需要管理员主动点卡片才生效，且撤销入口存在（/feishu always revoke）。
 		plugin: { alwaysApprove: true },
 	},
-	reaction: { processingEmoji: "Typing", enabled: true, failureEmoji: "CrossMark", steerEmoji: "JIAYI" },
+	reaction: { processingEmoji: "Typing", enabled: true, failureEmoji: "CrossMark", steerEmoji: "JIAYI", doneEmoji: "DONE" },
 	queueNotice: true,
 	footer: { enabled: false, showCost: true, showCny: true, showContext: true, showSession: true },
 	footerByChat: {},

@@ -106,6 +106,7 @@
 | `reaction.enabled` | boolean | `true` |  | 热加载 | 处理消息时在原消息上加表情 |
 | `reaction.failureEmoji` | string | `"CrossMark"` |  | 热加载 | 处理失败时加的表情；空字符串 = 不加 |
 | `reaction.steerEmoji` | string | `"JIAYI"` |  | 热加载 | 忙碌时被并入当前任务的消息加的表情；空字符串 = 用 `processingEmoji` |
+| `reaction.doneEmoji` | string | `"DONE"` |  | 热加载 | 处理完成后加的表情（替换处理中 / 并入表情，`/stop` 中止的不加）；空字符串 = 不加，处理完只撤掉处理中表情 |
 
 ## `longReply`：超长回答转文件（可选能力，默认关闭）
 

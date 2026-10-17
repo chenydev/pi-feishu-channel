@@ -51,7 +51,8 @@
     "processingEmoji": "Typing",
     "enabled": true,
     "failureEmoji": "CrossMark",
-    "steerEmoji": "JIAYI"
+    "steerEmoji": "JIAYI",
+    "doneEmoji": "DONE"
   },
   "queueNotice": true,
   "footer": {

@@ -109,6 +109,7 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 任务被中止（空闲超时） | 工具执行中 `runToolIdleTimeoutMs`（默认 60 分钟）没有输出，或等模型时 `runIdleTimeoutMs`（默认 10 分钟）没有输出 | 中止提示和 `run_idle_timeout` 的 `phase` 说明是哪一种；调大对应字段 |
 | 卡片停在「正在处理…」/ 半截，答案另发一条 | 旧版本没处理卡片 10 分钟后流式模式被关闭（`update_failed` 的 `200850` / `300309`） | 升级；新版本记 `feishu.stream_card.streaming_closed` 后改用整组件替换 |
 | 显示「模型服务暂时不可用，正在自动重试」/「可能在排队」 | 模型服务繁忙（DeepSeek 排队时只发 keep-alive，pi 的 HTTP 超时拦不住） | 等或 `/stop` 后 `/model` 换模型；常遇到把 `runIdleTimeoutMs` 调到 `180000`。见 [运维 §4](../../docs/operations.md#4-常见症状) |
+| 消息上的表情什么意思 | 敲键盘 = 已收下（排队或执行中）；+1 = 已并入当前这一轮；DONE = 完成；❌ = 失败；`/stop` 中止的不留表情 | 看排队用 `/queue list` / `/progress`；改表情用 `reaction.*`，`doneEmoji: ""` 关掉完成表情。见 [运维 §4](../../docs/operations.md#4-常见症状) |
 | 群切到全群共用后机器人不记得之前的内容 | 会话 key 从 `<chatId>:u:<openId>` 变成 `<chatId>`，旧个人会话还在；几个人在群里各做各的事时，该群应设 `groupRules.<id>.sessionsPerUser: true` | 群里 `/sessions` 找「某某 的个人会话」，本人或管理员 `/resume #N`（恢复后全群共用）。见 [运维 §4](../../docs/operations.md#4-常见症状) |
 | 任务执行中问进度没回应 | 普通消息要等当前工具结束才交给模型 | 发 `/progress`（立即回复，不打断任务） |
 | 点提问卡片选项提示没有权限 / 已过期 | 作答权限 = 能在这里 @ 机器人；卡片答过一次、有新提问、`/new` 或超过 `clarify.ttlMs`（24 小时）后失效 | 放行这个人（§3），或直接打字回复；看 `feishu.clarify.audit` |

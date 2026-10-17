@@ -175,6 +175,7 @@
 | 任务被中止，提示「没有收到模型的任何输出」 | 等模型时连续 `runIdleTimeoutMs`（默认 10 分钟）没有输出，多半是模型服务卡住。DeepSeek 繁忙时先回响应头、再只发 `: keep-alive` 排队，最长 10 分钟才断开：pi 的 `httpIdleTimeoutMs`、`retry.provider.timeoutMs` 都拦不住，只能靠这个超时 | `/retry`，或 `/model` 换模型；常遇到可以把 `runIdleTimeoutMs` 调到 `180000`，早点结束排队 |
 | 流式卡片一直停在「正在处理…」或半截内容，答案或中止说明另发了一条 | 旧版本：卡片开启约 10 分钟后飞书关闭流式模式，之后写入全部失败（日志 `feishu.stream_card.update_failed`，`200850` / `300309`） | 升级到包含 `feishu.stream_card.streaming_closed` 的版本 |
 | 卡片或进度显示「模型服务暂时不可用，正在自动重试」或「可能在排队」 | 模型服务繁忙：前者是 pi 收到 503、限流等临时错误后在重试（默认 3 次），后者是 1 分钟没有任何输出 | 一般等着即可；不想等就 `/stop`，`/model` 换模型再发。日志 `feishu.conv.model_retry` / `model_quiet` |
+| 不清楚消息上的表情代表什么 | 敲键盘 = 已收下（在排队或正在执行）；+1 = 已并入正在执行的那一轮；DONE = 处理完成；❌ = 处理失败。`/stop` 中止、`/queue clear` 清掉的消息不留表情。合批的几条消息都会加 DONE / ❌ | 要看排队用 `/queue list` 或 `/progress`。表情在 `reaction.*` 里改，`doneEmoji` 设为空字符串就不加完成表情 |
 | 群里切到全群共用（`groupSessionsPerUser: false`，或该群 `groupRules.<id>.sessionsPerUser: false`）后，机器人不记得之前聊的内容 | 群的会话 key 变了，新消息进了新的共享会话；之前各人的个人会话文件都还在 | 在群里发 `/sessions`，找标着「某某 的个人会话」的那段，本人或管理员 `/resume #N`；恢复后这段上下文全群共用，日志 `feishu.conv.session_resumed` 带 `personalOwner`。几个人在群里各做各的事时，把这个群设回 `sessionsPerUser: true` 后 `/feishu config reload`，各人的会话就接上了 |
 | 任务执行中发消息问进度，很久没回应 | 普通消息在工具执行中要等这一步结束才交给模型 | 发 `/progress`：立即回复，不打断任务 |
 | 装了新技能 / 扩展，飞书会话里用不上 | 已建立的会话不会自动重新加载，只有新建的会话才读到 | 在该会话发 `/reload`（或 `/new`）；回执列出新增技能和加载失败的条目，日志 `feishu.conv.reloaded` / `reload_failed` |

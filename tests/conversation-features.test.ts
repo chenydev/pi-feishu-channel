@@ -161,6 +161,94 @@ test("忙碌提示：并入当前任务的消息换成 steer 表情", async () =
 	} finally { rmSync(h.dir, { recursive: true, force: true }); }
 });
 
+test("完成表情：成功结束后主消息和并入的消息都撤掉处理中 / +1，换成 DONE", async () => {
+	const h = harness({ blockPrompt: true, config: { reaction: { ...DEFAULT_CONFIG.reaction, enabled: true } }, handle: { async steer() {} } });
+	try {
+		await h.manager.route(message("m1"));
+		await waitUntil(() => h.prompts.length === 1);
+		assert.equal(await h.manager.route(message("m2")), "steered");
+		h.release();
+		await waitUntil(() => h.reactions.filter((r) => r.emoji === "DONE").length === 2);
+		assert.deepEqual(h.reactions.filter((r) => r.messageId === "m1"), [
+			{ op: "add", messageId: "m1", emoji: "Typing" },
+			{ op: "remove", messageId: "m1" },
+			{ op: "add", messageId: "m1", emoji: "DONE" },
+		]);
+		assert.deepEqual(h.reactions.filter((r) => r.messageId === "m2"), [
+			{ op: "add", messageId: "m2", emoji: "Typing" },
+			{ op: "remove", messageId: "m2" },
+			{ op: "add", messageId: "m2", emoji: "JIAYI" },
+			{ op: "remove", messageId: "m2" },
+			{ op: "add", messageId: "m2", emoji: "DONE" },
+		]);
+	} finally { rmSync(h.dir, { recursive: true, force: true }); }
+});
+
+test("完成表情：合批的几条消息都加 DONE", async () => {
+	const h = harness({ config: { reaction: { ...DEFAULT_CONFIG.reaction, enabled: true } } });
+	try {
+		await h.manager.route(message("m3", "合并后的内容", { sourceMessageIds: ["m1", "m2", "m3"] }));
+		await waitUntil(() => h.reactions.filter((r) => r.emoji === "DONE").length === 3);
+		assert.deepEqual(h.reactions.filter((r) => r.emoji === "DONE").map((r) => r.messageId), ["m1", "m2", "m3"]);
+	} finally { rmSync(h.dir, { recursive: true, force: true }); }
+});
+
+test("完成表情：doneEmoji 为空时处理完只撤掉处理中表情", async () => {
+	const h = harness({ config: { reaction: { ...DEFAULT_CONFIG.reaction, enabled: true, doneEmoji: "" } } });
+	try {
+		await h.manager.route(message("m1"));
+		await waitUntil(() => h.reactions.some((r) => r.op === "remove"));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.deepEqual(h.reactions, [
+			{ op: "add", messageId: "m1", emoji: "Typing" },
+			{ op: "remove", messageId: "m1" },
+		]);
+	} finally { rmSync(h.dir, { recursive: true, force: true }); }
+});
+
+test("完成表情：/stop 中止的这一轮不加 DONE，并入的 +1 也撤掉", async () => {
+	const h = harness({ blockPrompt: true, config: { reaction: { ...DEFAULT_CONFIG.reaction, enabled: true } }, handle: { async steer() {} } });
+	try {
+		await h.manager.route(message("m1"));
+		await waitUntil(() => h.prompts.length === 1);
+		assert.equal(await h.manager.route(message("m2")), "steered");
+		assert.equal(await h.manager.stopConversation(message("x")), true);
+		await waitUntil(() => h.reactions.filter((r) => r.op === "remove").length === 3);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(h.reactions.some((r) => r.emoji === "DONE"), false);
+		assert.deepEqual(h.reactions.at(-1), { op: "remove", messageId: "m2" }, "+1 撤掉了");
+	} finally { rmSync(h.dir, { recursive: true, force: true }); }
+});
+
+test("完成表情：当前任务失败、并入的消息退回队列时 +1 换回处理中，重跑成功后再加 DONE", async () => {
+	let fail: (error: Error) => void = () => {};
+	let calls = 0;
+	const h = harness({ config: { reaction: { ...DEFAULT_CONFIG.reaction, enabled: true } }, handle: {
+		async steer() {},
+		async prompt() {
+			calls += 1;
+			if (calls === 1) await new Promise<void>((_, reject) => { fail = reject; });
+		},
+	} });
+	try {
+		await h.manager.route(message("m1"));
+		await waitUntil(() => calls === 1);
+		assert.equal(await h.manager.route(message("m2")), "steered");
+		fail(new Error("boom"));
+		await waitUntil(() => h.reactions.some((r) => r.messageId === "m2" && r.emoji === "DONE"));
+		assert.deepEqual(h.reactions.filter((r) => r.messageId === "m2"), [
+			{ op: "add", messageId: "m2", emoji: "Typing" },
+			{ op: "remove", messageId: "m2" },
+			{ op: "add", messageId: "m2", emoji: "JIAYI" },
+			{ op: "remove", messageId: "m2" },
+			{ op: "add", messageId: "m2", emoji: "Typing" },
+			{ op: "remove", messageId: "m2" },
+			{ op: "add", messageId: "m2", emoji: "DONE" },
+		]);
+		assert.ok(h.reactions.some((r) => r.messageId === "m1" && r.emoji === "CrossMark"));
+	} finally { rmSync(h.dir, { recursive: true, force: true }); }
+});
+
 test("撤回：撤回排队中的消息 → 出队；撤回执行中的 → 只停本轮", async () => {
 	const h = harness({ blockPrompt: true });
 	try {

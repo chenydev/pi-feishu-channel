@@ -461,9 +461,10 @@ export class RunExecutor {
 			}
 		} finally {
 			const steered = sess.steered.splice(0);
-			if (!runSucceeded && !sess.stopRequested && steered.length > 0) {
+			const requeued = !runSucceeded && !sess.stopRequested ? steered : [];
+			if (requeued.length > 0) {
 				// 当前 run 异常时，已并入当前轮的 steer 降级为独立 FIFO turn，避免静默丢失。
-				sess.queue.unshift(...steered);
+				sess.queue.unshift(...requeued);
 			}
 			if (streamCard) {
 				// run 异常结束时收尾卡片，避免它永远停在「正在处理…」
@@ -484,10 +485,12 @@ export class RunExecutor {
 				this.host.removeProcessingReaction(sess, item),
 				this.host.progress.finish(sess, st, runSucceeded ? "ok" : stopped ? "stopped" : "failed"),
 				...completedSteers.map((steeredItem) => this.host.removeProcessingReaction(sess, steeredItem)),
+				...requeued.map((steeredItem) => this.restoreProcessingReaction(sess, steeredItem)),
 			]);
-			// 失败要有明确标记（先撤 Typing 再加失败表情，避免同时显示"处理中"和"失败"）。
-			// 用户主动 /stop 与关闭重启不算失败。
-			if (!runSucceeded && !stopped && !this.host.shuttingDown) await this.markFailed(item);
+			// 结束要有明确标记（先撤 Typing / +1 再加，避免同时显示"处理中"和结果）：
+			// 成功 → 完成表情；失败 → 失败表情。用户主动 /stop 与关闭重启两样都不加。
+			if (runSucceeded && !stopped) await this.markDone([item, ...completedSteers]);
+			else if (!runSucceeded && !stopped && !this.host.shuttingDown) await this.markFailed(item);
 			if (durableHandled) {
 				this.host.clearPending(item);
 				for (const steeredItem of completedSteers) this.host.clearPending(steeredItem);
@@ -541,8 +544,33 @@ export class RunExecutor {
 
 
 	private async markFailed(item: QueuedMessage): Promise<void> {
-		const emoji = this.deps.config.reaction?.failureEmoji ?? "CrossMark";
-		if (!emoji || !this.deps.config.reaction?.enabled || !this.deps.reactions || !item.messageId || item.synthetic) return;
-		try { await this.deps.reactions.add(item.messageId, emoji); } catch { /* 标记失败不影响错误通知 */ }
+		await this.addResultReaction([item], this.deps.config.reaction?.failureEmoji ?? "CrossMark");
+	}
+
+	/** 这一轮成功结束：主消息和并入的消息都打完成表情。 */
+	private async markDone(items: QueuedMessage[]): Promise<void> {
+		await this.addResultReaction(items, this.deps.config.reaction?.doneEmoji);
+	}
+
+	/** 结果表情加在每条原始消息上（合批的几条都加，不只是带「处理中」的那条）；合成消息不加。 */
+	private async addResultReaction(items: QueuedMessage[], emoji: string | undefined): Promise<void> {
+		const reactions = this.deps.reactions;
+		if (!emoji || !this.deps.config.reaction?.enabled || !reactions) return;
+		const ids = new Set(items.filter((item) => !item.synthetic)
+			.flatMap((item) => item.sourceMessageIds?.length ? item.sourceMessageIds : [item.messageId])
+			.filter(Boolean));
+		await Promise.allSettled([...ids].map((id) => reactions.add(id, emoji))); // 表情失败不影响交付
+	}
+
+	/**
+	 * 并入的消息退回队列重跑：+1 换回「处理中」（它已不属于任何一轮）。
+	 * 关闭时只撤不加：队列不再执行，重启恢复时会重新加。
+	 */
+	private async restoreProcessingReaction(sess: BridgeSession, item: QueuedMessage): Promise<void> {
+		const reaction = this.deps.config.reaction;
+		if (!reaction?.steerEmoji || !reaction.enabled || !this.deps.reactions || item.synthetic) return;
+		await this.host.removeProcessingReaction(sess, item);
+		if (this.host.shuttingDown) return;
+		try { item.emojiReactionId = await this.deps.reactions.add(item.messageId, reaction.processingEmoji) ?? ""; } catch { /* best effort */ }
 	}
 }
