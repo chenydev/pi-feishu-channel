@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chunkMarkdown, safeCutIndex } from "../src/outbound/markdown-chunks.js";
+import { chunkMarkdown, safeCutIndex, splitMarkdownSegments } from "../src/outbound/markdown-chunks.js";
 import { buildMarkdownPostPayload, truncateMessage } from "../src/outbound/sender.js";
 
 function postRows(payload: string | undefined): Array<{ tag: string; text: string }> {
@@ -129,4 +129,30 @@ test("长文切分：safeCutIndex 落在 grapheme 边界且至少推进一个 co
 	const text = "ab😀cd";
 	const cut = safeCutIndex(text, 3);
 	assert.equal(text.slice(0, cut), "ab", "不得切出半个代理对");
+});
+
+test("分片：围栏带空格或非 \\w 语言标记时仍然按代码块处理", () => {
+	const cases = [
+		["``` ts", "```", "ts"],
+		["```c++", "```", "c++"],
+		["```js title=x", "```", "js"],
+		["~~~objective-c", "~~~", "objective-c"],
+	] as const;
+	for (const [opener, closer, language] of cases) {
+		// 分段：这几种写法原来匹配不上围栏，开围栏被当成正文、闭围栏被当成开围栏
+		const segments = splitMarkdownSegments(`${opener}\nconst a = 1;\n${closer}\n\nafter`);
+		assert.equal(segments[0]?.type, "code", `${opener} 应识别为代码段`);
+		assert.equal(segments[0]?.language, language, `${opener} 语言标记`);
+		assert.equal(segments[0]?.closed, true, `${opener} 应识别出闭合`);
+		assert.deepEqual(segments[1]?.lines, ["", "after"], `${opener} 之后的正文不能被并进代码段`);
+
+		// 分片：长代码块每片自带开闭围栏，正文不会掉进围栏里
+		const body = Array.from({ length: 40 }, (_, i) => `const value${i} = ${i};`).join("\n");
+		const chunks = chunkMarkdown(`${opener}\n${body}\n${closer}\n\n结尾正文`, 200);
+		assert.ok(chunks.length >= 2, `${opener} 应被切分`);
+		for (const chunk of chunks) {
+			if (chunk.includes("结尾正文")) continue;
+			assert.match(chunk, /^(?:```|~~~)/, `${opener}: 分片必须自带开围栏`);
+		}
+	}
 });

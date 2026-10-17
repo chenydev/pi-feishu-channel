@@ -47,8 +47,13 @@ export function safeCutIndex(text: string, maxChars: number): number {
 	return firstSegmentLength > 0 ? firstSegmentLength : 1;
 }
 
-/** 围栏行：``` 或 ~~~（允许缩进与语言标记）。 */
-const FENCE_RE = /^\s*(`{3,}|~{3,})(\w*)\s*$/;
+/**
+ * 围栏行：``` 或 ~~~（允许缩进、围栏与语言之间带空格、以及任意 info string）。
+ *
+ * 原来只认 `\w*`，于是 ` ``` ts `（带空格）、` ```c++ `、` ```js title=x ` 这些写法匹配不上：
+ * 开围栏当选正文、闭围栏当开围栏，长回答分片时会把正文包成代码块、又在下一片里多出一段围栏。
+ */
+const FENCE_RE = /^\s*(`{3,}|~{3,})[ \t]*([^`\s]*)(?:[ \t].*)?$/;
 
 export interface MarkdownSegment {
 	type: "text" | "code";
