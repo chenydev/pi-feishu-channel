@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { buildAllowChatCard, buildHelpCard, buildNewSessionCard, buildSessionsCard, buildWelcomeCard } from "../src/commands/cards.js";
 import { buildModelStatusCard } from "../src/commands/models-card.js";
 import { parseLifecycleEvent } from "../src/inbound/transport.js";
-import { psBashVerdict, summarizeApprovalPolicy } from "../src/approval/policy-summary.js";
+import { psBashVerdict, summarizeApprovalPolicy, type PsPermissionConfig } from "../src/approval/policy-summary.js";
 import { formatStepSummary, renderProgressText } from "../src/outbound/progress-render.js";
 import { DEFAULT_CONFIG } from "../src/types.js";
 
@@ -114,4 +114,13 @@ test("完成页脚：终态页脚带步骤摘要", () => {
 		startedAt: 0, finishedAt: 12_400, now: 12_400, outcome: "ok", stepSummary: "共 1 步（bash×1）",
 	});
 	assert.match(text, /✅ 完成 · 12\.4s · 共 1 步（bash×1）/);
+});
+
+test("PS bash 判定：复合命令逐段匹配（否则前半段清洗一下就能绕过 deny）", () => {
+	const ps: PsPermissionConfig = { permission: { bash: { "*": "allow", "cat *.env": "deny", "git *": "ask" } } };
+	assert.deepEqual(psBashVerdict(ps, "cd /tmp && cat x.env"), { verdict: "deny", rule: "cat *.env" }, "整串匹配会漏掉后半段");
+	assert.deepEqual(psBashVerdict(ps, "ls; cat .env"), { verdict: "deny", rule: "cat *.env" });
+	assert.deepEqual(psBashVerdict(ps, "ls\ncat prod.env"), { verdict: "deny", rule: "cat *.env" });
+	assert.deepEqual(psBashVerdict(ps, "cd /tmp && git status | head"), { verdict: "ask", rule: "git *" });
+	assert.deepEqual(psBashVerdict(ps, "ls -la && pwd"), { verdict: "allow" });
 });

@@ -98,6 +98,11 @@ const DANGEROUS_PATTERNS: Array<{ re: RegExp; reason: string }> = [
 /** 复合结构：出现即要求逐段判定；无法安全拆分时降级为 ask。 */
 // 必须包含 `&` 与换行：否则 `ls & git push`、多行脚本第二行之后的命令完全不判 → 放行任意命令
 const COMPOUND_SEPARATOR = /\s*(?:&&|\|\||;|\||&|\r?\n)\s*/;
+
+/** 把复合命令拆成逐段（PS 的 bash 规则也是按段判定的）。 */
+export function splitCommandSegments(raw: string): string[] {
+	return raw.split(COMPOUND_SEPARATOR).map((s) => s.trim()).filter((s) => s.length > 0);
+}
 /** 这些构造让静态判定不可靠：命令替换、进程替换、后台执行、eval 类。 */
 const UNSAFE_CONSTRUCTS: Array<{ re: RegExp; reason: string }> = [
 	{ re: /\$\(|`/, reason: "包含命令替换，内容无法静态判定" },

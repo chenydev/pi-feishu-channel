@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { BridgeConfig } from "../types.js";
 import { type ApprovalMode, type ApprovalModeSource, describeApprovalMode } from "./mode.js";
+import { splitCommandSegments } from "./command-policy.js";
 import { PS_LINK_NAME, PS_MIN_VERSION, type PsLinkStatus } from "./pi-permission-system.js";
 
 type Action = "allow" | "ask" | "deny";
@@ -34,6 +35,9 @@ function globToRegExp(pattern: string): RegExp {
 /**
  * bash 命令在 PS 规则下的保守判定：任一 deny 规则命中 → deny；否则任一 ask 命中 → ask；
  * 否则取 `*` 默认（缺省 ask）。比 PS 的"最具体规则优先"更保守 —— 用于桥自己把关时宁严勿松。
+ *
+ * **按段判定**（`&&`、`||`、`;`、`|`、换行）：PS 的 bash 规则本来就只看单个命令，
+ * 拿整串去匹配会让 `cd /tmp && cat x.env` 错过 `cat *.env: deny`，落到 `*: allow` 上放行。
  */
 export function psBashVerdict(config: PsPermissionConfig | undefined, command: string): { verdict: Action; rule?: string } | undefined {
 	const bash = config?.permission?.bash;
@@ -41,15 +45,19 @@ export function psBashVerdict(config: PsPermissionConfig | undefined, command: s
 	const rules = typeof bash === "object" ? bash : undefined;
 	const fallback: Action = typeof bash === "string" ? bash : typeof config.permission["*"] === "string" ? config.permission["*"] as Action : "ask";
 	if (!rules) return { verdict: fallback };
-	const cmd = command.trim();
-	let ask: string | undefined;
-	for (const [pattern, action] of Object.entries(rules)) {
-		if (pattern === "*") continue;
-		if (!globToRegExp(pattern).test(cmd)) continue;
-		if (action === "deny") return { verdict: "deny", rule: pattern };
-		if (action === "ask") ask ??= pattern;
+	const segments = splitCommandSegments(command);
+	// 拆不出段（空命令）时退回整串：与以前一致，不额外放行
+	const candidates = segments.length > 0 ? segments : [command.trim()];
+	let ask: { rule: string; segment: string } | undefined;
+	for (const segment of candidates) {
+		for (const [pattern, action] of Object.entries(rules)) {
+			if (pattern === "*") continue;
+			if (!globToRegExp(pattern).test(segment)) continue;
+			if (action === "deny") return { verdict: "deny", rule: pattern };
+			ask ??= { rule: pattern, segment };
+		}
 	}
-	if (ask) return { verdict: "ask", rule: ask };
+	if (ask) return { verdict: "ask", rule: ask.rule };
 	return { verdict: rules["*"] ?? fallback };
 }
 
