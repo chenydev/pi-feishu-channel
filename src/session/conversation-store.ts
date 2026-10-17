@@ -10,8 +10,8 @@
  * - 索引缺失 → 调用方用确定性路径并写入 generation=1；
  * - 索引损坏或写入失败 → 由调用方显式报错，**不得静默回退到旧会话**。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { atomicWriteFile } from "../runtime/atomic-file.js";
 
 export interface ConversationHistoryEntry {
 	/** 已退役的会话文件（绝对路径）。 */
@@ -113,10 +113,7 @@ export class ConversationStore {
 	}
 
 	private persist(): void {
-		mkdirSync(dirname(this.file), { recursive: true });
 		const output = [...this.records.values()].map((record) => JSON.stringify(record)).join("\n");
-		const tmp = `${this.file}.tmp`;
-		writeFileSync(tmp, output ? `${output}\n` : "", { encoding: "utf8", mode: 0o600 });
-		renameSync(tmp, this.file);
+		atomicWriteFile(this.file, output ? `${output}\n` : "");
 	}
 }

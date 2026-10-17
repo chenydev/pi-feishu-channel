@@ -10,8 +10,8 @@
  * 代价是粒度偏粗（批准 `echo PS-TEST-*` 会放行所有命中该规则的动作），
  * 所以撤销入口必须存在（见 /feishu always revoke）与审计。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { atomicWriteJson } from "../runtime/atomic-file.js";
 
 export interface AlwaysApprovedRule {
 	/** PS 的规则名（请求 facts.matchedPattern）。 */
@@ -75,11 +75,8 @@ export class AlwaysApprovedStore {
 	}
 
 	private persist(): void {
-		mkdirSync(dirname(this.file), { recursive: true });
 		const payload: StoreFile = { version: STORE_VERSION, rules: [...this.rules.values()] };
-		const tmp = `${this.file}.tmp`;
-		writeFileSync(tmp, `${JSON.stringify(payload, null, 1)}\n`, { encoding: "utf8", mode: 0o600 });
-		renameSync(tmp, this.file);
+		atomicWriteJson(this.file, payload);
 	}
 
 	/** 规则是否已被「始终批准」。pattern 为空或纯通配时一律返回 false（没有依据就不自动放行）。 */

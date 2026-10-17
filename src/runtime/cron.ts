@@ -8,8 +8,8 @@
  *   进程在投递途中崩溃，重启后看到已记录的计划时刻就不会重复触发（宁可漏一次，不重复执行）。
  * - 错过的触发（停机期间）：默认跳过，并在下一次执行时注明"错过了 N 次"；`catchUp: "once"` 时补跑一次。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { atomicWriteJson } from "./atomic-file.js";
 import { randomUUID } from "node:crypto";
 
 interface CronFields {
@@ -185,10 +185,7 @@ export class CronScheduler {
 	private persist(): void {
 		const file = this.opts.file;
 		if (!file) return;
-		mkdirSync(dirname(file), { recursive: true });
-		const tmp = `${file}.tmp`;
-		writeFileSync(tmp, JSON.stringify({ jobs: this.jobs }, null, 2), { mode: 0o600 });
-		renameSync(tmp, file);
+		atomicWriteJson(file, { jobs: this.jobs }, { indent: 2, trailingNewline: false });
 	}
 
 	list(chatId?: string): CronJob[] {

@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { atomicWriteJson } from "./atomic-file.js";
 
 /** 重启后仍可用于短时断线补收的已知 chat 集合。 */
 export class KnownChatStore {
@@ -39,9 +39,6 @@ export class KnownChatStore {
 
 
 	private persist(): void {
-		mkdirSync(dirname(this.file), { recursive: true });
-		const tmp = `${this.file}.tmp`;
-		writeFileSync(tmp, JSON.stringify(this.values()), { encoding: "utf8", mode: 0o600 });
-		renameSync(tmp, this.file);
+		atomicWriteJson(this.file, this.values(), { indent: 0, trailingNewline: false });
 	}
 }

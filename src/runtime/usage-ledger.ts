@@ -4,7 +4,8 @@
  * 每轮 run 结束追加一行计数（不含任何正文）；预算判定与 `/feishu usage week` 都从这里读。
  * 文件只追加、按行解析，坏行跳过；超过保留期的行在启动时压缩掉（默认保留 35 天）。
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { atomicWriteFile } from "./atomic-file.js";
 import { dirname } from "node:path";
 
 export interface UsageRecord {
@@ -71,9 +72,7 @@ export class UsageLedger {
 		}
 		if (dropped > 0) {
 			try {
-				const tmp = `${file}.tmp`;
-				writeFileSync(tmp, this.records.map((record) => JSON.stringify(record)).join("\n") + (this.records.length ? "\n" : ""), { mode: 0o600 });
-				renameSync(tmp, file);
+				atomicWriteFile(file, this.records.map((record) => JSON.stringify(record)).join("\n") + (this.records.length ? "\n" : ""));
 			} catch { /* 压缩失败不影响记账 */ }
 		}
 	}

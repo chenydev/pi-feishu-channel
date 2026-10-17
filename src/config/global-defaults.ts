@@ -16,8 +16,9 @@
  *   写坏了整个 agent 起不来。
  */
 
-import { closeSync, existsSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { atomicWriteJson } from "../runtime/atomic-file.js";
 
 export interface GlobalDefaults {
 	defaultModel?: string;
@@ -81,18 +82,10 @@ export function writeGlobalDefaults(homeDir: string, patch: GlobalDefaults): Wri
 	}
 	if (Object.keys(applied).length === 0) return { ok: false, reason: "没有要写入的默认值" };
 
-	const tmp = join(dirname(file), `.settings.json.tmp-${process.pid}`);
 	try {
-		const fd = openSync(tmp, "w", 0o600);
-		try {
-			writeSync(fd, `${JSON.stringify(current, null, 2)}\n`);
-		} finally {
-			closeSync(fd);
-		}
-		renameSync(tmp, file);
+		atomicWriteJson(file, current, { indent: 2 });
 		return { ok: true, applied };
 	} catch (error) {
-		try { unlinkSync(tmp); } catch { /* 临时文件可能没建起来 */ }
 		return { ok: false, reason: error instanceof Error ? error.message.slice(0, 120) : "写入失败" };
 	}
 }

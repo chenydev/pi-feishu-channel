@@ -2,9 +2,9 @@
  * 最终消息 durable outbox：先原子落盘，再按 conversation lane FIFO 投递。
  * sending 状态在重启时恢复为 pending；稳定 API UUID 使发送中崩溃可安全重试。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { atomicWriteFile } from "../runtime/atomic-file.js";
 import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
 import type { SendOptions, SendResult } from "../types.js";
 import { feishuMessageTypeForMedia, isPreparedMedia, type PreparedDelivery, type PreparedMediaSend, type PreparedSend } from "./sender.js";
 import type { ValidatedArtifact } from "./artifact.js";
@@ -386,12 +386,9 @@ export class Outbox {
 	}
 
 	private persist(): void {
-		mkdirSync(dirname(this.deps.file), { recursive: true });
 		const output = [...this.entries.values()].map((entry) => JSON.stringify(entry)).join("\n");
 		if (Buffer.byteLength(output, "utf8") > this.maxFileBytes) throw new Error("outbox file capacity exceeded");
-		const tmp = `${this.deps.file}.tmp`;
-		writeFileSync(tmp, output ? `${output}\n` : "", { encoding: "utf8", mode: 0o600 });
-		renameSync(tmp, this.deps.file);
+		atomicWriteFile(this.deps.file, output ? `${output}\n` : "");
 	}
 
 	async stop(): Promise<void> {

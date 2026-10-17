@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { atomicWriteFile } from "../runtime/atomic-file.js";
 import { dirname } from "node:path";
 
 interface DedupeRecord {
@@ -149,14 +150,11 @@ export class DedupeStore {
 	/** 原子重写快照（当前内存状态已包含本次变更）。 */
 	private compact(): void {
 		if (!this.options.file) return;
-		mkdirSync(dirname(this.options.file), { recursive: true });
 		const output = [
 			[...this.seen].map(([messageId, seenAt]) => JSON.stringify({ messageId, seenAt })),
 			[...this.done].map(([messageId, seenAt]) => JSON.stringify({ messageId, seenAt, done: true })),
 		].flat().join("\n");
-		const tmp = `${this.options.file}.tmp`;
-		writeFileSync(tmp, output ? `${output}\n` : "", { encoding: "utf8", mode: 0o600 });
-		renameSync(tmp, this.options.file);
+		atomicWriteFile(this.options.file, output ? `${output}\n` : "");
 		this.logLines = this.seen.size + this.done.size;
 	}
 }

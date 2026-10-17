@@ -9,8 +9,8 @@
  * 与工具审批**完全独立**：选择只是一条普通消息，不授予任何工具权限。
  */
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { atomicWriteJson } from "../runtime/atomic-file.js";
 
 /** 一张卡里的一个问题。 */
 export interface ClarificationQuestion {
@@ -293,10 +293,7 @@ export class ClarificationStore {
 	private persist(): void {
 		if (!this.deps.file) return;
 		try {
-			mkdirSync(dirname(this.deps.file), { recursive: true });
-			const tmp = `${this.deps.file}.tmp`;
-			writeFileSync(tmp, `${JSON.stringify({ version: STORE_VERSION, records: [...this.records.values()] }, null, 1)}\n`, { encoding: "utf8", mode: 0o600 });
-			renameSync(tmp, this.deps.file);
+			atomicWriteJson(this.deps.file, { version: STORE_VERSION, records: [...this.records.values()] });
 		} catch {
 			// 写盘失败只影响重启后旧卡能不能点，不影响本次
 		}

@@ -1,13 +1,14 @@
 /**
  * 配置加载：env 优先，config.json 持久化合并（写回保留 groupPolicyByChat 等运行时改动）。
  */
-import { chmodSync, existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { BridgeConfig, GroupPolicy, ProgressMode } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
 import { validateFileConfig } from "./config/schema.js";
 import { APPROVAL_MODES, approvalModeEnv, parseApprovalMode } from "./approval/mode.js";
+import { atomicWriteJson } from "./runtime/atomic-file.js";
 import { RUNTIME_DIR_NAME } from "./runtime/identity.js";
 
 export interface ConfigPaths {
@@ -349,9 +350,7 @@ export function saveConfig(homeDir: string, cfg: BridgeConfig, env: NodeJS.Proce
 		const paths = resolvePaths(homeDir);
 		mkdirSync(dirname(paths.configFile), { recursive: true });
 		const out = withoutEnvCredentials(cfg, loadJson<Partial<BridgeConfig>>(paths.configFile) ?? {}, env);
-		const tmp = `${paths.configFile}.tmp`;
-		writeFileSync(tmp, JSON.stringify(out, null, 2), { encoding: "utf8", mode: 0o600 });
-		renameSync(tmp, paths.configFile);
+		atomicWriteJson(paths.configFile, out, { indent: 2, trailingNewline: false });
 		return true;
 	} catch {
 		return false;
@@ -384,9 +383,7 @@ export function saveConfigFields(homeDir: string, cfg: BridgeConfig, fields: rea
 			if (source === undefined) delete target[leaf];
 			else target[leaf] = JSON.parse(JSON.stringify(source));
 		}
-		const tmp = `${paths.configFile}.tmp`;
-		writeFileSync(tmp, JSON.stringify(out, null, 2), { encoding: "utf8", mode: 0o600 });
-		renameSync(tmp, paths.configFile);
+		atomicWriteJson(paths.configFile, out, { indent: 2, trailingNewline: false });
 		return true;
 	} catch {
 		return false;

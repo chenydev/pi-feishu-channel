@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { atomicWriteFile } from "../runtime/atomic-file.js";
 import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
 import type { FeishuInboundMessage } from "../types.js";
 
 export interface PendingRecord {
@@ -184,10 +184,7 @@ export class PendingStore {
 
 	private persist(): void {
 		if (!this.file) return;
-		mkdirSync(dirname(this.file), { recursive: true });
 		const output = [...this.records.values()].map((record) => JSON.stringify(record)).join("\n");
-		const tmp = `${this.file}.tmp`;
-		writeFileSync(tmp, output ? `${output}\n` : "", { encoding: "utf8", mode: 0o600 });
-		renameSync(tmp, this.file);
+		atomicWriteFile(this.file, output ? `${output}\n` : "");
 	}
 }

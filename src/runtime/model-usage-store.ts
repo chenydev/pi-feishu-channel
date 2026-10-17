@@ -5,8 +5,8 @@
  * 每次切换记 1 分，分数按半衰期（默认 14 天）指数衰减，最近常用的排前面，旧习惯自然淡出。
  * 同分按最近使用时间。只记模型标签、次数和时间，不含会话内容。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { atomicWriteJson } from "./atomic-file.js";
 
 export interface ModelUsageEntry {
 	/** 累计切换次数（展示用，不参与排序）。 */
@@ -105,10 +105,7 @@ export class ModelUsageStore {
 		const file = this.options.file;
 		if (!file) return;
 		try {
-			mkdirSync(dirname(file), { recursive: true });
-			const tmp = `${file}.tmp`;
-			writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.entries), null, 2), { mode: 0o600 });
-			renameSync(tmp, file);
+			atomicWriteJson(file, Object.fromEntries(this.entries), { indent: 2, trailingNewline: false });
 		} catch {
 			/* 写失败只影响重启后的排序 */
 		}
