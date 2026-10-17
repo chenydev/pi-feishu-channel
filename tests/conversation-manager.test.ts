@@ -664,6 +664,8 @@ test("忙碌时普通消息通过 Pi steer 注入当前 run，不创建第二个
 					return new Promise<string>((resolve) => { resolvePrompt = resolve; });
 				},
 				async steer(text) { steered.push(text); },
+				// pi 侧队列为空 = 注入的 steer 已被当前 run 消费
+				clearQueue: () => ({ steering: [], followUp: [] }),
 				subscribe: () => () => {}, async abort() {}, async dispose() {}, modelId: "m",
 			};
 		},
@@ -689,7 +691,9 @@ test("steer 与当前消息共同进入 pending 工具边界，成功 final 后�
 				return {
 					sessionId: "sid-steer-pending",
 					async prompt() { return new Promise<string>((resolve) => { resolvePrompt = resolve; }); },
-					async steer() {}, subscribe: () => () => {}, async abort() {}, async dispose() {}, modelId: "m",
+					async steer() {},
+					clearQueue: () => ({ steering: [], followUp: [] }),
+					subscribe: () => () => {}, async abort() {}, async dispose() {}, modelId: "m",
 				};
 			},
 		};
@@ -701,6 +705,46 @@ test("steer 与当前消息共同进入 pending 工具边界，成功 final 后�
 		const records = readFileSync(pendingFile, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { replayPolicy: string });
 		assert.deepEqual(records.map((record) => record.replayPolicy), ["manual", "manual"]);
 		resolvePrompt("done");
+		await waitUntil(() => new PendingStore(pendingFile).depth() === 0);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("steer 没被 pi 消费时退回桥队列重跑，不会被当成已并入确认掉", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "feishu-steer-lost-"));
+	const pendingFile = join(dir, "pending.jsonl");
+	const prompts: string[] = [];
+	const resolvers: Array<(value: string) => void> = [];
+	let steeredText = "";
+	try {
+		const backend: SessionBackend = {
+			async createSession() {
+				return {
+					sessionId: "sid-steer-lost",
+					async prompt(text: string) {
+						prompts.push(text);
+						return new Promise<string>((resolve) => { resolvers.push(resolve); });
+					},
+					// pi「接受」了 steer，但这轮在消费它之前就收尾了 —— 文本还留在 pi 队列里
+					async steer(text: string) { steeredText = text; },
+					clearQueue: () => {
+						const steering = steeredText ? [steeredText] : [];
+						steeredText = "";
+						return { steering, followUp: [] as string[] };
+					},
+					subscribe: () => () => {}, async abort() {}, async dispose() {}, modelId: "m",
+				};
+			},
+		};
+		const manager = new ConversationManager({ config: config(), sessionDir: join(dir, "sessions"), pendingFile, sessionBackend: backend, sender: sender([]) as never });
+		await manager.route(message("lost-active"));
+		await waitUntil(() => resolvers.length === 1);
+		assert.equal(await manager.route(message("lost-steer")), "steered");
+		assert.equal(prompts.length, 1);
+		resolvers[0]!("first-done");
+		// 没被消费 → 必须作为独立一轮重新跑，而不是直接确认（确认就等于消息丢了）
+		await waitUntil(() => prompts.length === 2);
+		assert.equal(prompts[1], "prompt-lost-steer", "退回的那一轮要带着原消息文本");
+		resolvers[1]!("second-done");
 		await waitUntil(() => new PendingStore(pendingFile).depth() === 0);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -22,6 +22,13 @@ export class RunActivity {
 	lastEventAt: number;
 	/** 本轮已开始的工具调用次数。 */
 	toolCalls = 0;
+	/**
+	 * 本轮已结束的 turn 数（pi 的 `turn_end` 事件）。
+	 *
+	 * 用来判断「注入的 steer 到底有没有被执行」：steer 在 turn 边界被消费，
+	 * 如果注入之后一个 turn 都没结束，说明这轮在消费它之前就收尾了。
+	 */
+	turnEnds = 0;
 	/** 正在执行的工具最近几行输出（工具结束后清空）。 */
 	lastOutput?: string;
 	/** pi 正在自动重试（503、限流等临时错误）；收到模型输出或重试结束后清空。 */
@@ -38,7 +45,9 @@ export class RunActivity {
 		if (!event || typeof event !== "object") return;
 		const value = event as Record<string, unknown>;
 		const id = typeof value.toolCallId === "string" ? value.toolCallId : "";
-		if (value.type === "auto_retry_start") {
+		if (value.type === "turn_end") {
+			this.turnEnds += 1;
+		} else if (value.type === "auto_retry_start") {
 			const num = (key: string): number => (typeof value[key] === "number" ? value[key] as number : 0);
 			this.retry = { attempt: num("attempt"), maxAttempts: num("maxAttempts"), error: typeof value.errorMessage === "string" ? value.errorMessage : "" };
 		} else if (value.type === "auto_retry_end" || value.type === "message_update") {

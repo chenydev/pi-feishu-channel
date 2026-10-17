@@ -42,6 +42,8 @@ export interface RunHost {
 	recordRunUsage(sess: BridgeSession, item: QueuedMessage, metrics: RunMetrics): Promise<void>;
 	removeProcessingReaction(sess: BridgeSession, item: QueuedMessage): Promise<void>;
 	clearPending(item: QueuedMessage): void;
+	/** 取出 pi 侧尚未执行的 steer 文本（并清空）；老 SDK 不支持时返回 undefined。 */
+	drainPiSteerQueue(sess: BridgeSession): string[] | undefined;
 	notify(chatId: string, text: string, opts?: { replyTo?: string; threadId?: string }, dedupeKey?: string, laneKey?: string, kind?: "error" | "notify"): Promise<boolean>;
 }
 
@@ -465,7 +467,17 @@ export class RunExecutor {
 			}
 		} finally {
 			const steered = sess.steered.splice(0);
-			const requeued = !runSucceeded && !sess.stopRequested ? steered : [];
+			// 判断每条 steer 有没有真的被执行：
+			// - pi 侧队列还在 = 一定没执行（run 已结束，队列里的东西没人管了）；
+			// - 老 SDK 拿不到队列时按 turn 边界：注入之后一个 turn 都没结束 → 没排上。
+			const leftoverSteers = this.host.drainPiSteerQueue(sess);
+			const turnEndsAtEnd = sess.run?.turnEnds ?? 0;
+			const unconsumed = (steeredItem: QueuedMessage): boolean => leftoverSteers !== undefined
+				? Boolean(steeredItem.steerText && leftoverSteers.includes(steeredItem.steerText))
+				: turnEndsAtEnd <= (steeredItem.steeredAtTurnEnds ?? 0);
+			const requeued = sess.stopRequested
+				? [] // /stop：用户明确取消当前任务，并入的消息一并作废
+				: steered.filter((steeredItem) => !runSucceeded || unconsumed(steeredItem));
 			if (requeued.length > 0) {
 				// 当前 run 异常时，已并入当前轮的 steer 降级为独立 FIFO turn，避免静默丢失。
 				sess.queue.unshift(...requeued);
@@ -484,7 +496,8 @@ export class RunExecutor {
 			try { unsubscribe?.(); } catch { /* best effort */ }
 			// 先取快照：下面会把 stopRequested 复位，之后再读它就永远是 false。
 			const stopped = Boolean(sess.stopRequested);
-			const completedSteers = runSucceeded || stopped ? steered : [];
+			// 退回队列的那些不算「完成」，不能同时确认它们的待处理记录
+			const completedSteers = stopped ? steered : steered.filter((steeredItem) => !requeued.includes(steeredItem));
 			await Promise.allSettled([
 				this.host.removeProcessingReaction(sess, item),
 				this.host.progress.finish(sess, st, runSucceeded ? "ok" : stopped ? "stopped" : "failed"),

@@ -180,6 +180,10 @@ export interface QueuedMessage {
 	synthetic?: boolean;
 	/** 合批消息的全部原始 id（撤回任意一条都能定位到这个任务）。 */
 	sourceMessageIds?: string[];
+	/** 并入当前 run 时实际交给 pi 的文本（判断「这轮到底消费了没有」用）。 */
+	steerText?: string;
+	/** 注入 steer 时本轮已结束的 turn 数（`RunActivity.turnEnds`）。 */
+	steeredAtTurnEnds?: number;
 	chatId: string;
 	messageId: string;
 	text: string;
@@ -358,6 +362,7 @@ export class ConversationManager {
 			recordRunUsage: (sess, item, metrics) => this.recordRunUsage(sess, item, metrics),
 			removeProcessingReaction: (sess, item) => this.removeProcessingReaction(sess, item),
 			clearPending: (item) => this.clearPending(item),
+			drainPiSteerQueue: (sess) => this.drainPiSteerQueue(sess),
 			notify: (...args) => this.notify(...args),
 		});
 	}
@@ -557,6 +562,24 @@ export class ConversationManager {
 			// 审批免审判定用这个而不是解析 conversationKey（后者在私聊/话题下拿不到用户）
 			senderId: active?.senderId,
 		};
+	}
+
+	/**
+	 * 取出 pi 侧还在排队的 steer / followUp 文本（并清空它）。
+	 *
+	 * 一轮收尾时调用：run 已经结束了，pi 队列里还留着的文本就是**没被执行**的 ——
+	 * 调用方据此把这些消息退回桥自己的队列，而不是按「已并入」确认掉（那样消息就丢了）。
+	 * 老 SDK 没有 `clearQueue` 时返回 undefined，调用方退化为按 turn 边界判断。
+	 */
+	drainPiSteerQueue(sess: BridgeSession): string[] | undefined {
+		const agent = sess.agent;
+		if (!agent?.clearQueue) return undefined;
+		try {
+			const queue = agent.clearQueue();
+			return [...(queue.steering ?? []), ...(queue.followUp ?? [])];
+		} catch {
+			return undefined;
+		}
 	}
 
 	/** tool_call hook 在工具真正执行前调用，防止崩溃恢复时重复外部副作用。 */
@@ -999,6 +1022,10 @@ export class ConversationManager {
 		try {
 			prepared = await this.prepareAgentInput(item, sess.conversationKey);
 			if (!sess.activeRun || sess.agent !== agent || !this.activeItems.has(sess.conversationKey)) return false;
+			// 注入点要**在 await 之前**取：await 期间可能已经结束了一个 turn，
+			// 取晚了下标偏大，收尾时就分不清「这条被消费了」还是「压根没排上」。
+			item.steeredAtTurnEnds = sess.run?.turnEnds ?? 0;
+			item.steerText = prepared.text;
 			await agent.steer(prepared.text, prepared.images);
 			accepted = true;
 			this.deps.log?.("info", "feishu.conv.steered", {
