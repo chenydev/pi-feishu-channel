@@ -115,10 +115,13 @@ test("白名单越权参数：fd/rg/tree/uniq/hostname/yq", () => {
 	for (const [cmd, why] of [
 		["fd -x shred -u /tmp/x", "fd 执行"],
 		["rg --pre 'sh -c evil' pattern", "rg 预处理器"],
+		["rg --hostname-bin='sh -c evil' pattern", "rg 主机名外部命令"],
 		["tree -o /etc/cron.d/x", "tree 写文件"],
 		["uniq /tmp/in /etc/cron.d/x", "uniq 写文件"],
 		["hostname evil", "改主机名"],
 		["yq -i '.a=1' /etc/x.yml", "yq 原地改写"],
+		["find . -fprint0 out", "find 写文件"],
+		["sort --compress-program='sh -c evil' in.txt", "sort 执行外部压缩程序"],
 	] as const) assert.equal(v(cmd), "ask", `${why}: ${cmd}`);
 	assert.equal(v("fd -e ts"), "allow", "纯筛选仍是读");
 	assert.equal(v("hostname"), "allow", "查询主机名是读");
@@ -129,6 +132,11 @@ test("git 越权参数不得被提前 return 绕过", () => {
 		"git diff --output=/etc/cron.d/x",
 		"git show --output=/etc/cron.d/x",
 		"git grep -O 'sh -c evil' pattern",
+		// 长选项与短选项等价，同样能让 git 执行任意命令（实测曾判 allow）
+		"git grep --open-files-in-pager='sh -c evil' pattern",
+		"git grep --open-files-in-pager 'sh -c evil' pattern",
+		"git log --ext-diff",
+		"git show --textconv HEAD",
 		"git config --unset core.pager",
 		"git config --remove-section alias",
 		"git config --edit",

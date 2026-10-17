@@ -118,20 +118,23 @@ function hasWriteRedirect(text: string): boolean {
  * 命中即收回白名单、降级为询问 —— 否则白名单形同虚设（`find -exec rm` 就是任意命令执行）。
  */
 const ALLOWLIST_ESCAPES: Array<{ re: RegExp; reason: string }> = [
-	{ re: /\bfind\b[^\n]*\s-(exec|execdir|ok|okdir|delete|fprint|fprintf|fls)\b/, reason: "find 带执行/删除/写文件动作" },
-	{ re: /\bsort\b[^\n]*\s(-o|--output)\b/, reason: "sort 带写文件输出" },
+	{ re: /\bfind\b[^\n]*\s-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)\b/, reason: "find 带执行/删除/写文件动作" },
+	// `sort --compress-program=CMD` 会让 sort 亲自执行 CMD（GNU coreutils），和 -o 一样必须收回
+	{ re: /\bsort\b[^\n]*\s(-o|--output|--compress-program)\b/, reason: "sort 带写文件输出或外部压缩程序" },
 	{ re: /\bdate\b[^\n]*\s(-s|--set)\b/, reason: "date 带设置系统时间" },
 	{ re: /\benv\b\s+\S+\s+\S/, reason: "env 可用于执行其他命令" },
 	// 以下命令本身在白名单里，但带特定参数即可执行任意命令/写任意文件
 	{ re: /\bfd\b[^\n]*\s(-x|--exec|-X|--exec-batch)\b/, reason: "fd 带执行动作" },
-	{ re: /\brg\b[^\n]*\s--pre\b/, reason: "rg 带 --pre 执行器" },
+	{ re: /\brg\b[^\n]*\s(--pre|--hostname-bin)\b/, reason: "rg 带 --pre/--hostname-bin 执行器" },
 	{ re: /\btree\b[^\n]*\s(-o|--output)\b/, reason: "tree 带输出文件" },
 	{ re: /\buniq\b\s+\S+\s+\S+\s*$/, reason: "uniq 第二参数会写文件" },
 	{ re: /\bhostname\b\s+\S/, reason: "hostname 带参数会改主机名" },
 	{ re: /\byq\b[^\n]*\s(-i|--inplace)\b/, reason: "yq 原地改写文件" },
 	// git 的越权参数（git 分支会提前 return，所以这一组必须放在本表里、在 git 分支之前检查）
-	{ re: /\bgit\s+(diff|show|log|grep)\b[^\n]*\s--output\b/, reason: "git 写输出文件" },
-	{ re: /\bgit\s+grep\b[^\n]*\s-O\b/, reason: "git grep 指定 pager 可执行命令" },
+	// --ext-diff / --textconv 会让 git 执行仓库（.gitattributes）或配置里指定的外部程序
+	{ re: /\bgit\s+(diff|show|log|grep)\b[^\n]*\s(--output|--ext-diff|--textconv)\b/, reason: "git 写输出文件或调用外部 diff 程序" },
+	// 短选项 -O 与长选项 --open-files-in-pager 等价，都能让 git 自己执行任意命令
+	{ re: /\bgit\s+grep\b[^\n]*\s(-O|--open-files-in-pager)\b/, reason: "git grep 指定 pager 可执行命令" },
 	{ re: /\bgit\s+config\b[^\n]*\s(--unset|--unset-all|--add|--replace-all|--edit|--remove-section|--rename-section)\b/, reason: "git config 写操作" },
 ];
 

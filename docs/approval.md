@@ -52,6 +52,9 @@ agent 调用工具（执行命令、写文件等）之前，本扩展可以先�
    - 危险命令（`rm -rf /`、`curl … | sh`、`git push --force` 等）直接拒绝，不弹卡，日志 `feishu.approval.command_deny`；
    - 其余弹审批卡，卡片上写明分级理由，日志 `feishu.approval.command_ask`。
 
+   命令本身只读、但某个参数能让它执行任意操作或写文件的（`find -exec`、`sort --compress-program`、
+   `git grep --open-files-in-pager`、`rg --pre` 等），一律按「弹卡」处理 —— 短选项和长选项同等对待。
+
    判断不了的一律归为「弹卡」。可以用 `extraReadOnly` / `extraDangerous` 按命令名补充。
 3. **免审工具**：`read`、`grep`、`find`、`ls`、`feishu_ask`（向会话提选择题，只发卡片，不授予任何权限）和 `approval.autoApprove` 里的工具直接放行；本会话已批准过的工具直接放行。
 4. 其余弹审批卡。

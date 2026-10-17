@@ -4,6 +4,10 @@
 
 ## 未发布
 
+- 修复（审批）：只读命令白名单的「越权参数」只列了短选项，`git grep --open-files-in-pager=…`、`sort --compress-program=…`
+  能在**不弹审批卡**的情况下执行任意命令（`git grep -O`、`sort -o` 一直是拦住的）。现在长选项同样收回白名单，
+  `git diff|show|log` 的 `--ext-diff` / `--textconv`、`rg --hostname-bin`、`find -fprint0` 一并覆盖。
+
 - **行为变更（表情）**：处理完成的消息加「DONE」表情（新字段 `reaction.doneEmoji`，默认 `"DONE"`），之前处理完只撤掉处理中表情，和「机器人没理这条」看不出区别。
   并入当前任务的消息（+1）、合批的几条消息也都会加；`/stop` 中止的不加。不想要设为 `""`。
   合批的几条消息处理失败时也都加失败表情，之前只加在其中一条上。
