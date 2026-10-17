@@ -55,6 +55,7 @@ export class InboundPipeline {
 	private dedup: DedupeStore;
 	private batcher: TextBatcher;
 	private stats: PipelineStats = { total: 0, duplicate: 0, batched: 0, dropped: 0, dispatched: 0, recovered: 0 };
+	/** 被回复消息原文缓存：按 `quotedFetchTtlMs` 判命，容量按 `lastSentCacheSize` 封顶（与机器人消息缓存同量级）。 */
 	private quoteCache = new Map<string, { text: string; at: number }>();
 	private timers = new Map<string, ReturnType<typeof setTimeout>>();
 	private inFlight = new Set<Promise<void>>();
@@ -309,11 +310,32 @@ export class InboundPipeline {
 			} else {
 				const text = await this.deps.transport.getMessageText(msg.replyToMessageId);
 				replyToText = text ?? "[无法获取被回复消息原文]";
-				if (text) this.quoteCache.set(msg.replyToMessageId, { text, at: Date.now() });
+				if (text) this.cacheQuote(msg.replyToMessageId, text);
 			}
 		}
 
 		return { ...msg, replyToText };
+	}
+
+	/**
+	 * 缓存被回复消息原文。
+	 * 过期项在命中时删除（而不是留着），并按容量淘汰最旧的 —— 长驻进程里「被回复过的消息」
+	 * 是持续增长的，没有上限时内存随使用时长线性上涨（一条长文可能有几十 KB）。
+	 */
+	private cacheQuote(messageId: string, text: string): void {
+		const now = Date.now();
+		const ttl = this.deps.config.quotedFetchTtlMs;
+		for (const [key, entry] of this.quoteCache) {
+			if (now - entry.at >= ttl) this.quoteCache.delete(key);
+		}
+		this.quoteCache.delete(messageId);
+		this.quoteCache.set(messageId, { text, at: now });
+		const capacity = Math.max(1, this.deps.config.lastSentCacheSize);
+		while (this.quoteCache.size > capacity) {
+			const oldest = this.quoteCache.keys().next().value;
+			if (oldest === undefined) break;
+			this.quoteCache.delete(oldest);
+		}
 	}
 
 	private async dispatchPrepared(msg: FeishuInboundMessage): Promise<void> {

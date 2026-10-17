@@ -583,3 +583,24 @@ test("stripInjectedPrompt：模型自己写的引用块属于回答，不能删"
 	assert.equal(stripInjectedPrompt("> 正在回复的消息原文：\"这个接口为什么要加锁？\"\n\n应该加锁", quoteBlock), "应该加锁");
 	assert.equal(stripInjectedPrompt("> 你正在回复自己上一条消息，原文：\"x\"\n\n好", quoteBlock), "好");
 });
+
+test("引用原文缓存：按容量淘汰最旧，过期项不再命中（长驻进程不能无界增长）", async () => {
+	const fetched: string[] = [];
+	const dispatched: FeishuInboundMessage[] = [];
+	const pipeline = new InboundPipeline({
+		config: cfg({ groupPolicy: "open", requireMention: false, batch: NO_BATCH, lastSentCacheSize: 2, quotedFetchTtlMs: 1_000 }),
+		transport: {
+			async getMessageText(id: string) { fetched.push(id); return `原文-${id}`; },
+			async rawRequest() { return {}; },
+			async authedRequest() { return {}; },
+		} as unknown as FeishuTransport,
+		lastSent: new LastSentCache(8),
+		onDispatch: async (m) => { dispatched.push(m); },
+	});
+	const reply = (id: string, parent: string) => fakeMsg({ messageId: id, text: "x", replyToMessageId: parent });
+	// 容量 2：第 3 条把最旧的挤掉，第 4 条再回引最旧那条时只能重新拉取
+	for (const [id, parent] of [["m1", "p1"], ["m2", "p2"], ["m3", "p3"], ["m4", "p1"]]) await pipeline.handle(reply(id, parent));
+	assert.deepEqual(fetched, ["p1", "p2", "p3", "p1"], "超出容量后必须重新拉取");
+	assert.equal(dispatched.at(-1)?.replyToText, "原文-p1");
+	await pipeline.stop();
+});
