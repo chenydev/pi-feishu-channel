@@ -469,12 +469,14 @@ export class RunExecutor {
 			const steered = sess.steered.splice(0);
 			// 判断每条 steer 有没有真的被执行：
 			// - pi 侧队列还在 = 一定没执行（run 已结束，队列里的东西没人管了）；
-			// - 老 SDK 拿不到队列时按 turn 边界：注入之后一个 turn 都没结束 → 没排上。
+			// - 老 SDK 拿不到队列时按 turn 边界，但要求这轮**确实有过** turn 结束事件：
+			//   一个事件都没有的会话（老 SDK、不吐事件的实现）看不出真假，保守按「已消费」处理，
+			//   宁可维持旧行为也不要凭猜测重复执行。
 			const leftoverSteers = this.host.drainPiSteerQueue(sess);
 			const turnEndsAtEnd = sess.run?.turnEnds ?? 0;
 			const unconsumed = (steeredItem: QueuedMessage): boolean => leftoverSteers !== undefined
 				? Boolean(steeredItem.steerText && leftoverSteers.includes(steeredItem.steerText))
-				: turnEndsAtEnd <= (steeredItem.steeredAtTurnEnds ?? 0);
+				: turnEndsAtEnd > 0 && turnEndsAtEnd <= (steeredItem.steeredAtTurnEnds ?? 0);
 			const requeued = sess.stopRequested
 				? [] // /stop：用户明确取消当前任务，并入的消息一并作废
 				: steered.filter((steeredItem) => !runSucceeded || unconsumed(steeredItem));

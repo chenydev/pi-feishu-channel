@@ -95,8 +95,14 @@ export interface PermissionBridgeDeps {
 	}) => void;
 	/** 超时前 1 分钟提醒（只对主卡；超时 ≤ 90s 的不提醒）。 */
 	onReminder?: (pending: PendingApproval) => void;
-	/** 主卡的跟随者变化（合并了新的同类请求）→ 重绘卡片。 */
-	onCardRefresh?: (pending: PendingApproval) => void;
+	/**
+	 * 主卡的跟随者变化（合并了新的同类请求）→ 重绘卡片。
+	 *
+	 * 返回 false（或抛错）= 没重绘成功：调用方不能就这么把 token 换掉 ——
+	 * 屏幕上的旧卡还带着旧 token，点了只会得到「审批上下文不匹配」，
+	 * 也就是一张**点不动的卡**。此时撤销合并、各自弹卡。
+	 */
+	onCardRefresh?: (pending: PendingApproval) => boolean | void | Promise<boolean | void>;
 	now?: () => number;
 }
 
@@ -151,10 +157,30 @@ export class PermissionBridge {
 		const leader = input.runId ? [...this.pending.values()].find((item) => !item.leaderId && !item.external
 			&& item.conversationKey === input.conversationKey && item.runId === input.runId && item.toolName === input.toolName) : undefined;
 		if (leader) {
+			const previousToken = leader.token;
 			const follower = this.enqueue(input, Math.max(1_000, leader.expiresAt - this.now()), { leader });
 			// 换 token：旧卡面上没列出这个新请求，点旧卡不能把它一起批了（只认重绘后的卡）
 			leader.token = randomUUID();
-			this.deps.onCardRefresh?.(leader);
+			let drawn: boolean | void = undefined;
+			try {
+				drawn = await this.deps.onCardRefresh?.(leader);
+			} catch (error) {
+				this.deps.onAudit?.({
+					conversationKey: leader.conversationKey, sessionId: leader.sessionId, runId: leader.runId,
+					toolCallId: leader.toolCallId, toolName: leader.toolName, decision: "card_refresh_failed",
+					paramsSummary: error instanceof Error ? error.message : String(error),
+				});
+				drawn = false;
+			}
+			if (drawn === false) {
+				// 新卡画不出来：别留一张带着新 token、屏幕上却没有它的卡。
+				// 撤销合并 —— 主卡 token 还原，跟随者改成自己独立的一张卡（宁可多一张卡）。
+				leader.token = previousToken;
+				this.detachFollower(leader, follower);
+				const standalone = this.enqueue(input, config.timeoutMs);
+				await this.announce(standalone);
+				return { decision, verdict: standalone.verdict };
+			}
 			return { decision, verdict: follower.verdict };
 		}
 		const pending = this.enqueue(input, config.timeoutMs);
@@ -329,6 +355,16 @@ export class PermissionBridge {
 			pending.reminderTimer.unref?.();
 		}
 		return pending;
+	}
+
+	/** 把跟随者从主卡上摘掉并丢弃（撤销合并时用；调用方改用新登记的那条）。 */
+	private detachFollower(leader: PendingApproval, follower: PendingApproval): void {
+		if (leader.followers) leader.followers = leader.followers.filter((item) => item.id !== follower.id);
+		this.pending.delete(follower.id);
+		if (follower.timer) clearTimeout(follower.timer);
+		if (follower.reminderTimer) clearTimeout(follower.reminderTimer);
+		// 没人会再等这条：调用方拿的是新登记的 verdict
+		follower.resolve("denied");
 	}
 
 	/** 最早一条待审批已等待的毫秒数（没有待审批返回 undefined）。 */

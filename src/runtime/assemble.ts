@@ -102,11 +102,14 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 			}
 		},
 		// 同一 run 的同类请求并到这张卡 → 重绘（列出将一并处理的命令，旧卡 token 已作废）
-		onCardRefresh: (pending) => {
-			if (!pending.cardMessageId) return;
-			void rt.transport?.updateCard(pending.cardMessageId, buildApprovalCard(pending)).catch((error: unknown) => {
+		onCardRefresh: async (pending) => {
+			if (!pending.cardMessageId) return true;
+			try {
+				return (await rt.transport?.updateCard(pending.cardMessageId, buildApprovalCard(pending))) ?? false;
+			} catch (error) {
 				log.warn("feishu.approval.card_refresh_failed", { approvalId: pending.id, error: error instanceof Error ? error.message : String(error) });
-			});
+				return false;
+			}
 		},
 		// 超时/失效（非用户点击）时把卡片改成终态并禁用按钮，
 		// 否则卡片会一直看起来可点，用户点了才被告知「审批已失效」。

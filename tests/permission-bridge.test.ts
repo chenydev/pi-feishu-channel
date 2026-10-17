@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { PermissionBridge, classifyToolCall, redactParams } from "../src/approval/permission-bridge.js";
+import { PermissionBridge, classifyToolCall, redactParams, type PendingApproval } from "../src/approval/permission-bridge.js";
 import { holdEventLoop } from "./hold-event-loop.js";
 
 function input(toolCallId = "tc1") {
@@ -196,6 +196,29 @@ test("审批合并与提醒：同一 run 的同类请求并到一张卡，旧卡
 	assert.equal(bridge.decide({ id: leader.id, token: staleToken, messageId: "card-1", chatId: "oc", operatorOpenId: "admin", choice: "once" }).ok, false, "旧卡不能批新请求");
 	assert.equal(bridge.decide({ id: leader.id, token: leader.token, messageId: "card-1", chatId: "oc", operatorOpenId: "admin", choice: "once" }).ok, true);
 	assert.equal(await first.verdict, "approved");
+	assert.equal(await second.verdict, "approved");
+	assert.equal(bridge.pendingCount(), 0);
+});
+
+test("审批合并：重绘卡片失败时撤销合并，两个请求各弹一张卡（不留点不动的卡）", async () => {
+	const asked: string[] = [];
+	const pendings: PendingApproval[] = [];
+	const bridge = new PermissionBridge({
+		getConfig: () => ({ autoApprove: [], timeoutMs: 60_000 }),
+		onAsk: async (pending) => { asked.push(pending.toolCallId); pendings.push(pending); return `card-${pending.toolCallId}`; },
+		// 重绘失败（网络抖动 / 编辑配额用尽）
+		onCardRefresh: () => false,
+	});
+	const run = (toolCallId: string) => ({ ...input(toolCallId), runId: "run-1" });
+	const first = await bridge.gate(run("a"));
+	const firstToken = pendings[0]!.token;
+	const second = await bridge.gate(run("b"));
+	assert.deepEqual(asked, ["a", "b"], "重绘失败不能再合并：各弹一张卡");
+	assert.equal(pendings[0]!.token, firstToken, "主卡 token 必须还原，否则屏幕上那张卡点不动");
+	assert.equal(bridge.pendingCount(), 2);
+	assert.equal(bridge.decide({ id: pendings[0]!.id, token: firstToken, messageId: "card-a", chatId: "oc", operatorOpenId: "admin", choice: "once" }).ok, true);
+	assert.equal(await first.verdict, "approved");
+	assert.equal(bridge.decide({ id: pendings[1]!.id, token: pendings[1]!.token, messageId: "card-b", chatId: "oc", operatorOpenId: "admin", choice: "once" }).ok, true);
 	assert.equal(await second.verdict, "approved");
 	assert.equal(bridge.pendingCount(), 0);
 });
