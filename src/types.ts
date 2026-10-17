@@ -252,6 +252,8 @@ export interface BridgeConfig {
 	feedback?: { enabled?: boolean };
 	/** `feishu_ask` 提问卡片：兜底有效期（毫秒，默认 24 小时；0 = 不设上限）。 */
 	clarify?: { ttlMs?: number; panels?: boolean };
+	/** 只读 HTTP 端点（`/healthz`、`/metrics`，默认关闭；无鉴权，默认只绑 127.0.0.1）。 */
+	metrics?: { enabled?: boolean; host?: string; port?: number };
 	cardTool?: { enabled?: boolean };
 	/** 语音转写（**默认关闭**）。`provider: "openai"` = OpenAI 兼容的 /audio/transcriptions。 */
 	stt?: { provider?: "off" | "openai"; endpoint?: string; model?: string; apiKeyEnv?: string; maxBytes?: number };

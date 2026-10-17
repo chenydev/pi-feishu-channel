@@ -73,6 +73,8 @@ export const RELOAD_RULES: { [K in keyof FileConfig]-?: Rule<FileConfig[K]> } = 
 	directBash: "restart",
 	cron: "restart",
 	alerts: "restart",
+	// 监听地址/端口只在启动时读（改完重启才能换端口）
+	metrics: "restart",
 	onboarding: {
 		welcome: "live",
 		notifyAdmins: "live",

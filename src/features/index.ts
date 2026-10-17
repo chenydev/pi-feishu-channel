@@ -8,10 +8,11 @@ import { cronFeature } from "./cron.js";
 import { directBashFeature } from "./direct-bash.js";
 import { docCommentsFeature } from "./doc-comments.js";
 import { docToolsFeature } from "./doc-tools.js";
+import { httpProbeFeature } from "./http-probe.js";
 import { longReplyFeature } from "./long-reply.js";
 import { retentionFeature } from "./retention.js";
 import { meetingInviteFeature } from "./meeting-invite.js";
 import type { BridgeFeature } from "./feature.js";
 import { sttFeature } from "./stt.js";
 
-export const FEATURES: readonly BridgeFeature[] = [cronFeature, alertsFeature, sttFeature, docCommentsFeature, meetingInviteFeature, cardToolFeature, docToolsFeature, directBashFeature, longReplyFeature, retentionFeature, accessRequestFeature];
+export const FEATURES: readonly BridgeFeature[] = [cronFeature, alertsFeature, sttFeature, docCommentsFeature, meetingInviteFeature, cardToolFeature, docToolsFeature, directBashFeature, longReplyFeature, retentionFeature, accessRequestFeature, httpProbeFeature];

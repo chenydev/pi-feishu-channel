@@ -4,6 +4,13 @@
 
 ## 未发布
 
+### 新能力（默认关闭）
+
+- `/healthz` + `/metrics`（`metrics.enabled`，默认关）：只读 HTTP 端点。`/healthz` 用状态码表达
+  健康（200 = 连接正常且心跳未过期，503 = 断线/心跳停了），`/metrics` 输出 Prometheus 文本格式
+  （连接状态、重连数、待投递/失败条数、待审批、消息计数、兜底 rejection 数）。默认只绑 `127.0.0.1`
+  —— 端点没有鉴权，容器里要暴露给探针再配 `metrics.host: "0.0.0.0"`。
+
 ### 内部
 
 - 状态文件统一走 `atomicWriteFile` / `atomicWriteJson`（`src/runtime/atomic-file.ts`）：原来 11 个模块

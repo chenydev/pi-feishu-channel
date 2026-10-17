@@ -125,6 +125,11 @@ export const fileConfigSchema = z.object({
 		catchUp: m(choice(["skip", "once"], "错过的定时任务处理方式"), "停机期间错过的触发：`skip` 跳过（下次执行时注明错过了几次）；`once` 补跑一次", { default: "\"skip\"" }),
 		maxJobs: m(nonNegative, "最多多少个定时任务", { default: "20" }),
 	}).partial(), "定时任务（可选能力，默认关闭）"),
+	metrics: m(z.object({
+		enabled: m(bool, "开一个只读 HTTP 端点：`/healthz`（探活，503 = 断线或心跳停了）与 `/metrics`（Prometheus 文本格式）。端点没有鉴权，默认只绑 127.0.0.1", { default: "false" }),
+		host: m(str, "监听地址（容器里要暴露给外部探针就设成 `0.0.0.0`）", { default: '"127.0.0.1"' }),
+		port: m(nonNegative, "监听端口（0 = 由系统分配，一般不需要）", { default: "8787" }),
+	}).partial(), "探活与指标端点（可选能力，默认关闭）"),
 	alerts: m(z.object({
 		enabled: m(bool, "出问题时私聊管理员：断线、连接抖动、消息永久发送失败、审批积压（带冷却和恢复通知）", { default: "false" }),
 		disconnectMs: m(nonNegative, "断线超过多久告警（毫秒）", { default: "120000" }),

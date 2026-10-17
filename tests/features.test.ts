@@ -23,6 +23,7 @@ const TURN_ON: Record<string, (c: BridgeConfig) => void> = {
 	longReply: (c) => { c.longReply = { asFile: true }; },
 	retention: (c) => { c.retention = { sessionDays: 30 }; },
 	accessRequest: (c) => { c.onboarding = { accessRequest: true }; },
+	httpProbe: (c) => { c.metrics = { enabled: true }; },
 	streamingCard: (c) => { c.streamingCard = { enabled: true, throttleMs: 1000 }; },
 	approval: (c) => { c.approval = { ...c.approval, mode: "builtin" }; },
 };
