@@ -67,3 +67,33 @@ test("SessionScheduler：关闭后不再消费，activeItems 在 turn 结束后�
 	scheduler.schedule(session("b", ["b1"]));
 	assert.equal(scheduler.active, 0, "关闭中不接新 pump");
 });
+
+test("SessionScheduler：runTurn 抛错不中断队列，也不留下未处理的 rejection", async () => {
+	const unhandled: unknown[] = [];
+	const onUnhandled = (error: unknown) => { unhandled.push(error); };
+	process.on("unhandledRejection", onUnhandled);
+	const logs: string[] = [];
+	const seen: string[] = [];
+	try {
+		const scheduler = new SessionScheduler<S, string>({
+			maxActive: () => 4,
+			isShuttingDown: () => false,
+			runTurn: async (_s, item) => {
+				if (item === "a1") throw new Error("收尾清理失败");
+				seen.push(item);
+			},
+			log: (_level, event) => logs.push(event),
+		});
+		const a = session("a", ["a1", "a2", "a3"]);
+		scheduler.schedule(a);
+		await drain(scheduler);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		assert.deepEqual(seen, ["a2", "a3"], "一条失败不应让队列滞留");
+		assert.deepEqual(a.queue, []);
+		assert.equal(a.activeRun, false);
+		assert.ok(logs.includes("feishu.conv.pump_failed"));
+		assert.deepEqual(unhandled, [], "不得产生未处理的 rejection（会让进程退出）");
+	} finally {
+		process.off("unhandledRejection", onUnhandled);
+	}
+});

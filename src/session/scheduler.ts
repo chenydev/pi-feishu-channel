@@ -77,6 +77,15 @@ export class SessionScheduler<S extends SchedulableSession<I>, I> {
 				try {
 					await this.deps.runTurn(session, item);
 					processed += 1;
+				} catch (error) {
+					// runTurn 自己已经兜住执行异常，能漏到这里的是收尾清理（待处理记录落盘、回调）抛错。
+					// 不捕获的后果：循环直接跳出，队列里剩下的任务再也没有 pump 启动，
+					// 而 schedule() 存下的 running 变成未处理的 rejection（Node 默认策略会退出进程）。
+					this.deps.log?.("error", "feishu.conv.pump_failed", {
+						conversationKey: session.conversationKey,
+						queued: session.queue.length,
+						error: error instanceof Error ? error.message : String(error),
+					});
 				} finally {
 					this.activeItems.delete(session.conversationKey);
 				}
