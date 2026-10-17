@@ -1607,10 +1607,19 @@ export class ConversationManager {
 		}
 		try {
 			if (this.deps.durableOutbox) {
-				return this.deps.durableOutbox.enqueue(chatId, text, opts ?? {}, { dedupeKey, laneKey, kind }).length > 0;
+				const queued = this.deps.durableOutbox.enqueue(chatId, text, opts ?? {}, { dedupeKey, laneKey, kind });
+				if (queued.length === 0) this.deps.log?.("warn", "feishu.conv.notify_not_queued", { chatId, kind, dedupeKey });
+				return queued.length > 0;
 			}
-			return (await this.deps.sender.send(chatId, text, opts)).success;
-		} catch {
+			const result = await this.deps.sender.send(chatId, text, opts);
+			if (!result.success) this.deps.log?.("warn", "feishu.conv.notify_failed", { chatId, kind, error: result.error ?? null });
+			return result.success;
+		} catch (error) {
+			// 这条通道送的是「出错/中断」类提示：它自己失败时如果不留日志，
+			// 用户看到的是「什么也没说」，排障的人查不到任何线索。
+			this.deps.log?.("warn", "feishu.conv.notify_failed", {
+				chatId, kind, error: error instanceof Error ? error.message : String(error),
+			});
 			return false;
 		}
 	}

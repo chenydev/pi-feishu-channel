@@ -4,6 +4,10 @@
 
 ## 未发布
 
+- 修复（会话）：出错 / 中断类的提示走 `notify` 发送，失败时被静默吞掉（连日志都没有）——
+  用户看到「什么都没说」，排障的人查不到线索。现在失败记 `feishu.conv.notify_failed`（带错误原因），
+  入队被去重挡掉时记 `feishu.conv.notify_not_queued`。
+
 - **行为变更（准入）**：`allowlist` 策略下**空名单现在等于拒绝所有人**（与 `allowChats` / `allowUsers` 一致）。
   此前空名单被当成「不限制」—— 管理员发 `/feishu policy allowlist` 得到的回执是「已设置」，
   但实际谁都能触发。配置里已有 `groupRules.<id>.allowlist` 的部署不受影响；只设了全局
