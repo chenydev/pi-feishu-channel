@@ -3,7 +3,7 @@
  * 按会话隔离的思路参考 pi-remote-feishu 的 ConversationRouter。
  */
 import { join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { type BridgeConfig, type DeliveryTarget, EXTERNAL_CHAT_PREFIX, type FeishuInboundMessage, type ReloadSummary, type SessionBackend } from "../types.js";
 import type { Sender } from "../outbound/sender.js";
 import type { Outbox } from "../outbound/outbox.js";
@@ -22,12 +22,12 @@ import type { RunUsage, UsageSnapshot } from "../commands/usage-card.js";
 import { RateBudget } from "../runtime/rate-budget.js";
 import { randomUUID } from "node:crypto";
 import { budgetState, type UsageLedger } from "../runtime/usage-ledger.js";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import type { ResourceRef } from "../types.js";
-import { extractText, stripContextPrefix } from "./text-utils.js";
+import { previewText } from "./text-utils.js";
 import { RunExecutor } from "./run-executor.js";
 import { buildTurnInput } from "./turn-input.js";
 import { SessionTable } from "./session-table.js";
+import { createHistoryOps, type HistoryOps } from "./history-ops.js";
 import { createNoticeSender, queuedNoticeText } from "./notices.js";
 import { SessionScheduler } from "./scheduler.js";
 import { ConversationCommands } from "./conversation-commands.js";
@@ -298,6 +298,7 @@ export class ConversationManager {
 	private readonly budgetNotices = new Set<string>();
 
 	private readonly notices: ReturnType<typeof createNoticeSender>;
+	private readonly history: HistoryOps;
 
 	constructor(private deps: ConversationManagerDeps) {
 		// deps 是构造参数属性，字段初始化时还读不到 —— 只能在这里建
@@ -317,6 +318,23 @@ export class ConversationManager {
 		this.conversationStore = deps.conversationFile
 			? new ConversationStore(deps.conversationFile, { now: this.now })
 			: undefined;
+		this.history = createHistoryOps({
+			config: deps.config,
+			sessions: this.sessions,
+			busyReason: (key) => this.busyReason(key),
+			openAgent: (msg) => this.idleAgent(msg),
+			requeue: async (msg, item) => {
+				await this.route({ ...msg, text: item.text, msgType: "text", resources: item.resources, replyToMessageId: item.replyToMessageId, replyToText: item.replyToText } as FeishuInboundMessage, { behavior: "queue" });
+			},
+			conversationStore: this.conversationStore,
+			exportsDir: deps.exportsDir,
+			sendLocalFile: deps.sendLocalFile,
+			onApprovalInvalidate: deps.onApprovalInvalidate,
+			discardChannel: (key) => this.liveChannel?.discard(key),
+			log: deps.log,
+			now: () => this.now(),
+		});
+
 		this.idleTtlMs = Math.max(0, deps.config.sessionLifecycle?.idleTtlMs ?? 30 * 60_000);
 		this.maxResidentSessions = Math.max(1, deps.config.sessionLifecycle?.maxResidentSessions ?? 32);
 		this.sweepIntervalMs = Math.max(1_000, deps.config.sessionLifecycle?.sweepIntervalMs ?? 60_000);
@@ -1259,146 +1277,32 @@ export class ConversationManager {
 		}
 	}
 
+	// 改历史的命令（/undo /retry /fork /export）搬到了 history-ops：这里只做转发，
+	// 管理器的主干留给「一轮怎么跑」。
+
 	/** 撤销最近一轮（只回退对话；原分支仍在会话文件里）。 */
 	async undoConversation(msg: FeishuInboundMessage): Promise<string> {
-		const ready = await this.idleAgent(msg);
-		if (typeof ready === "string") return ready;
-		const { agent } = ready;
-		if (!agent.userMessages || !agent.navigateTo) return "当前 Pi 版本不支持回退";
-		const last = agent.userMessages().at(-1);
-		if (!last) return "当前会话还没有可撤销的对话";
-		const result = await agent.navigateTo(last.entryId);
-		if (result.cancelled) return "回退被取消";
-		this.deps.log?.("info", "feishu.conv.undo", { conversationKey: ready.key });
-		return `已撤销最近一轮：「${previewText(stripContextPrefix(last.text))}」\n只回退对话记录，该轮已经执行的命令、改过的文件不会回滚。`;
+		return this.history.undo(msg);
 	}
 
 	/** 用同一条消息重新生成上一轮（常用于换模型/思考等级后再试）。 */
 	async retryConversation(msg: FeishuInboundMessage): Promise<string> {
-		const ready = await this.idleAgent(msg);
-		if (typeof ready === "string") return ready;
-		const { agent, session } = ready;
-		if (!agent.userMessages || !agent.navigateTo) return "当前 Pi 版本不支持重试";
-		const last = agent.userMessages().at(-1);
-		if (!last) return "当前会话还没有可以重试的消息";
-		const result = await agent.navigateTo(last.entryId);
-		if (result.cancelled) return "重试被取消";
-		// 优先用桥记下的原文（不含注入的上下文行 —— 否则重发时发言人/引用会重复注入）
-		const original = session.lastItem;
-		const text = original?.text ?? stripContextPrefix(result.editorText ?? last.text);
-		await this.route({
-			...msg, text, msgType: "text",
-			resources: original?.resources ?? [],
-			replyToMessageId: original?.replyToMessageId, replyToText: original?.replyToText,
-		}, { behavior: "queue" });
-		this.deps.log?.("info", "feishu.conv.retry", { conversationKey: ready.key, model: agent.modelId });
-		return `正在重试上一条消息（模型：${agent.modelId}）`;
+		return this.history.retry(msg);
 	}
 
 	/** `/fork list` 的数据（第 N 条用户消息预览）。 */
 	async forkCandidates(msg: FeishuInboundMessage): Promise<string> {
-		const key = buildConversationKey(msg, this.deps.config);
-		const session = this.getOrCreateSession(msg, key);
-		let agent: AgentHandle;
-		try { agent = await this.ensureAgentSession(session); } catch { return "会话初始化失败，请稍后重试"; }
-		const list = agent.userMessages?.() ?? [];
-		if (list.length === 0) return "当前会话还没有用户消息";
-		const start = Math.max(0, list.length - 15);
-		return [
-			`本会话用户消息（共 ${list.length} 条${start > 0 ? "，只列最近 15 条" : ""}）：`,
-			...list.slice(start).map((entry, index) => `#${start + index + 1} ${previewText(stripContextPrefix(entry.text))}`),
-			"",
-			"/fork #N 从第 N 条消息之前分叉出新会话；/fork 复制当前会话。",
-		].join("\n");
+		return this.history.forkCandidates(msg);
 	}
 
-	/**
-	 * 分叉。无参 = 从当前位置复制一份；`#N` = 从第 N 条用户消息之前分叉。
-	 * 新文件接入会话指针（旧会话进历史，/sessions 可回去），与 /resume 同一套切换顺序：先落盘指针，再换运行态。
-	 */
+	/** 分叉：无参复制当前会话；`#N` 从第 N 条之前分叉。 */
 	async forkConversation(msg: FeishuInboundMessage, selector?: string): Promise<string> {
-		if (!this.conversationStore) return "当前部署未启用会话索引，无法分叉";
-		const ready = await this.idleAgent(msg);
-		if (typeof ready === "string") return ready;
-		const { key, session, agent } = ready;
-		if (!agent.branchedSessionFile || !agent.leafId) return "当前 Pi 版本不支持分叉";
-		let leaf: string | undefined;
-		let note = "";
-		if (selector) {
-			const match = /^#?(\d+)$/.exec(selector.trim());
-			if (!match) return "用法：/fork [#N]（/fork list 查看消息编号）";
-			const n = Number.parseInt(match[1], 10);
-			const list = agent.userMessages?.() ?? [];
-			const target = list[n - 1];
-			if (!target) return `没有第 ${n} 条用户消息（共 ${list.length} 条）`;
-			const parent = agent.entryParentId?.(target.entryId);
-			if (parent === undefined) return "无法定位该消息，请稍后重试";
-			if (parent === null) return "第 1 条消息之前没有历史，直接 /new 即可";
-			leaf = parent;
-			note = `\n分叉点在第 ${n} 条消息之前，那条消息是：「${previewText(stripContextPrefix(target.text))}」`;
-		} else {
-			leaf = agent.leafId();
-		}
-		if (!leaf) return "当前会话还没有内容，无需分叉";
-		let file: string | undefined;
-		try {
-			file = agent.branchedSessionFile(leaf);
-		} catch (error) {
-			return `分叉失败：${error instanceof Error ? error.message.slice(0, 120) : "未知错误"}`;
-		}
-		if (!file) return "分叉失败：Pi 未返回新会话文件";
-		const pointer = this.conversationStore.get(key);
-		try {
-			this.conversationStore.set({ conversationKey: key, sessionFile: file, generation: (pointer?.generation ?? 0) + 1 });
-		} catch {
-			return "会话指针写入失败，已保留当前会话";
-		}
-		// 句柄已经指向新文件，但它的内存状态是分叉前的；重开最稳妥
-		this.sessions.delete(key);
-		this.liveChannel?.discard(key);
-		try { await session.agent?.dispose(); } catch { /* best effort */ }
-		this.deps.onApprovalInvalidate?.({ conversationKey: key, reason: "reset" });
-		this.deps.log?.("info", "feishu.conv.forked", { conversationKey: key, selector: selector ?? null });
-		return `已分叉出新会话，下一条消息在分叉上继续；原会话可用 /sessions 找回。${note}`;
+		return this.history.fork(msg, selector);
 	}
-
-	// ------------------------------------------------------------ 导出 ----
 
 	/** 导出当前会话为文件并经持久 outbox 发回本会话。 */
 	async exportConversation(msg: FeishuInboundMessage, format: "html" | "md" | "summary"): Promise<string> {
-		const dir = this.deps.exportsDir;
-		if (!dir || !this.deps.sendLocalFile) return "当前部署未启用导出";
-		const key = buildConversationKey(msg, this.deps.config);
-		const session = this.getOrCreateSession(msg, key);
-		let agent: AgentHandle;
-		try { agent = await this.ensureAgentSession(session); } catch { return "会话初始化失败，请稍后重试"; }
-		mkdirSync(dir, { recursive: true, mode: 0o700 });
-		const stamp = new Date(this.now()).toISOString().replace(/[:.]/g, "-");
-		const name = (agent.sessionName?.() || "session").replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 40) || "session";
-		let path: string;
-		try {
-			if (format === "html") {
-				if (!agent.exportHtml) return "当前 Pi 版本不支持导出 HTML";
-				path = await agent.exportHtml(join(dir, `${name}-${stamp}.html`));
-			} else if (format === "summary") {
-				if (!agent.summarizeForBugReport) return "当前 Pi 版本不支持生成摘要";
-				const summary = await agent.summarizeForBugReport();
-				path = join(dir, `${name}-${stamp}-summary.md`);
-				writeFileSync(path, summary, { mode: 0o600 });
-			} else {
-				path = join(dir, `${name}-${stamp}.md`);
-				writeFileSync(path, transcriptMarkdown(session.sessionFile, agent.sessionName?.()), { mode: 0o600 });
-			}
-			try { chmodSync(path, 0o600); } catch { /* best effort */ }
-		} catch (error) {
-			this.deps.log?.("warn", "feishu.conv.export_failed", { conversationKey: key, format, error: error instanceof Error ? error.message : String(error) });
-			return `导出失败：${error instanceof Error ? error.message.slice(0, 120) : "未知错误"}`;
-		}
-		const sent = this.deps.sendLocalFile(msg.chatId, path, { replyTo: replyTargetOf(msg), threadId: msg.threadId }, {
-			dedupeKey: `${msg.messageId}${msg.dedupeNonce ?? ""}:export`, laneKey: key,
-		});
-		this.deps.log?.("info", "feishu.conv.exported", { conversationKey: key, format, ok: sent.ok });
-		return sent.ok ? `已导出（${format}），文件马上发到这里` : `导出文件已生成，但发送失败：${sent.error ?? "未知错误"}`;
+		return this.history.export(msg, format);
 	}
 
 	// ------------------------------------------------------------ 撤回取消 ----
@@ -1591,34 +1495,9 @@ export class ConversationManager {
 export { sanitizeCommand };
 
 // 文本工具移到 text-utils.ts（RunExecutor 与管理器共用）；这里 re-export 保持对外导入路径不变。
-export { extractAssistantText, extractText, stripContextPrefix, stripInjectedPrompt } from "./text-utils.js";
+export { extractAssistantText, extractText, previewText, stripContextPrefix, stripInjectedPrompt } from "./text-utils.js";
+export { transcriptMarkdown } from "./history-ops.js";
 export { matchModels, modelLabel } from "./model-utils.js";
-
-/** 列表/回执里的消息预览（单行、截断）。 */
-function previewText(text: string, max = 40): string {
-	const flat = text.replace(/\s+/g, " ").trim();
-	if (!flat) return "（附件）";
-	return flat.length > max ? `${flat.slice(0, max)}…` : flat;
-}
-
-/** 把 Pi 会话文件整理成 markdown（只含用户与助手的文本，不含工具参数/输出）。 */
-export function transcriptMarkdown(sessionFile: string, title?: string): string {
-	const out: string[] = [`# ${title || "会话记录"}`, ""];
-	let raw = "";
-	try { raw = readFileSync(sessionFile, "utf8"); } catch { return `${out.join("\n")}\n（会话文件不存在）\n`; }
-	for (const line of raw.split("\n")) {
-		if (!line.trim()) continue;
-		let entry: { type?: string; timestamp?: string; message?: { role?: string; content?: unknown } };
-		try { entry = JSON.parse(line); } catch { continue; }
-		if (entry.type !== "message" || !entry.message) continue;
-		const role = entry.message.role;
-		if (role !== "user" && role !== "assistant") continue;
-		const text = extractText(entry.message.content);
-		if (!text) continue;
-		out.push(`## ${role === "user" ? "用户" : "助手"}${entry.timestamp ? ` · ${entry.timestamp}` : ""}`, "", text, "");
-	}
-	return out.join("\n");
-}
 
 /** 回复目标：合成消息按 replyTarget（null = 不挂回复）；真实消息就是它自己。 */
 function replyTargetOf(msg: Pick<FeishuInboundMessage, "messageId" | "replyTarget">): string | undefined {

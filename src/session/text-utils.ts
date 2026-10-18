@@ -59,3 +59,10 @@ export function extractAssistantText(result: unknown): string | undefined {
 export function stripContextPrefix(text: string): string {
 	return text.replace(/^(?:\[[^\n]*\][ \t]*\n+)+/, "").trim();
 }
+
+/** 列表/回执里的消息预览（单行、截断）。 */
+export function previewText(text: string, max = 40): string {
+	const flat = text.replace(/\s+/g, " ").trim();
+	if (!flat) return "（附件）";
+	return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
