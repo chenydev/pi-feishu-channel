@@ -6,7 +6,8 @@
 
 - 重构（会话）：`ConversationManager` 拆掉两块 —— 拼一轮输入的逻辑搬进 `session/turn-input.ts`
   （纯拼文本，依赖显式传入），会话表与 `sessionId → 会话` 的自我修正索引搬进
-  `session/session-table.ts`。行为不变，两个模块各自可单独读、单独测。
+  `session/session-table.ts`；用户可见提示（排队/忙碌/出错）的投递规则搬进 `session/notices.ts`
+  （虚拟会话跳过、优先持久 outbox、失败必留日志）。行为不变，三个模块各自可单独读、单独测。
 ### 新能力（默认关闭）
 
 - `/healthz` + `/metrics`（`metrics.enabled`，默认关）：只读 HTTP 端点。`/healthz` 用状态码表达

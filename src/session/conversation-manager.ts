@@ -28,6 +28,7 @@ import { extractText, stripContextPrefix } from "./text-utils.js";
 import { RunExecutor } from "./run-executor.js";
 import { buildTurnInput } from "./turn-input.js";
 import { SessionTable } from "./session-table.js";
+import { createNoticeSender, queuedNoticeText } from "./notices.js";
 import { SessionScheduler } from "./scheduler.js";
 import { ConversationCommands } from "./conversation-commands.js";
 import { sessionUsageStats } from "./model-utils.js";
@@ -296,7 +297,11 @@ export class ConversationManager {
 	/** 已发过的预算提醒（chatId:date:state）。 */
 	private readonly budgetNotices = new Set<string>();
 
+	private readonly notices: ReturnType<typeof createNoticeSender>;
+
 	constructor(private deps: ConversationManagerDeps) {
+		// deps 是构造参数属性，字段初始化时还读不到 —— 只能在这里建
+		this.notices = createNoticeSender({ sender: deps.sender, durableOutbox: deps.durableOutbox, log: deps.log });
 		// 对齐 hermes 的做法：**不设固定总时长**（长时间跑测试是正常的），
 		// 只在「完全没有事件产出」时才判定卡死 —— 空闲超时。
 		this.runIdleTimeoutMs = deps.runIdleTimeoutMs ?? 600_000;
@@ -1219,7 +1224,7 @@ export class ConversationManager {
 		if (sess.lastQueueNoticeAt && now - sess.lastQueueNoticeAt < 10_000) return;
 		sess.lastQueueNoticeAt = now;
 		const position = sess.queue.indexOf(item) + 1;
-		await this.notify(item.chatId, `已排队，第 ${position} 个（当前任务结束后执行；/progress 看当前进度，/queue list 查看队列，/queue clear 清空）`, {
+		await this.notify(item.chatId, queuedNoticeText(position), {
 			replyTo: item.replyTo, threadId: item.threadId,
 		}, `${item.messageId}:queued`, sess.conversationKey);
 	}
@@ -1574,29 +1579,7 @@ export class ConversationManager {
 		laneKey = chatId,
 		kind: "error" | "notify" = "notify",
 	): Promise<boolean> {
-		// 虚拟会话（云文档评论）不是飞书会话 —— 发过去只会变成 outbox 里的永久失败；
-		// 这类会话面向用户的提示由执行器经 deliverExternal 交付。
-		if (chatId.startsWith(EXTERNAL_CHAT_PREFIX)) {
-			this.deps.log?.("info", "feishu.conv.notify_skipped_external", { chatId, kind });
-			return false;
-		}
-		try {
-			if (this.deps.durableOutbox) {
-				const queued = this.deps.durableOutbox.enqueue(chatId, text, opts ?? {}, { dedupeKey, laneKey, kind });
-				if (queued.length === 0) this.deps.log?.("warn", "feishu.conv.notify_not_queued", { chatId, kind, dedupeKey });
-				return queued.length > 0;
-			}
-			const result = await this.deps.sender.send(chatId, text, opts);
-			if (!result.success) this.deps.log?.("warn", "feishu.conv.notify_failed", { chatId, kind, error: result.error ?? null });
-			return result.success;
-		} catch (error) {
-			// 这条通道送的是「出错/中断」类提示：它自己失败时如果不留日志，
-			// 用户看到的是「什么也没说」，排障的人查不到任何线索。
-			this.deps.log?.("warn", "feishu.conv.notify_failed", {
-				chatId, kind, error: error instanceof Error ? error.message : String(error),
-			});
-			return false;
-		}
+		return this.notices.send({ chatId, text, opts, dedupeKey, laneKey, kind });
 	}
 
 }
