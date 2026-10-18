@@ -34,6 +34,32 @@ export function adminCommands(svc: CommandServices): Record<string, CommandHandl
 				reply(`诊断包导出失败：${error instanceof Error ? error.message.slice(0, 120) : "未知错误"}`);
 			}
 		},
+		"/feishu outbox": ({ args, isAdmin, reply }) => {
+			// 死信只活在日志里等于不可运维：管理员要能看见并重投
+			if (!isAdmin) { reply("仅管理员或应用归属人可查看或重投发送失败的条目"); return; }
+			const outbox = svc.rt.outbox;
+			if (!outbox) { reply("outbox 未启用（没有持久投递队列）"); return; }
+			const sub = (args[0] ?? "list").toLowerCase();
+			if (sub === "list") {
+				const failed = outbox.failed(10);
+				const total = outbox.stats().failed;
+				if (failed.length === 0) { reply("没有发送失败的条目。"); return; }
+				reply([
+					`发送失败：共 ${total} 条（列出最近 ${failed.length} 条）`,
+					...failed.map((entry) => `- ${entry.id.slice(0, 8)} · ${entry.kind} → ${entry.chatId} · 尝试 ${entry.attempts} 次 · ${outboxErrorHint(entry.lastError)}`),
+					"重投：/feishu outbox retry <id 前缀|all>",
+				].join("\n"));
+				return;
+			}
+			if (sub === "retry") {
+				const target = args[1]?.toLowerCase();
+				if (!target) { reply("用法：/feishu outbox retry <id 前缀|all>"); return; }
+				const count = target === "all" ? outbox.retryFailed() : outbox.retryFailed([target]);
+				reply(count > 0 ? `已重新排队 ${count} 条（失败原因仍在时会再次失败，看日志 feishu.outbox.failed）。` : "没有匹配的失败条目（先 /feishu outbox list 看 id 前缀）。");
+				return;
+			}
+			reply("用法：/feishu outbox list | /feishu outbox retry <id 前缀|all>");
+		},
 		"/feishu policy": ({ msg, args, isAdmin, reply }) => {
 			if (!isAdmin) { reply("仅管理员或应用归属人可修改群策略"); return; }
 			if (msg.chatType === "p2p") { reply("群策略只能在群聊或话题中修改"); return; }
@@ -101,6 +127,18 @@ export function adminCommands(svc: CommandServices): Record<string, CommandHandl
 }
 
 /** 可设置的群策略。 */
+/**
+ * 死信的一条原因说明：与 `feishu.outbox.failed` 的 errorClass + 平台错误码对应。
+ * 常见的是「机器人不在群里」「编辑次数用尽」「媒体文件没了」—— 这类重投也没用，先修根因。
+ */
+function outboxErrorHint(error: string | undefined): string {
+	if (!error) return "未知原因";
+	if (/230002|not in chat|permission|forbidden|403/i.test(error)) return "机器人在该会话没有发言权限";
+	if (/230072|edited/i.test(error)) return "消息编辑次数已达上限";
+	if (/ENOENT|no such file/i.test(error)) return "附件文件已不存在";
+	return error.slice(0, 60);
+}
+
 export const VALID_POLICIES: readonly GroupPolicy[] = ["open", "mention", "disabled", "allowlist", "blacklist", "admin_only"];
 
 /** 设置单群策略（飞书与 TUI 共用；落盘失败回滚运行态 —— 两边语义一致）。 */

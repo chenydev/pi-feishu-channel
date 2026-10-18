@@ -184,6 +184,49 @@ export class Outbox {
 		return entry.id;
 	}
 
+	/**
+	 * 永久失败的条目（最近的在前）。`/feishu outbox list` 用：死信不能只活在日志里。
+	 */
+	failed(limit = 10): Array<Pick<OutboxEntry, "id" | "dedupeKey" | "laneKey" | "kind" | "attempts" | "lastError" | "updatedAt"> & { chatId: string }> {
+		return [...this.entries.values()]
+			.filter((entry) => entry.status === "failed")
+			.sort((a, b) => b.updatedAt - a.updatedAt)
+			.slice(0, Math.max(1, limit))
+			.map((entry) => ({
+				id: entry.id, dedupeKey: entry.dedupeKey, laneKey: entry.laneKey, kind: entry.kind,
+				attempts: entry.attempts, lastError: entry.lastError, updatedAt: entry.updatedAt, chatId: entry.route.chatId,
+			}));
+	}
+
+	/**
+	 * 重投永久失败的条目：重置尝试次数与退避，重新排进队列。
+	 *
+	 * 只改状态、不重建条目 —— dedupeKey 还是那一份，重投不会和原消息变成两条。
+	 * 返回重投的条数；`ids` 省略时重投全部死信。`ids` 按 **id 前缀**匹配。
+	 */
+	retryFailed(ids?: string[]): number {
+		const wanted = ids?.filter(Boolean);
+		let retried = 0;
+		for (const entry of this.entries.values()) {
+			if (entry.status !== "failed") continue;
+			// 按 id 前缀匹配：命令里手打完整 uuid 不现实，日志/列表给的是前 8 位
+			if (wanted && !wanted.some((token) => entry.id.startsWith(token))) continue;
+			entry.status = "pending";
+			entry.attempts = 0;
+			entry.nextRetryAt = this.now();
+			entry.lastError = undefined;
+			entry.errorClass = undefined;
+			entry.updatedAt = this.now();
+			retried += 1;
+		}
+		if (retried > 0) {
+			try { this.persist(); } catch { /* 落盘失败只影响重启后是否还记得，重投本身照做 */ }
+			this.schedule(0);
+			this.deps.onChange?.();
+		}
+		return retried;
+	}
+
 	depth(): number {
 		const current = this.stats();
 		return current.pending + current.sending;
@@ -428,6 +471,8 @@ export class Outbox {
 	}
 
 	private persist(): void {
+		// 没有落盘路径 = 纯内存 outbox（测试/临时实例）：不写盘，也不该抛
+		if (!this.deps.file) return;
 		const output = [...this.entries.values()].map((entry) => JSON.stringify(entry)).join("\n");
 		if (Buffer.byteLength(output, "utf8") > this.maxFileBytes) throw new Error("outbox file capacity exceeded");
 		atomicWriteFile(this.deps.file, output ? `${output}\n` : "");

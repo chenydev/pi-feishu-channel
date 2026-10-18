@@ -10,6 +10,20 @@ import { buildHelpCard } from "../cards.js";
 import { COMMANDS, formatCommandHelp, formatHelpText } from "../registry.js";
 import { buildUsageCard, formatUsageReport } from "../usage-card.js";
 
+/**
+ * 丢弃原因的一句话解释。与 `AdmitReason` 一一对应（外加桥正在停时的 `stopping`）：
+ * 命令里说「怎么放行」，不用再去翻文档。
+ */
+const DROP_REASON_HINT: Record<string, string> = {
+	stopping: "桥正在停止，这条没处理",
+	self_echo: "桥自己发的消息（防自触发），正常",
+	bot_not_mentioned: "群里没 @ 机器人（mention 策略）",
+	bots_disabled: "发送者是 bot 但不在 allowBots（加 \"mentions\" 即可放行任何 @ 本 bot 的消息）",
+	not_allowlisted: "群不在 allowChats，或用户不在该群/私聊白名单",
+	dm_policy_rejected: "私聊未放行（看 allowUsers）",
+	group_policy_rejected: "群策略拒绝（groupPolicy / groupRules）",
+};
+
 export function infoCommands(svc: CommandServices): Record<string, CommandHandler> {
 	return {
 		"/help": async ({ rest, isAdmin, reply, trySendCard, buttonCtx }) => {
@@ -23,6 +37,26 @@ export function infoCommands(svc: CommandServices): Record<string, CommandHandle
 		},
 		"/feishu status": ({ msg, reply }) => {
 			reply(`${svc.statusText()}\n本群工具档位: ${svc.rt.convManager?.toolPolicyFor(msg.chatId) ?? "?"}`);
+		},
+		"/feishu dropstats": ({ isAdmin, reply }) => {
+			// 只给管理员：原因分布能反推出「谁被挡了」（比如某个 bot 是否在 allowBots 里）
+			if (!isAdmin) {
+				reply("仅管理员或应用归属人可查看丢弃统计");
+				return;
+			}
+			const stats = svc.rt.pipeline?.getStats();
+			if (!stats) {
+				reply("入站流水线未启动");
+				return;
+			}
+			const reasons = Object.entries(stats.dropsByReason).sort((a, b) => b[1] - a[1]);
+			reply([
+				`准入丢弃统计（进程启动以来）：丢弃 ${stats.dropped} / 共收到 ${stats.total}`,
+				...(reasons.length > 0
+					? reasons.map(([reason, count]) => `- ${reason}: ${count}（${DROP_REASON_HINT[reason] ?? "见 docs/operations.md §3"}）`)
+					: ["- 没有丢弃记录"]),
+				"（每条丢弃的完整上下文见日志 feishu.pipeline.drop）",
+			].join("\n"));
 		},
 		"/feishu doctor": ({ reply, isAdmin }) => {
 			const checks = runDoctor({ config: svc.rt.config, paths: resolvePaths(svc.rt.homeDir), transport: svc.rt.transport, diagnostics: svc.diagnosticsContext() });

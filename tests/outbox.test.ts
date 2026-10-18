@@ -416,3 +416,30 @@ test("outbox：status 里能看到投递耗时 p50/p95（排队时间不算在�
 	assert.equal(stats.latencyP95Ms, 300);
 	await outbox.stop();
 });
+
+test("outbox：死信可列出、按 id 前缀重投，重投后带全新的尝试次数", async () => {
+	let attempt = 0;
+	const outbox = new Outbox({
+		file: "",
+		prepare: (chatId: string, text: string) => prepared(chatId, text),
+		send: async () => { attempt += 1; return { success: false, retryable: false, error: "230002 bot not in chat" }; },
+		log: () => {}, backoffMs: 10, maxAttempts: 2, now: () => 1_000,
+	} as never);
+	outbox.start();
+	const id = outbox.enqueue("oc", "内容", {}, { dedupeKey: "k:final", laneKey: "l", kind: "final" })[0]!;
+	await outbox.drainDue();
+	await outbox.drainDue();
+
+	const failed = outbox.failed();
+	assert.equal(failed.length, 1);
+	assert.equal(failed[0]?.kind, "final");
+	assert.equal(failed[0]?.chatId, "oc");
+	assert.match(failed[0]?.lastError ?? "", /230002/);
+
+	// 前缀匹配（命令里手打完整 uuid 不现实）
+	assert.equal(outbox.retryFailed([id.slice(0, 8)]), 1);
+	assert.deepEqual(outbox.failed(), [], "重投后不再是死信");
+	const before = attempt;
+	await outbox.drainDue();
+	assert.equal(attempt, before + 1, "重投后真的会再发一次");
+});

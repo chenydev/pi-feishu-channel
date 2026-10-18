@@ -59,6 +59,8 @@ export class StatusReporter {
 			lastMessageAt: stats?.lastMessageAt,
 			messageTotal: stats?.total ?? 0,
 			messageDropped: stats?.dropped ?? 0,
+			// 按原因拆开：只看总数看不出被谁挡的
+			dropReasons: stats?.dropsByReason && Object.keys(stats.dropsByReason).length > 0 ? stats.dropsByReason : undefined,
 			compensatedMessages: rt.compensatedMessages,
 			compensationErrors: rt.compensationErrors,
 			compensationTruncated: rt.compensationTruncated,

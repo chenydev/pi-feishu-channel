@@ -218,3 +218,52 @@ test("/feishu policy：切到 allowlist / blacklist 但名单为空时必须说�
 		assert.equal(replies.at(-1), "已设置本群策略：open", "无名单依赖的策略照旧简洁");
 	} finally { cleanup(); }
 });
+
+test("/feishu dropstats：管理员看到按原因的丢弃分布，其他人只看一句拒绝", async () => {
+	const { rt, send, replies, cleanup } = setup();
+	try {
+		rt.pipeline = {
+			getStats: () => ({
+				total: 10, duplicate: 1, batched: 0, dropped: 4, dispatched: 5, recovered: 0,
+				dropsByReason: { bots_disabled: 3, bot_not_mentioned: 1 },
+			}),
+		} as never;
+		await send("/feishu dropstats", { senderId: "ou_admin" });
+		assert.match(replies.at(-1) ?? "", /丢弃 4 \/ 共收到 10/);
+		assert.match(replies.at(-1) ?? "", /bots_disabled: 3（发送者是 bot 但不在 allowBots/);
+		assert.match(replies.at(-1) ?? "", /bot_not_mentioned: 1/);
+
+		await send("/feishu dropstats", { senderId: "ou_user" });
+		assert.equal(replies.at(-1), "仅管理员或应用归属人可查看丢弃统计");
+	} finally { cleanup(); }
+});
+
+test("/feishu outbox：列出失败条目并按 id 前缀重投；无匹配时明确回执", async () => {
+	const { rt, send, replies, cleanup } = setup();
+	try {
+		let retried: string[] | undefined;
+		rt.outbox = {
+			stats: () => ({ failed: 2 }),
+			failed: () => ([
+				{ id: "abcd1234-0000", dedupeKey: "k1:final", laneKey: "l", kind: "final", attempts: 5, lastError: "230002 bot not in chat", updatedAt: 1, chatId: "oc_g" },
+				{ id: "efgh5678-0000", dedupeKey: "k2:final", laneKey: "l", kind: "final", attempts: 5, lastError: "ENOENT", updatedAt: 2, chatId: "oc_g" },
+			]),
+			retryFailed: (ids?: string[]) => { retried = ids; return 1; },
+		} as never;
+
+		await send("/feishu outbox list", { senderId: "ou_admin" });
+		assert.match(replies.at(-1) ?? "", /发送失败：共 2 条/);
+		assert.match(replies.at(-1) ?? "", /abcd1234 .* 机器人在该会话没有发言权限/);
+		assert.match(replies.at(-1) ?? "", /efgh5678 .* 附件文件已不存在/);
+
+		await send("/feishu outbox retry efgh", { senderId: "ou_admin" });
+		assert.deepEqual(retried, ["efgh"]);
+		assert.match(replies.at(-1) ?? "", /已重新排队 1 条/);
+
+		await send("/feishu outbox retry all", { senderId: "ou_admin" });
+		assert.equal(retried, undefined, "all 走的是不带参数的重投");
+
+		await send("/feishu outbox list", { senderId: "ou_user" });
+		assert.equal(replies.at(-1), "仅管理员或应用归属人可查看或重投发送失败的条目");
+	} finally { cleanup(); }
+});

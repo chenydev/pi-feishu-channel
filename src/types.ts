@@ -685,6 +685,8 @@ export interface BridgeStatus {
 	lastMessageAt?: number;
 	messageTotal: number;
 	messageDropped: number;
+	/** 丢弃原因分布（`feishu.pipeline.drop` 的 reason；桥正在停时记 `stopping`）。 */
+	dropReasons?: Record<string, number>;
 	compensatedMessages: number;
 	compensationErrors: number;
 	compensationTruncated: number;

@@ -4,11 +4,11 @@ import { FEISHU_SLASH_COMMANDS, formatSlashCommandHelp } from "../src/slash-comm
 
 test("斜杠命令帮助完整列出支持的命令和用途", () => {
 	const help = formatSlashCommandHelp();
-	for (const command of ["/help", "/commands", "/new", "/stop", "/steer <内容>", "/queue <内容>", "/q", "/compact", "/model", "/models", "/thinking", "/sessions", "/name", "/resume", "/workspace", "/feishu status", "/feishu usage", "/feishu doctor", "/feishu export", "/feishu policy", "/feishu always", "/feishu footer"]) {
+	for (const command of ["/help", "/commands", "/new", "/stop", "/steer <内容>", "/queue <内容>", "/q", "/compact", "/model", "/models", "/thinking", "/sessions", "/name", "/resume", "/workspace", "/feishu status", "/feishu usage", "/feishu doctor", "/feishu dropstats", "/feishu outbox", "/feishu export", "/feishu policy", "/feishu always", "/feishu footer"]) {
 		assert.match(help, new RegExp(command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 	}
 	assert.match(help, /普通消息 = 注入当前任务/);
-	assert.equal(FEISHU_SLASH_COMMANDS.length, 31, "帮助由命令注册表生成（含 E/F 系列新命令）");
+	assert.equal(FEISHU_SLASH_COMMANDS.length, 33, "帮助由命令注册表生成（含 E/F 系列新命令）");
 	for (const command of ["/retry", "/undo", "/fork", "/export", "/cron", "/feishu approvals", "/feishu prompt", "/feishu budget", "/feishu config reload", "/clear", "/reset", "/reload", "/progress"]) {
 		assert.ok(help.includes(command), `帮助应列出 ${command}`);
 	}

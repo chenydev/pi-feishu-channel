@@ -14,6 +14,13 @@ export interface PipelineStats {
 	duplicate: number;
 	batched: number;
 	dropped: number;
+	/**
+	 * 按拒绝原因计数（`feishu.pipeline.drop` 的 reason + `stopping`）。
+	 *
+	 * 「消息被丢了」是最常见的现场问题，但原来只有总数字 —— 看不出是被准入挡了、
+	 * 还是重复投递、还是桥正在停。`/feishu dropstats` 直接读这里。
+	 */
+	dropsByReason: Record<string, number>;
 	dispatched: number;
 	/** 去重标记存在但从未进入持久待处理记录（崩溃窗口）而重新准入的条数。 */
 	recovered: number;
@@ -54,7 +61,7 @@ export interface PipelineDeps {
 export class InboundPipeline {
 	private dedup: DedupeStore;
 	private batcher: TextBatcher;
-	private stats: PipelineStats = { total: 0, duplicate: 0, batched: 0, dropped: 0, dispatched: 0, recovered: 0 };
+	private stats: PipelineStats = { total: 0, duplicate: 0, batched: 0, dropped: 0, dropsByReason: {}, dispatched: 0, recovered: 0 };
 	/** 被回复消息原文缓存：按 `quotedFetchTtlMs` 判命，容量按 `lastSentCacheSize` 封顶（与机器人消息缓存同量级）。 */
 	private quoteCache = new Map<string, { text: string; at: number }>();
 	private timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -67,7 +74,13 @@ export class InboundPipeline {
 	}
 
 	getStats(): PipelineStats {
-		return { ...this.stats };
+		return { ...this.stats, dropsByReason: { ...this.stats.dropsByReason } };
+	}
+
+	/** 记一次丢弃（总数字与按原因计数必须同步，否则两个口径会对不上）。 */
+	private countDrop(reason: string): void {
+		this.stats.dropped += 1;
+		this.stats.dropsByReason[reason] = (this.stats.dropsByReason[reason] ?? 0) + 1;
 	}
 
 	/**
@@ -121,7 +134,7 @@ export class InboundPipeline {
 	/** 处理单条入站消息（transport 回调）。 */
 	handle(msg: FeishuInboundMessage): Promise<void> {
 		if (this.stopping) {
-			this.stats.dropped += 1;
+			this.countDrop("stopping");
 			this.deps.log?.("warn", "feishu.pipeline.drop_after_stop", { messageId: msg.messageId });
 			return Promise.resolve();
 		}
@@ -294,7 +307,7 @@ export class InboundPipeline {
 		const replyToBot = Boolean(msg.replyToMessageId && this.deps.lastSent.has(msg.replyToMessageId));
 		const verdict = admit(this.deps.config, msg, mentioned, replyToBot, this.deps.lastSent);
 		if (!verdict.ok) {
-			this.stats.dropped += 1;
+			this.countDrop(verdict.reason);
 			// 日志带 hint：admit 已经针对每种拒绝给出「照做就能通过」的具体动作
 			// （加哪个文件的哪个字段、加什么值）。准入是默认拒绝的，被挡很常见，
 			// 而「为什么被挡、怎么放行」不该靠人翻代码或写文档才能回答。
