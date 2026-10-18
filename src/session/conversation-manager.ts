@@ -20,16 +20,16 @@ import type { UsageSnapshot } from "../commands/usage-card.js";
 import { RateBudget } from "../runtime/rate-budget.js";
 import { randomUUID } from "node:crypto";
 import { budgetState } from "../runtime/usage-ledger.js";
-import { previewText } from "./text-utils.js";
 import { RunExecutor } from "./run-executor.js";
 import { buildTurnInput } from "./turn-input.js";
 import { SessionTable } from "./session-table.js";
 import { createHistoryOps, type HistoryOps } from "./history-ops.js";
 import { createNoticeSender, queuedNoticeText } from "./notices.js";
+import { progressReportOf, queueSnapshotOf, queueStatsOf, schedulerSnapshotOf, usageSnapshotOf } from "./session-views.js";
 import { SessionScheduler } from "./scheduler.js";
 import { ConversationCommands } from "./conversation-commands.js";
 import { sessionUsageStats } from "./model-utils.js";
-import { type RunActivity, busyNoticeText, describeProgress, durationLabel } from "./run-activity.js";
+import { busyNoticeText } from "./run-activity.js";
 
 export type AgentHandle = import("./agent-types.js").AgentHandle;
 import { resolveToolPolicy } from "./tool-policy.js";
@@ -366,12 +366,13 @@ export class ConversationManager {
 		};
 	}
 
+	/** 只读视图统一从 `session-views.ts` 取：它们回答「现在什么样」，和「下一轮怎么跑」无关。 */
+	private viewState() {
+		return { sessions: this.sessions, activeItems: this.activeItems, scheduler: this.scheduler, now: () => this.now() };
+	}
+
 	queueStats(): { queued: number; active: number; waiting: number } {
-		return {
-			queued: [...this.sessions.values()].reduce((total, session) => total + session.queue.length, 0),
-			active: this.scheduler.active,
-			waiting: this.scheduler.waiting.length,
-		};
+		return queueStatsOf(this.viewState());
 	}
 
 	routeForSessionId(sessionId: string): { conversationKey: string; chatId: string; threadId?: string; sourceMessageId?: string; runId?: string; senderId?: string; chatType?: FeishuInboundMessage["chatType"] } | undefined {
@@ -767,16 +768,7 @@ export class ConversationManager {
 	 * 不新建会话：没有会话就是没有用量，回 null 让命令层告诉用户去发条消息。
 	 */
 	usageSnapshot(msg: FeishuInboundMessage): UsageSnapshot | undefined {
-		const key = buildConversationKey(msg, this.deps.config);
-		const session = this.sessions.get(key);
-		if (!session) return undefined;
-		const stats = sessionUsageStats(session.agent);
-		const modelLabel = session.agent?.modelId;
-		return {
-			...(modelLabel ? { modelLabel } : {}),
-			...(stats ? { session: stats } : {}),
-			...(session.lastRun ? { run: session.lastRun } : {}),
-		};
+		return usageSnapshotOf(this.viewState(), this.deps.config, msg);
 	}
 
 	/**
@@ -972,14 +964,7 @@ export class ConversationManager {
 
 	/** 队列快照（/queue list）。只给预览，不回显全文。 */
 	queueSnapshot(msg: FeishuInboundMessage): { active?: string; queued: string[]; steered: number } {
-		const key = buildConversationKey(msg, this.deps.config);
-		const sess = this.sessions.get(key);
-		const active = this.activeItems.get(key);
-		return {
-			...(active ? { active: previewText(active.text) } : {}),
-			queued: (sess?.queue ?? []).map((item) => previewText(item.text)),
-			steered: sess?.steered.length ?? 0,
-		};
+		return queueSnapshotOf(this.viewState(), this.deps.config, msg);
 	}
 
 	/**
@@ -1024,28 +1009,9 @@ export class ConversationManager {
 		await this.notify(item.chatId, text, { replyTo: item.replyTo, threadId: item.threadId }, `${item.messageId}:busy`, sess.conversationKey);
 	}
 
-	/**
-	 * `/progress`：不经过模型，直接报告这一轮做到哪了。自己的会话空闲时，列出同一个群里别人正在执行的任务
-	 * （只给人和时长，不给命令内容：群里各人会话独立时那是别人的任务）。
-	 */
+	/** `/progress`：这一轮做到哪了（实现见 `session-views.ts`）。 */
 	progressReport(msg: FeishuInboundMessage): string {
-		const key = buildConversationKey(msg, this.deps.config);
-		const own = this.sessions.get(key);
-		const now = this.now();
-		if (own?.run && this.activeItems.has(key)) {
-			return describeProgress({ activity: own.run, now, task: this.activeItems.get(key)?.text, steered: own.steered.length, queued: own.queue.length });
-		}
-		const lines = [own?.queue.length ? `当前没有执行中的任务，排队 ${own.queue.length} 个` : "当前没有执行中的任务"];
-		const others = [...this.sessions.values()].filter((session) => session !== own && session.chatId === msg.chatId && session.run && this.activeItems.has(session.conversationKey));
-		if (others.length > 0) {
-			lines.push(`这个群里另有 ${others.length} 个任务在执行：`);
-			for (const other of others.slice(0, 5)) {
-				const activity = other.run as RunActivity;
-				const who = this.activeItems.get(other.conversationKey)?.senderName ?? "其他成员";
-				lines.push(`· ${who}：已运行 ${durationLabel(now - activity.startedAt)}，${activity.inTool ? "正在执行工具" : "在等模型回复"}`);
-			}
-		}
-		return lines.join("\n");
+		return progressReportOf(this.viewState(), this.deps.config, msg);
 	}
 
 	/** 忙碌时排队的消息回复一次"已排队，第 N 个"（同一会话 10 秒内只提示一次）。 */
@@ -1268,14 +1234,7 @@ export class ConversationManager {
 
 	/** 调度等待量诊断（waiting 会话数 + 各会话排队与等待时长）。 */
 	schedulerSnapshot(): { waiting: number; queues: Array<{ conversationKey: string; queued: number; active: boolean }> } {
-		return {
-			waiting: this.scheduler.waiting.length,
-			queues: [...this.sessions.values()].map((session) => ({
-				conversationKey: session.conversationKey,
-				queued: session.queue.length,
-				active: Boolean(session.activeRun),
-			})),
-		};
+		return schedulerSnapshotOf(this.viewState());
 	}
 
 	private async removeProcessingReaction(_sess: BridgeSession, item: QueuedMessage): Promise<void> {

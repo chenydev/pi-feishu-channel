@@ -9,7 +9,9 @@
   忙判定、打开 agent、重投消息）显式传入，模块可单独测。管理器 1650 → 1529 行。
 - 重构（会话）：类型定义搬到 `session/session-types.ts`（`BridgeSession`、`QueuedMessage`、
   `ConversationManagerDeps` 等，全是无逻辑的接口），工具档位解析搬到 `session/tool-policy.ts`。
-  管理器 re-export 原名字，历史导入路径不变。管理器 1529 → 1342 行。
+  管理器 re-export 原名字，历史导入路径不变。
+- 重构（会话）：只读视图（队列统计/调度快照/`/queue list`/`/progress`/用量快照）搬到
+  `session/session-views.ts` —— 全是读操作，和「下一轮怎么跑」没有共享状态。管理器 1342 → 1301 行。
 
 ## 0.3.2
 
