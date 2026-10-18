@@ -212,7 +212,18 @@ export function runDoctor(input: {
  * 放行规则名（`session_dir`、`ps_always_approved` 等），不该给群里任何被准入的人看到。
  * 结论（哪项异常）仍然给，附一句「详情请管理员看」。
  */
-export function formatDoctor(checks: DoctorCheck[], options: { detail?: boolean } = {}): string {
+export function formatDoctor(checks: DoctorCheck[], options: { detail?: boolean; onlyProblems?: boolean } = {}): string {
+	// 结论版：只列异常项。19 项全绿时一条「全部正常」比刷屏更有用；
+	// 有异常时也先看异常，完整清单再发 `/feishu doctor full`。
+	if (options.onlyProblems) {
+		const failed = checks.filter((check) => !check.ok);
+		if (failed.length === 0) return `飞书桥诊断：${checks.length} 项检查全部正常 ✅`;
+		return [
+			`飞书桥诊断：${checks.length} 项检查，${failed.length} 项异常`,
+			...failed.map((check) => `${options.detail === false ? "❌" : "❌"} ${check.name}${options.detail === false ? "" : `: ${check.detail}`}`),
+			"完整清单：/feishu doctor full",
+		].join("\n");
+	}
 	if (options.detail === false) {
 		const failed = checks.filter((check) => !check.ok);
 		return [

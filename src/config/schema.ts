@@ -125,6 +125,9 @@ export const fileConfigSchema = z.object({
 		catchUp: m(choice(["skip", "once"], "错过的定时任务处理方式"), "停机期间错过的触发：`skip` 跳过（下次执行时注明错过了几次）；`once` 补跑一次", { default: "\"skip\"" }),
 		maxJobs: m(nonNegative, "最多多少个定时任务", { default: "20" }),
 	}).partial(), "定时任务（可选能力，默认关闭）"),
+	rateLimit: m(z.object({
+		perUserPerMinute: m(nonNegative, "同一个人每分钟最多几条消息；0 = 不限（默认）。超出的消息直接丢弃，不回话（看 `/feishu dropstats` 的 `rate_limited`）", { default: "0" }),
+	}).partial(), "按人限流（默认关闭）"),
 	metrics: m(z.object({
 		enabled: m(bool, "开一个只读 HTTP 端点：`/healthz`（探活，503 = 断线或心跳停了）与 `/metrics`（Prometheus 文本格式）。端点没有鉴权，默认只绑 127.0.0.1", { default: "false" }),
 		host: m(str, "监听地址（容器里要暴露给外部探针就设成 `0.0.0.0`）", { default: '"127.0.0.1"' }),

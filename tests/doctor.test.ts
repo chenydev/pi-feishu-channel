@@ -132,3 +132,17 @@ test("doctor：非管理员只看到结论，看不到宿主路径与放行规�
 		if (failed > 0) assert.match(brief, new RegExp(`有 ${failed} 项异常`), "异常数量要告诉提问的人");
 	} finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+test("诊断：默认结论版只列异常项，full 才列全部", async () => {
+	const checks = runDoctor({ config: DEFAULT_CONFIG, paths: resolvePaths(mkdtempSync(join(tmpdir(), "doctor-brief-"))) });
+	const allOk = checks.map((check) => ({ ...check, ok: true }));
+	assert.match(formatDoctor(allOk, { onlyProblems: true }), /全部正常/);
+	assert.doesNotMatch(formatDoctor(allOk, { onlyProblems: true }), new RegExp(checks[1]!.name), "全绿时不再逐项刷屏");
+
+	const oneBad = [{ ...checks[0]!, ok: false, detail: "坏了" }, ...allOk.slice(1)];
+	const brief = formatDoctor(oneBad, { onlyProblems: true });
+	assert.match(brief, /1 项异常/);
+	assert.match(brief, /坏了/);
+	assert.match(brief, /\/feishu doctor full/);
+	assert.match(formatDoctor(oneBad, { onlyProblems: false }), new RegExp(`✅ ${checks[1]!.name}`), "full 仍列全部");
+});

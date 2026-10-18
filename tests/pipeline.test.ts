@@ -604,3 +604,34 @@ test("引用原文缓存：按容量淘汰最旧，过期项不再命中（长�
 	assert.equal(dispatched.at(-1)?.replyToText, "原文-p1");
 	await pipeline.stop();
 });
+
+test("全链路：按人限流（rateLimit.perUserPerMinute），超出计 rate_limited 且不回话", async () => {
+	const dispatched: FeishuInboundMessage[] = [];
+	const logs: Array<{ event: string; meta: unknown }> = [];
+	const pipeline = new InboundPipeline({
+		config: cfg({ groupPolicy: "mention", batch: NO_BATCH, rateLimit: { perUserPerMinute: 2 } }),
+		transport: {} as FeishuTransport,
+		lastSent: new LastSentCache(8),
+		onDispatch: async (m) => { dispatched.push(m); },
+		log: (level, event, meta) => { logs.push({ event: `${level}:${event}`, meta }); },
+	});
+	const msg = (id: string) => fakeMsg({ messageId: id, text: "hi", mentions: [{ isSelf: true }] });
+	await pipeline.handle(msg("m1"));
+	await pipeline.handle(msg("m2"));
+	await pipeline.handle(msg("m3"));
+	assert.equal(dispatched.length, 2, "第三条被限流");
+	const stats = pipeline.getStats();
+	assert.equal(stats.dropped, 1);
+	assert.equal(stats.dropsByReason.rate_limited, 1);
+	const drop = logs.find((entry) => JSON.stringify(entry.meta).includes("rate_limited"));
+	assert.ok(drop, "要有一条带 hint 的丢弃日志");
+	assert.match(JSON.stringify(drop?.meta), /perUserPerMinute/);
+
+	// 默认（没配 rateLimit）不限
+	const unlimited = new InboundPipeline({
+		config: cfg({ groupPolicy: "mention", batch: NO_BATCH }),
+		transport: {} as FeishuTransport, lastSent: new LastSentCache(8), onDispatch: async () => {},
+	});
+	for (let i = 0; i < 5; i += 1) await unlimited.handle(fakeMsg({ messageId: `u${i}`, text: "hi", mentions: [{ isSelf: true }] }));
+	assert.equal(unlimited.getStats().dropped, 0);
+});

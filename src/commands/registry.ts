@@ -78,7 +78,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 	{ name: "/help", aliases: ["/h", "/?", "/commands", "/feishu help"], usage: "/help [命令]", description: "本帮助；带命令名看该命令的详细用法", group: "管理" },
 	{ name: "/feishu status", usage: "/feishu status", description: "连接、会话、队列、outbox 状态", group: "管理", button: true },
 	{ name: "/feishu usage", usage: "/feishu usage [week]", description: "用量与费用（week = 近 7 天汇总）", group: "管理", button: true },
-	{ name: "/feishu doctor", usage: "/feishu doctor", description: "可解释诊断", group: "管理" },
+	{ name: "/feishu doctor", usage: "/feishu doctor [full]", description: "可解释诊断（默认只列异常项）", group: "管理" },
 	{ name: "/feishu outbox", usage: "/feishu outbox [list|retry <id|all>]", description: "查看 / 重投发送失败的条目", group: "管理", adminOnly: true },
 	{ name: "/feishu dropstats", usage: "/feishu dropstats", description: "准入丢弃按原因计数（为什么消息没被处理）", group: "管理", adminOnly: true },
 	{ name: "/feishu approvals", usage: "/feishu approvals [off|builtin|pi-permission-system|reset] [-g]", description: "查看审批策略；管理员可切换审批模式（只改本会话；-g 写入配置）", group: "管理" },

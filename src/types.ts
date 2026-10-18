@@ -252,6 +252,8 @@ export interface BridgeConfig {
 	feedback?: { enabled?: boolean };
 	/** `feishu_ask` 提问卡片：兜底有效期（毫秒，默认 24 小时；0 = 不设上限）。 */
 	clarify?: { ttlMs?: number; panels?: boolean };
+	/** 按人限流（默认关闭：`perUserPerMinute` 为 0）。 */
+	rateLimit?: { perUserPerMinute?: number };
 	/** 只读 HTTP 端点（`/healthz`、`/metrics`，默认关闭；无鉴权，默认只绑 127.0.0.1）。 */
 	metrics?: { enabled?: boolean; host?: string; port?: number };
 	cardTool?: { enabled?: boolean };

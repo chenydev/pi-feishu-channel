@@ -6,6 +6,7 @@ import type { BridgeConfig, FeishuInboundMessage } from "../types.js";
 import { type LastSentCache, admit } from "./admit.js";
 import { BATCHABLE_MEDIA_TYPES, DedupCache, TextBatcher, batchCompatible, type BatchWindow } from "./pipeline-utils.js";
 import type { FeishuTransport } from "./transport.js";
+import { createUserLimiter } from "./user-limiter.js";
 import { buildConversationKey } from "../session/conversation-key.js";
 import type { DedupeStore } from "./dedupe-store.js";
 
@@ -67,6 +68,9 @@ export class InboundPipeline {
 	private timers = new Map<string, ReturnType<typeof setTimeout>>();
 	private inFlight = new Set<Promise<void>>();
 	private stopping = false;
+	/** 按人限流（`rateLimit.perUserPerMinute` > 0 时才生效）。 */
+	// 上限现读配置（`rateLimit` 是 live 字段，reload 后立即生效）
+	private readonly limiter = createUserLimiter({ perMinute: () => this.deps.config.rateLimit?.perUserPerMinute ?? 0 });
 
 	constructor(private deps: PipelineDeps) {
 		this.dedup = deps.dedupeStore ?? new DedupCache(deps.config.dedupCacheSize);
@@ -321,6 +325,24 @@ export class InboundPipeline {
 			});
 			try { this.deps.onDrop?.(msg, verdict.reason ?? "unknown", mentioned); } catch { /* 回调失败不影响准入 */ }
 			return undefined;
+		}
+
+		// 3.5 按人限流（默认关闭）：已放行的人刷屏时，后面的直接丢
+		const limit = this.deps.config.rateLimit?.perUserPerMinute ?? 0;
+		// 每 100 条顺手清一次过期窗口（长驻进程里 sender 数会慢慢变多）
+		if (this.stats.total % 100 === 0) this.limiter.prune();
+		if (limit > 0) {
+			const decision = this.limiter.allow(msg.senderId);
+			if (!decision.ok) {
+				this.countDrop("rate_limited");
+				this.deps.log?.("warn", "feishu.pipeline.drop", {
+					messageId: msg.messageId, chatId: msg.chatId, chatType: msg.chatType,
+					senderId: msg.senderId, reason: "rate_limited",
+					retryAfterMs: decision.retryAfterMs,
+					hint: `同一人每分钟上限 ${limit} 条（rateLimit.perUserPerMinute）；要放宽就改这个字段，0 = 不限`,
+				});
+				return undefined;
+			}
 		}
 
 		// 4. 回复解析（拉取被回复原文）

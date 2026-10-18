@@ -75,6 +75,8 @@ export const RELOAD_RULES: { [K in keyof FileConfig]-?: Rule<FileConfig[K]> } = 
 	alerts: "restart",
 	// 监听地址/端口只在启动时读（改完重启才能换端口）
 	metrics: "restart",
+	// 限流参数每次判定都现读，改完 reload 即生效
+	rateLimit: "live",
 	onboarding: {
 		welcome: "live",
 		notifyAdmins: "live",

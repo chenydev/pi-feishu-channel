@@ -22,6 +22,8 @@ const DROP_REASON_HINT: Record<string, string> = {
 	not_allowlisted: "群不在 allowChats，或用户不在该群/私聊白名单",
 	dm_policy_rejected: "私聊未放行（看 allowUsers）",
 	group_policy_rejected: "群策略拒绝（groupPolicy / groupRules）",
+	rate_limited: "同一个人发得太快（rateLimit.perUserPerMinute；0 = 不限）",
+	duplicate: "平台重投了已经处理过的消息",
 };
 
 export function infoCommands(svc: CommandServices): Record<string, CommandHandler> {
@@ -58,10 +60,12 @@ export function infoCommands(svc: CommandServices): Record<string, CommandHandle
 				"（每条丢弃的完整上下文见日志 feishu.pipeline.drop）",
 			].join("\n"));
 		},
-		"/feishu doctor": ({ reply, isAdmin }) => {
+		"/feishu doctor": ({ args, reply, isAdmin }) => {
 			const checks = runDoctor({ config: svc.rt.config, paths: resolvePaths(svc.rt.homeDir), transport: svc.rt.transport, diagnostics: svc.diagnosticsContext() });
-			// detail 里有宿主路径、配置字段、放行规则名：只给管理员看，其他人只看结论
-			reply(formatDoctor(checks, { detail: isAdmin }));
+			// 默认结论版（只看异常）；`full` 才列全部 19 项。
+			// detail 里有宿主路径、配置字段、放行规则名：只给管理员看，其他人只看结论。
+			const full = args[0]?.toLowerCase() === "full";
+			reply(formatDoctor(checks, { detail: isAdmin, onlyProblems: !full }));
 		},
 		"/feishu usage": async ({ msg, args, isAdmin, reply, trySendCard }) => {
 			if (args[0]?.toLowerCase() === "week") {
