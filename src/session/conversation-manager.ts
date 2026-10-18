@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { type BridgeConfig, type DeliveryTarget, EXTERNAL_CHAT_PREFIX, type FeishuInboundMessage, type ReloadSummary, type SessionBackend } from "../types.js";
 import type { Sender } from "../outbound/sender.js";
 import type { Outbox } from "../outbound/outbox.js";
-import { buildConversationKey, groupSessionsPerUser } from "./conversation-key.js";
+import { buildConversationKey } from "./conversation-key.js";
 import { PendingStore } from "./pending-store.js";
 import { ConversationStore, type ConversationPointer } from "./conversation-store.js";
 import type { IntakeLedger } from "../inbound/pipeline.js";
@@ -18,7 +18,6 @@ import { LiveChannel, SerialWriter } from "../outbound/live-channel.js";
 import { type createRunMetrics, elapsedMs as metricsElapsedMs, renderFooter } from "../outbound/run-metrics.js";
 import { resolveFooterEnabled } from "../config.js";
 import { cnyPerUsdForModel } from "../outbound/deepseek-usage.js";
-import { stripFooterFromQuote } from "../outbound/run-metrics.js";
 import type { RunUsage, UsageSnapshot } from "../commands/usage-card.js";
 import { RateBudget } from "../runtime/rate-budget.js";
 import { randomUUID } from "node:crypto";
@@ -27,6 +26,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import type { ResourceRef } from "../types.js";
 import { extractText, stripContextPrefix } from "./text-utils.js";
 import { RunExecutor } from "./run-executor.js";
+import { buildTurnInput } from "./turn-input.js";
 import { SessionScheduler } from "./scheduler.js";
 import { ConversationCommands } from "./conversation-commands.js";
 import { sessionUsageStats } from "./model-utils.js";
@@ -701,34 +701,22 @@ export class ConversationManager {
 		images?: import("../types.js").PiImageContent[];
 		resources?: ResolvedTurnResources;
 	}> {
-		let text = item.text;
-		let resources: ResolvedTurnResources | undefined;
-		if (item.resources.length > 0 && this.deps.resourceResolver) {
-			resources = await this.deps.resourceResolver.resolve(item.resources);
-			text += resources.promptSuffix;
-		}
-		if (item.replyToMessageId && item.replyToText) {
-			// 先剔掉桥自己加的页脚块：那是给人看的元信息，不该每轮花 token 喂回模型。
-			// 先按注册表精确匹配我们发过的原文，再按行形态兜底（保证一定删干净）。
-			const strippedQuote = stripFooterFromQuote(item.replyToText, this.sentFooters);
-			// 整条都是页脚（引用了一条纯元信息消息）：注入占位提示，别塞空引用
-			const quote = (strippedQuote.trim() || "[无法获取被回复消息原文]").slice(0, 500).replace(/@_user_\w+/g, "@").replace(/\n/g, " ");
-		const replyingToSelf = Boolean(this.deps.lastSent?.has(item.replyToMessageId));
-			text = replyingToSelf
-				? `[你正在回复自己上一条消息，原文："${quote}"]\n\n${text}`
-				: `[正在回复的消息原文："${quote}"]\n\n${text}`;
-		}
-		// 给 agent 的上下文（发言人 / 提及 / 群设定）
-		const context = await this.agentContextLines(item, conversationKey);
-		if (context.length > 0) text = `${context.join("\n")}\n\n${text}`;
-		// 恢复提示：一次性注入。注意必须放在 replyTo 分支之外 ——
-		// 崩溃恢复后用户重发的消息通常不带回复引用，若写在分支内就永远不会生效。
+		const session = this.sessions.get(conversationKey);
 		const recoveryNote = this.recoveryNotes.get(conversationKey);
-		if (recoveryNote) {
-			text = `${recoveryNote}\n\n${text}`;
-			this.recoveryNotes.delete(conversationKey);
-		}
-		return { text, images: resources?.images, resources };
+		const built = await buildTurnInput({
+			item, conversationKey, session, recoveryNote,
+			deps: {
+				config: this.deps.config,
+				resourceResolver: this.deps.resourceResolver,
+				lastSent: this.deps.lastSent,
+				resolveUserName: this.deps.resolveUserName,
+				sentFooters: this.sentFooters,
+			},
+		});
+		// 群设定提示注入一次之后记在会话上，后续轮次不再加
+		if (built.promptInjected !== undefined && session) session.promptInjected = built.promptInjected;
+		if (recoveryNote) this.recoveryNotes.delete(conversationKey);
+		return { text: built.text, images: built.images, resources: built.resources };
 	}
 
 	/**
@@ -760,42 +748,6 @@ export class ConversationManager {
 		const policy = this.toolPolicyOf(chatId);
 		if (!policy) return "full（未限制）";
 		return Array.isArray(policy) ? `自定义：${policy.join(", ")}` : policy;
-	}
-
-	/**
-	 * 发言人、提及对象、群设定。
-	 * - 发言人只在多人共用的会话里加（话题、不按人隔离的群；`agentContext.sender=always` 时群聊都加）——
-	 *   否则模型分不清"谁在说话"；按人隔离的会话里永远是同一个人，加了只是浪费 token；
-	 * - 提及：让 agent 知道"帮我通知他"的"他"是谁，并拿到 open_id 能 @ 回去；
-	 * - 群设定（groupRules.<chatId>.prompt）：会话创建后的首轮注入一次，之后在会话历史里。
-	 */
-	private async agentContextLines(item: QueuedMessage, conversationKey: string): Promise<string[]> {
-		const lines: string[] = [];
-		const options = this.deps.config.agentContext ?? {};
-		const sess = this.sessions.get(conversationKey);
-		// 群里用本群设定；私聊用发起人的个人偏好（/feishu prompt set）
-		const personal = item.chatType === "p2p";
-		const groupPrompt = (personal
-			? (item.senderId ? this.deps.config.userPrompts?.[item.senderId] : undefined)
-			: this.deps.config.groupRules?.[item.chatId]?.prompt)?.trim();
-		if (groupPrompt && sess && sess.promptInjected !== groupPrompt) {
-			lines.push(personal
-				? `[用户偏好（本人设置）：${groupPrompt.slice(0, 2_000)}]`
-				: `[本群设定（管理员配置，优先遵守）：${groupPrompt.slice(0, 2_000)}]`);
-			sess.promptInjected = groupPrompt;
-		}
-		const senderMode = options.sender ?? "shared";
-		const shared = conversationKey.includes(":t:") || (item.chatType === "group" && !groupSessionsPerUser(this.deps.config, item.chatId));
-		if (item.senderId && item.chatType !== "p2p" && (senderMode === "always" || (senderMode === "shared" && shared))) {
-			const name = item.senderName ?? await this.deps.resolveUserName?.(item.senderId).catch(() => undefined);
-			lines.push(`[发言人：${name ?? `用户…${item.senderId.slice(-4)}`}（open_id=${item.senderId}）]`);
-		}
-		if (options.mentions !== false && ((item.mentions?.length ?? 0) > 0 || item.atAll)) {
-			const people = (item.mentions ?? []).map((m) => `${m.name ?? "?"}${m.openId ? `(open_id=${m.openId})` : ""}`);
-			if (item.atAll) people.push("@所有人");
-			lines.push(`[提及：${people.join("、")}]`);
-		}
-		return lines;
 	}
 
 	/**
