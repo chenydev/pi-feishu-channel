@@ -41,6 +41,8 @@ export interface ClarificationAnswer {
 }
 
 export interface ClarificationRecord {
+	/** 见 `ClarificationRequest.radio`。 */
+	radio?: boolean;
 	id: string;
 	token: string;
 	conversationKey: string;
@@ -62,6 +64,11 @@ export interface ClarificationRecord {
 }
 
 export interface ClarificationRequest {
+	/**
+	 * 单题单选时用「勾选式单选」：选项是复选框，点一下即答（不用按钮）。
+	 * 视觉上更像表单，长选项换行比按钮好看；点击后照样走 `clarify` 那条路径。
+	 */
+	radio?: boolean;
 	conversationKey: string;
 	chatId: string;
 	threadId?: string;
@@ -122,6 +129,7 @@ export class ClarificationStore {
 			question: questions[0]!.question, options,
 			questions,
 			...(requestsNoPanels(input) ? { panels: false } : {}),
+			...(input.radio ? { radio: true } : {}),
 			createdAt: now, expiresAt: this.ttlMs > 0 ? now + this.ttlMs : Number.MAX_SAFE_INTEGER,
 		};
 		this.records.set(record.id, record);
@@ -216,7 +224,10 @@ export class ClarificationStore {
 			const otherRaw = input.values[`${question.id}__other`];
 			const other = typeof otherRaw === "string" ? otherRaw.trim().slice(0, 500) : "";
 			if (picked.length === 0 && !other) return { ok: false, reason: `还有问题没作答：${question.question}` };
-			if (picked.length > 1 && !question.multiSelect) return { ok: false, reason: `「${question.question}」只能选一个` };
+			if (picked.length > 1 && !question.multiSelect) {
+				// 说清「勾了哪几个」：toast 只闪一下，用户得知道回去取消哪一个
+				return { ok: false, reason: `「${question.question}」只能选一个，现在勾了 ${picked.length} 个（${picked.join("、")}）—— 取消其中一个再提交` };
+			}
 			answers.push({ question: question.question, choices: picked, ...(other ? { other } : {}) });
 		}
 		this.records.delete(record.id);
@@ -382,10 +393,35 @@ function normalizeQuestions(input: ClarificationRequest): ClarificationQuestion[
  * 澄清卡片。选项都短：每个选项一个整行按钮；有长选项：正文列出带编号的完整选项（会换行），
  * 按钮只放编号、并排一行。点哪种按钮回调里都是完整的选项文本。
  */
+/**
+ * 勾选式单选：选项是复选框，点一下就走 `clarify`（和按钮卡同一条路径：立即作答 + 卡片转只读）。
+ * 飞书没有单选按钮组件，这是最接近「radio」的形态 —— 表现上就是「勾一个」，不用再点提交。
+ */
+function buildRadioCard(pending: ClarificationRecord): unknown {
+	const only = questionsOfRecord(pending)[0]!;
+	const recommended = new Set(only.recommended ?? []);
+	const elements: unknown[] = [
+		{ tag: "markdown", content: `**需要你确认**\n\n${pending.question}` },
+		...(only.reason ? [{ tag: "markdown", content: `<font color='grey'>💡 ${only.reason}</font>` }] : []),
+		...pending.options.map((option, index) => ({
+			tag: "checker",
+			name: checkboxName("q1", index),
+			checked: false,
+			// 勾上就回调：不用提交按钮，点一下即答
+			behaviors: [{ type: "callback", value: { op: "clarify", clarificationId: pending.id, token: pending.token, choice: option } }],
+			text: { tag: "plain_text", content: recommended.has(index) ? `⭐ ${option}（推荐）` : option },
+		})),
+		{ tag: "markdown", content: "<font color='grey'>勾一个即作答（不用点提交）</font>" },
+	];
+	return { schema: "2.0", body: { elements } };
+}
+
 export function buildClarificationCard(pending: ClarificationRecord): unknown {
 	const questions = pending.questions?.length ? pending.questions : [{ id: "q1", question: pending.question, options: pending.options }];
 	const form = questions.length > 1 || questions.some((question) => question.multiSelect || question.allowOther);
 	if (form) return buildFormCard(pending, questions, { panels: pending.panels !== false });
+	// 勾选式单选：单题单选 + `radio` 时用复选框代替按钮（点一下即答，长选项换行更好看）
+	if (pending.radio) return buildRadioCard(pending);
 	const only = questions[0]!;
 	const recommended = new Set(only.recommended ?? []);
 	const numbered = pending.options.some((option) => option.length > BUTTON_LABEL_MAX);
@@ -426,9 +462,8 @@ function buildFormCard(pending: ClarificationRecord, questions: ClarificationQue
 	const elements: unknown[] = [{ tag: "markdown", content: questions.length > 1 ? `**需要你确认**（${questions.length} 题）` : "**需要你确认**" }];
 	const controls: unknown[] = [];
 	for (const [index, question] of questions.entries()) {
-		// 每题的控件：先选项复选框，再（可选）自填框。
-		// 用 `checker` 而不是下拉：平铺能一眼看全，问 3 题也不用逐个点开；
-		// 单选在卡片层拦不住（勾选框互不联动），靠服务端校验 + 标题里的「单选」提示。
+		// 单选也走复选框：下拉在长选项下很难看（选项文字被截进一个窄框），平铺勾选更直观。
+		// 代价是复选框互不联动，单选靠标题提示 + 提交时的服务端校验（提示会说清勾了哪几个）。
 		const recommended = new Set(question.recommended ?? []);
 		const body: unknown[] = question.options.map((option, optionIndex) => ({
 			tag: "checker", name: checkboxName(question.id, optionIndex), checked: false,
@@ -440,7 +475,9 @@ function buildFormCard(pending: ClarificationRecord, questions: ClarificationQue
 			tag: "input", name: `${question.id}__other`,
 			placeholder: { tag: "plain_text", content: "其他（可直接填写）" },
 		});
-		const title = `${questions.length > 1 ? `Q${index + 1} · ` : ""}${question.question}${question.multiSelect ? "（多选）" : "（单选，勾一个）"}`;
+		const title = `${questions.length > 1 ? `Q${index + 1} · ` : ""}${question.question}${question.multiSelect ? "（多选）" : "（单选 · 只勾一个）"}`;
+		// 题目之间用分割线隔开：折叠面板收起时边界很淡，多题容易连成一片
+		if (index > 0) controls.push({ tag: "hr" });
 		// 推荐理由放进表单元素里（放在复选框之前），老客户端也能看到
 		if (question.reason) body.unshift({ tag: "markdown", content: `<font color='grey'>💡 ${question.reason}</font>` });
 		controls.push(usePanels
@@ -452,6 +489,7 @@ function buildFormCard(pending: ClarificationRecord, questions: ClarificationQue
 			: { tag: "markdown", content: `**${title}**` });
 		if (!usePanels) controls.push(...body);
 	}
+	controls.push({ tag: "markdown", content: "<font color='grey'>每题至少勾一项或自填；标「单选」的只能勾一个</font>" });
 	controls.push({
 		tag: "column_set", flex_mode: "none", horizontal_spacing: "small",
 		columns: [
@@ -496,9 +534,68 @@ export function clarificationTextFallback(record: Pick<ClarificationRecord, "que
 	return `**需要你确认**\n\n${blocks.join("\n\n")}\n\n（直接回复选项编号或文字即可）`;
 }
 
-/** 点击后卡片变成结果：问题、谁选了什么。 */
-export function buildClarificationResultCard(question: string, choice: string, operatorOpenId: string): unknown {
-	return { schema: "2.0", body: { elements: [{ tag: "markdown", content: `**${question}**\n\n<at id=${operatorOpenId}></at> 选择了：${choice}` }] } };
+/**
+ * 作答后的卡片：**留在原地变只读**，不再换成一段结果摘要。
+ *
+ * 原来的做法是把整张卡替换成「谁选了什么」的两行摘要 —— 提问本身和没选的选项一起消失，
+ * 群里回看时看不出「当时问的是什么、还给了哪些选项」。现在保留原结构：
+ * 问题、全部选项（选中的打勾）、自填内容，只是复选框禁用、按钮撤掉。
+ */
+export function buildAnsweredCard(input: {
+	questions: ClarificationQuestion[];
+	answers: ClarificationAnswer[];
+	operatorOpenId: string;
+	/** 用折叠面板收纳（与提问卡保持一致；单题或显式关闭时平铺）。 */
+	panels?: boolean;
+}): unknown {
+	const { questions, answers, operatorOpenId } = input;
+	const answeredAt = new Map(answers.map((answer) => [answer.question, answer]));
+	const usePanels = (input.panels ?? true) && questions.length > 1;
+	const elements: unknown[] = [{
+		tag: "markdown",
+		content: `<at id=${operatorOpenId}></at> ✅ 已作答`,
+	}];
+	for (const [index, question] of questions.entries()) {
+		const answer = answeredAt.get(question.question);
+		const picked = new Set(answer?.choices ?? []);
+		const recommended = new Set(question.recommended ?? []);
+		const checked = question.options.map((option, optionIndex) => ({
+			tag: "checker",
+			// 同一个 name 重绘不会触发回调（没有 form、没有 behaviors），只用来保持结构一致
+			name: checkboxName(question.id, optionIndex),
+			checked: picked.has(option),
+			disabled: true,
+			text: { tag: "plain_text", content: recommended.has(optionIndex) ? `⭐ ${option}（推荐）` : option },
+		}));
+		const body: unknown[] = [...checked];
+		if (answer?.other) {
+			// 输入框不能只读，改成一行灰字（保留用户当时填的内容）
+			body.push({ tag: "markdown", content: `<font color='grey'>其他：${answer.other}</font>` });
+		}
+		const summary = answer ? formatAnswer(answer) : "（未答）";
+		const title = `${questions.length > 1 ? `Q${index + 1} · ` : ""}${question.question}${question.multiSelect ? "（多选）" : "（单选）"}`;
+		if (index > 0) elements.push({ tag: "hr" });
+		elements.push(usePanels
+			? {
+				// 收起：群里回看时先看到「答了什么」，想看全部选项再点开
+				tag: "collapsible_panel", expanded: false, vertical_spacing: "8px",
+				header: { title: { tag: "markdown", content: `${title} —— ✅ ${summary}` } },
+				elements: body,
+			}
+			: { tag: "markdown", content: `**${title}** —— ✅ ${summary}` });
+		if (!usePanels) elements.push(...body);
+	}
+	return { schema: "2.0", body: { elements } };
+}
+
+/** 点击后卡片留在原地变只读（单题：沿用提问卡的按钮顺序）。 */
+export function buildClarificationResultCard(question: string, choice: string, operatorOpenId: string, options?: string[]): unknown {
+	const list = options ?? [];
+	return buildAnsweredCard({
+		questions: [{ id: "q1", question, options: list.includes(choice) ? list : [choice, ...list] }],
+		answers: [{ question, choices: [choice] }],
+		operatorOpenId,
+	});
 }
 
 /** 一题答案的展示文本：「登录、下单（自填：只跑冒烟）」。 */
@@ -508,12 +605,20 @@ export function formatAnswer(answer: ClarificationAnswer): string {
 	return picked;
 }
 
-/** 多题作答后的结果卡：逐题列出。 */
-export function buildClarificationAnswersResultCard(answers: ClarificationAnswer[], operatorOpenId: string): unknown {
-	// 问题本身常以「？」结尾，别再补一个「：」叠成「？：」
-	const label = (question: string): string => question.replace(/[？?：:\s]+$/u, "");
-	const lines = answers.map((answer) => `- **${label(answer.question)}**：${formatAnswer(answer)}`);
-	return { schema: "2.0", body: { elements: [{ tag: "markdown", content: `<at id=${operatorOpenId}></at> 已作答\n${lines.join("\n")}` }] } };
+/** 作答后要重绘的卡片：把记录里的题目（含没选的选项）连同答案一起交给 `buildAnsweredCard`。 */
+export function answeredCardFor(record: ClarificationRecord, answers: ClarificationAnswer[], operatorOpenId: string): unknown {
+	return buildAnsweredCard({
+		questions: questionsOfRecord(record),
+		answers,
+		operatorOpenId,
+		panels: record.panels !== false,
+	});
+}
+
+/** 题目列表（旧记录没有 `questions` 时按单题还原）。 */
+export function questionsOfRecord(record: ClarificationRecord): ClarificationQuestion[] {
+	if (record.questions?.length) return record.questions;
+	return [{ id: "q1", question: record.question, options: record.options }];
 }
 
 /** 点击选项后进入会话的消息正文（模型据此继续）。 */

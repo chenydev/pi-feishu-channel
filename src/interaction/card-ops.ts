@@ -16,7 +16,7 @@ import { LastSentCache, admit } from "../inbound/admit.js";
 import type { CardAction } from "../inbound/transport.js";
 import type { BridgeRuntime } from "../runtime/bridge-runtime.js";
 import type { FeishuInboundMessage } from "../types.js";
-import { buildClarificationAnswersResultCard, buildClarificationResultCard, clarificationAnswerText, clarificationAnswersText, type ClarificationRecord } from "./clarification-store.js";
+import { answeredCardFor, clarificationAnswerText, clarificationAnswersText, type ClarificationRecord } from "./clarification-store.js";
 import type { CardOps, CardRouterLog } from "./card-router.js";
 
 export interface CardOpsContext {
@@ -157,7 +157,8 @@ export function clarifyCardOps({ rt, log }: CardOpsContext): CardOps {
 				.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
 			return {
 				toast: { type: "success", content: "已提交" },
-				card: { type: "raw", data: buildClarificationAnswersResultCard(decided.answers, action.operatorOpenId) },
+				// 卡片留在原地变只读：问题、全部选项、自填内容都还在，不做成摘要
+				card: { type: "raw", data: answeredCardFor(record, decided.answers ?? [], action.operatorOpenId) },
 			};
 		},
 		clarify: (action, value) => {
@@ -175,7 +176,7 @@ export function clarifyCardOps({ rt, log }: CardOpsContext): CardOps {
 				.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
 			return {
 				toast: { type: "success", content: decided.reason },
-				card: { type: "raw", data: buildClarificationResultCard(record.question, choice, action.operatorOpenId) },
+				card: { type: "raw", data: answeredCardFor(record, [{ question: record.question, choices: [choice] }], action.operatorOpenId) },
 			};
 		},
 	};

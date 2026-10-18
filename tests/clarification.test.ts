@@ -13,6 +13,7 @@ import { test } from "node:test";
 import {
 	ClarificationStore,
 	buildClarificationCard,
+	answeredCardFor,
 	clarificationAnswerText,
 	clarificationTextFallback,
 } from "../src/interaction/clarification-store.js";
@@ -221,13 +222,15 @@ test("澄清提问（新版）：一卡多题走表单，选项是平铺复选�
 	const card = buildClarificationCard(record) as { body: { elements: Array<Record<string, unknown>> } };
 	const json = JSON.stringify(card);
 	assert.match(json, /"tag":"collapsible_panel"/, "每题一个折叠面板");
-	assert.match(json, /"tag":"checker"/, "选项是复选框而不是下拉");
-	assert.ok(!json.includes("multi_select_static") && !json.includes("select_static"), "不再用下拉控件");
+	assert.match(json, /"tag":"checker"/, "多选题是平铺复选框");
+	assert.ok(!json.includes("select_static") && !json.includes("multi_select_static"), "不用下拉：长选项在下拉里很难看");
+	assert.equal((json.match(/"tag":"checker"/g) ?? []).length, 5, "单选 2 个 + 多选 3 个，全是平铺复选框");
 	assert.match(json, /"name":"q1__opt0"/, "复选框按位置命名，服务端据此还原选项");
+	assert.equal((json.match(/"tag":"hr"/g) ?? []).length, 1, "两题之间一条分割线");
 	assert.match(json, /"form_action_type":"submit"/);
 	assert.match(json, /"form_action_type":"reset"/, "带一个重置按钮（客户端本地清空，不花后端）");
 	assert.equal((json.match(/"tag":"input"/g) ?? []).length, 2, "每道题都带一个自填框");
-	assert.match(json, /单选，勾一个/, "单选题的标题要说明只能勾一个");
+	assert.match(json, /（单选 · 只勾一个）/, "单选题标题要说明只能勾一个");
 
 	// 按位置回传勾选结果
 	const decided = store.decideForm({
@@ -256,7 +259,9 @@ test("澄清提问（新版）：漏答/单选勾了多个/自填都按规则校
 	const submit = (values: Record<string, unknown>) => store.decideForm({ messageId: "om_card", chatId: "oc_g", operatorOpenId: "ou_user", values });
 
 	assert.equal(submit({ q1__opt0: true }).reason.includes("还有问题没作答"), true, "第二题漏答要拒绝");
-	assert.equal(submit({ q1__opt0: true, q1__opt1: true, q2__opt0: true }).reason.includes("只能选一个"), true);
+	const tooMany = submit({ q1__opt0: true, q1__opt1: true, q2__opt0: true });
+	assert.equal(tooMany.reason.includes("只能选一个"), true);
+	assert.match(tooMany.reason, /现在勾了 2 个（A、B）/, "要说清勾了哪几个，toast 只闪一下");
 	assert.equal(store.pendingCount(), 1, "被拒后卡片仍可继续作答");
 
 	const ok = submit({ q1__other: "自定义范围", q2__other: " 只跑冒烟 " });
@@ -398,4 +403,40 @@ test("澄清提问（新版）：文字回退也带推荐标记与理由（没�
 	assert.match(text, /2\. ⭐ 方案 B（推荐）/);
 	assert.match(text, /1\. 方案 A\n/, "没推荐的选项保持原样");
 	assert.match(text, /💡 B 少改三处/);
+});
+
+test("作答后的卡片：原地变只读，保留题目与全部选项（不换成摘要）", async () => {
+	const { store } = makeStore();
+	const record = store.create({
+		conversationKey: "oc:u:ou", chatId: "oc", chatType: "group", question: "需要包含哪些字段？",
+		options: ["产品名称", "价格区间", "库存状态"], multiSelect: true,
+	});
+	store.attachCard(record.id, "om_card");
+	const decided = store.decideForm({
+		id: record.id, token: record.token, messageId: "om_card", chatId: "oc",
+		operatorOpenId: "ou_x", values: { q1__opt0: true, q1__other: "还要 SKU" },
+	});
+	assert.equal(decided.ok, true);
+	const card = JSON.stringify(answeredCardFor(decided.record!, decided.answers!, "ou_x"));
+	assert.match(card, /已作答/);
+	for (const option of ["产品名称", "价格区间", "库存状态"]) assert.ok(card.includes(option), `没选的选项也要留着：${option}`);
+	assert.match(card, /"checked":true/);
+	assert.match(card, /"disabled":true/, "复选框要禁用（只读）");
+	assert.match(card, /其他：还要 SKU/, "自填内容要留在卡上");
+	assert.doesNotMatch(card, /form_action_type/, "只读卡不该还有提交按钮");
+});
+
+test("勾选式单选（radio）：单题单选改成复选框，勾一个就回调作答", () => {
+	const { store } = makeStore();
+	const record = store.create({
+		conversationKey: "oc:u:ou", chatId: "oc_g", chatType: "group", radio: true,
+		question: "目标环境？", options: ["测试", "预发", "正式"], recommended: [2], reason: "已验证",
+	});
+	assert.equal(record.radio, true, "radio 要落进记录（重新读盘后还能画出同样的卡）");
+	const json = JSON.stringify(buildClarificationCard(record));
+	assert.match(json, /"tag":"checker"/, "选项是复选框");
+	assert.equal((json.match(/"tag":"button"/g) ?? []).length, 0, "没有按钮：勾一个即答");
+	assert.match(json, /"op":"clarify"/, "勾选带回调（和按钮卡同一条路径）");
+	assert.match(json, /⭐ 正式（推荐）/, "推荐标记保留");
+	assert.doesNotMatch(json, /form_action_type/, "不进表单");
 });

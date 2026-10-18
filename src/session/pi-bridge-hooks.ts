@@ -96,6 +96,7 @@ export interface BridgeHookContext {
 		multiSelect?: boolean;
 		/** 单题也让用户自己填（会把单题拉进表单卡）。 */
 		allowOther?: boolean;
+		radio?: boolean;
 		/** 单题推荐选项下标（卡片上打 ⭐）。 */
 		recommended?: number[];
 		/** 单题推荐理由。 */
@@ -266,6 +267,7 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 					options: { type: "array", items: { type: "string" }, description: "单题时的 2-4 个选项。14 字以内会做成整行按钮（点一下即答），更长的自动改成编号按钮" },
 					multiSelect: { type: "boolean", description: "单题时允许多选（会变成「勾选 + 提交」的卡片）" },
 					allowOther: { type: "boolean", description: "单题时也让用户自己填一段（会变成「勾选 + 自填 + 提交」的卡片，适合还想让用户补一句的情况）" },
+					radio: { type: "boolean", description: "单题单选时改用「勾选式单选」：选项是复选框，勾一个即作答（长选项换行比按钮好看，更像表单）" },
 					recommended: { type: "array", items: { type: "number" }, description: "单题时推荐哪几个选项（从 0 开始的下标）" },
 					reason: { type: "string", description: "单题时为什么推荐（显示在题目下面）" },
 					questions: {

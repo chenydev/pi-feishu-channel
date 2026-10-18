@@ -284,6 +284,7 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 								...(input.reason ? { reason: input.reason } : {}),
 							}] }
 							: {}),
+					...(input.radio && !input.questions?.length && !input.multiSelect && !input.allowOther ? { radio: true } : {}),
 					...(rt.config.clarify?.panels === false ? { panels: false } : {}),
 				});
 				try {
