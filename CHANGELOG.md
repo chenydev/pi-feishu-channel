@@ -7,6 +7,9 @@
 - 重构（会话）：`/undo`、`/retry`、`/fork`、`/export` 搬进 `session/history-ops.ts` —— 它们是
   「改历史」而不是「跑一轮」：不调模型、必须等空闲、每步都写历史或换指针。依赖（会话表、
   忙判定、打开 agent、重投消息）显式传入，模块可单独测。管理器 1650 → 1529 行。
+- 重构（会话）：类型定义搬到 `session/session-types.ts`（`BridgeSession`、`QueuedMessage`、
+  `ConversationManagerDeps` 等，全是无逻辑的接口），工具档位解析搬到 `session/tool-policy.ts`。
+  管理器 re-export 原名字，历史导入路径不变。管理器 1529 → 1342 行。
 
 ## 0.3.2
 
