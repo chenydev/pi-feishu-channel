@@ -26,7 +26,8 @@ interface SessionChoice {
 
 /** 命令需要的管理器能力（ConversationManager 构造时提供）。 */
 export interface CommandsHost {
-	readonly sessions: Map<string, BridgeSession>;
+	/** 会话表：命令层只按 key 取/删，不关心它是不是 Map。 */
+	readonly sessions: { get(key: string): BridgeSession | undefined; delete(key: string): unknown };
 	readonly conversationStore?: ConversationStore;
 	readonly liveChannel?: LiveChannel;
 	readonly nextSessionSuffix: Map<string, string>;

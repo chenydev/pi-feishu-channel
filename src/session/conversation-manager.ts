@@ -27,6 +27,7 @@ import type { ResourceRef } from "../types.js";
 import { extractText, stripContextPrefix } from "./text-utils.js";
 import { RunExecutor } from "./run-executor.js";
 import { buildTurnInput } from "./turn-input.js";
+import { SessionTable } from "./session-table.js";
 import { SessionScheduler } from "./scheduler.js";
 import { ConversationCommands } from "./conversation-commands.js";
 import { sessionUsageStats } from "./model-utils.js";
@@ -252,7 +253,7 @@ function resolveSessionFile(
 }
 
 export class ConversationManager {
-	private sessions = new Map<string, BridgeSession>();
+	private sessions = new SessionTable<BridgeSession>();
 	/**
 	 * 恢复提示（对齐 hermes build_resume_recovery_note）：崩溃恢复后给模型注入
 	 * 一条方括号元信息，告诉它"上次中断了，不要重跑历史里未完成的工具调用"。
@@ -283,7 +284,6 @@ export class ConversationManager {
 	private readonly conversationStore?: ConversationStore;
 	/** 内存工作区别名（与持久化指针互补，避免无 store 时丢失当前工作区认知）。 */
 	private readonly workspaceAliasByKey = new Map<string, string>();
-	private readonly sessionKeyById = new Map<string, string>();
 	/** 共享请求预算（流式更新通道让路给最终交付与审批）。 */
 	private readonly rateBudget: RateBudget;
 	/** 空闲回收参数与定时器。 */
@@ -368,19 +368,10 @@ export class ConversationManager {
 	}
 
 	/**
-	 * sessionId → 会话。每个工具事件都要查好几次，不能每次全表线性扫描。
-	 * 索引是会自我修正的缓存：命中后校验一致性，失配（会话被重建/回收）时回退扫描并回填，
-	 * 因此不必在每个创建/回收点手工维护。
+	 * sessionId → 会话（索引的自我修正在 `SessionTable.byId` 里）。
 	 */
 	private sessionById(sessionId: string): BridgeSession | undefined {
-		if (!sessionId) return undefined;
-		const key = this.sessionKeyById.get(sessionId);
-		const cached = key ? this.sessions.get(key) : undefined;
-		if (cached?.sessionId === sessionId) return cached;
-		const found = [...this.sessions.values()].find((candidate) => candidate.sessionId === sessionId);
-		if (found) this.sessionKeyById.set(sessionId, found.conversationKey);
-		else this.sessionKeyById.delete(sessionId);
-		return found;
+		return this.sessions.byId(sessionId);
 	}
 
 	/** 工具事件 → 追加一行进度日志（`pi.on("tool_execution_start/end")` 转接用）。
