@@ -161,11 +161,11 @@ test("澄清提问：选项短时每个选项一个整行按钮；有长选项�
 	];
 	const long = buildClarificationCard(store.create(request({ options })));
 	const json = JSON.stringify(long);
-	for (const [index, option] of options.entries()) assert.ok(json.includes(`**${index + 1}.** ${option}`), `正文必须有完整的第 ${index + 1} 项`);
-	const buttons = buttonsOf(long);
-	assert.deepEqual(buttons.map((button) => button.text.content), ["选 1", "选 2", "选 3"]);
-	assert.deepEqual(buttons.map((button) => button.value.choice), options, "回调里仍是完整选项文本");
-	assert.ok(json.includes("\"column_set\""), "编号按钮并排一行");
+	// 长选项不再「编号列表 + 选 N 按钮」两段式：直接把完整选项放进复选框，勾一个即答
+	assert.equal(buttonsOf(long).length, 0, "长选项不用按钮");
+	for (const option of options) assert.ok(json.includes(option), `选项文字必须完整出现：${option}`);
+	assert.equal((json.match(/"tag":"checker"/g) ?? []).length, 3, "每个选项一个复选框");
+	assert.match(json, /"op":"clarify"/, "勾选即回调作答");
 });
 
 test("澄清提问：不暴露任何授权接口（澄清 ≠ 工具授权）", () => {

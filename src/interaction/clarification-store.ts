@@ -401,17 +401,17 @@ function buildRadioCard(pending: ClarificationRecord): unknown {
 	const only = questionsOfRecord(pending)[0]!;
 	const recommended = new Set(only.recommended ?? []);
 	const elements: unknown[] = [
-		{ tag: "markdown", content: `**需要你确认**\n\n${pending.question}` },
+		// 单题不再加「需要你确认」这种套话：问题本身就是标题
+		{ tag: "markdown", content: `**${pending.question}**` },
 		...(only.reason ? [{ tag: "markdown", content: `<font color='grey'>💡 ${only.reason}</font>` }] : []),
 		...pending.options.map((option, index) => ({
 			tag: "checker",
 			name: checkboxName("q1", index),
 			checked: false,
-			// 勾上就回调：不用提交按钮，点一下即答
+			// 勾上就回调：没有提交按钮，点一下即答
 			behaviors: [{ type: "callback", value: { op: "clarify", clarificationId: pending.id, token: pending.token, choice: option } }],
 			text: { tag: "plain_text", content: recommended.has(index) ? `⭐ ${option}（推荐）` : option },
 		})),
-		{ tag: "markdown", content: "<font color='grey'>勾一个即作答（不用点提交）</font>" },
 	];
 	return { schema: "2.0", body: { elements } };
 }
@@ -420,34 +420,23 @@ export function buildClarificationCard(pending: ClarificationRecord): unknown {
 	const questions = pending.questions?.length ? pending.questions : [{ id: "q1", question: pending.question, options: pending.options }];
 	const form = questions.length > 1 || questions.some((question) => question.multiSelect || question.allowOther);
 	if (form) return buildFormCard(pending, questions, { panels: pending.panels !== false });
-	// 勾选式单选：单题单选 + `radio` 时用复选框代替按钮（点一下即答，长选项换行更好看）
-	if (pending.radio) return buildRadioCard(pending);
+	// 勾选式单选：选项长到放不进按钮（> BUTTON_LABEL_MAX）时直接平铺复选框 ——
+	// 原来是「编号列表 + 选 1/选 2」，既丑又要来回对照。`radio` 参数可强制走这个形态。
+	const numbered = pending.options.some((option) => option.length > BUTTON_LABEL_MAX);
+	if (pending.radio || numbered) return buildRadioCard(pending);
 	const only = questions[0]!;
 	const recommended = new Set(only.recommended ?? []);
-	const numbered = pending.options.some((option) => option.length > BUTTON_LABEL_MAX);
 	const buttons = pending.options.map((option, index) => ({
 		tag: "button",
 		// 整行按钮只吃纯文本：推荐直接写在文案里（⭐ + 「推荐」）
-		text: { tag: "plain_text", content: numbered ? `选 ${index + 1}` : recommended.has(index) ? `⭐ ${option}（推荐）` : option },
+		text: { tag: "plain_text", content: recommended.has(index) ? `⭐ ${option}（推荐）` : option },
 		type: recommended.has(index) || (recommended.size === 0 && index === 0) ? "primary" : "default",
 		width: "fill",
 		value: { op: "clarify", clarificationId: pending.id, token: pending.token, choice: option },
 	}));
 	const question = { tag: "markdown", content: `**需要你确认**\n\n${pending.question}` };
 	const reason = only.reason ? { tag: "markdown", content: `<font color='grey'>💡 ${only.reason}</font>` } : undefined;
-	if (!numbered) return { schema: "2.0", body: { elements: [question, ...(reason ? [reason] : []), ...buttons] } };
-	return {
-		schema: "2.0",
-		body: { elements: [
-			question,
-			...(reason ? [reason] : []),
-			{ tag: "markdown", content: pending.options.map((option, index) => `**${index + 1}.** ${recommended.has(index) ? `⭐ ${option}（推荐）` : option}`).join("\n") },
-			{
-				tag: "column_set", flex_mode: "none", horizontal_spacing: "small",
-				columns: buttons.map((button) => ({ tag: "column", width: "weighted", weight: 1, elements: [button] })),
-			},
-		] },
-	};
+	return { schema: "2.0", body: { elements: [question, ...(reason ? [reason] : []), ...buttons] } };
 }
 
 /**
