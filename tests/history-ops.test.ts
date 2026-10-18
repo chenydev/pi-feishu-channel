@@ -54,8 +54,8 @@ test("/retry：优先用桥记下的原文重投（避免重复注入发言人/�
 			key: "k",
 			session: { conversationKey: "k", chatId: "oc_1", sessionFile: "/tmp/x", lastItem: { text: "原始问题", resources: [] } },
 			agent: {
-				userMessages: () => [{ entryId: "e1", text: "[发言人：陈勇（open_id=ou_1）]\n\n原始问题" }],
-				navigateTo: async () => ({ cancelled: false, editorText: "[发言人：陈勇…]\n\n原始问题" }),
+				userMessages: () => [{ entryId: "e1", text: "[发言人：示例用户（open_id=ou_1）]\n\n原始问题" }],
+				navigateTo: async () => ({ cancelled: false, editorText: "[发言人：示例用户…]\n\n原始问题" }),
 				modelId: "p/m",
 			} as never,
 		}),

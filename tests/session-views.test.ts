@@ -62,10 +62,10 @@ test("/progress：别的会话在同一群里执行时只报人和时长（不�
 	const st = state();
 	st.sessions.map.set("oc_1", session());
 	st.sessions.map.set("oc_1:someone", session({ conversationKey: "oc_1:someone", activeRun: true, run: { startedAt: 1_000_000 - 65_000, inTool: true } }));
-	st.activeItems.set("oc_1:someone", { text: "rm -rf /tmp/x", senderName: "陈勇" });
+	st.activeItems.set("oc_1:someone", { text: "rm -rf /tmp/x", senderName: "示例用户" });
 	const text = progressReportOf(st, DEFAULT_CONFIG, msg());
 	assert.match(text, /这个群里另有 1 个任务在执行/);
-	assert.match(text, /陈勇：已运行 1 分 5 秒/);
+	assert.match(text, /示例用户：已运行 1 分 5 秒/);
 	assert.doesNotMatch(text, /rm -rf/, "不能把别人的命令内容贴出来");
 });
 

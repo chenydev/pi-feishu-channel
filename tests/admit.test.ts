@@ -279,7 +279,7 @@ test("管理员/应用归属人默认也要 @（adminBypassMention 默认关闭�
 	const base = { ...DEFAULT_CONFIG, allowChats: ["oc_group", "oc_chat", "oc_x", "oc_real_chat", "oc_a", "oc_b", "oc_g", "oc_y", "oc_other", "oc_ok"], groupPolicy: "mention" as const };
 	const ownerMsg = {
 		messageId: "m-owner", chatId: "oc_group", chatType: "group" as const,
-		senderId: "ou_owner", senderName: "陈勇", isBot: false, msgType: "text" as const,
+		senderId: "ou_owner", senderName: "示例用户", isBot: false, msgType: "text" as const,
 		text: "帮我看看这个报错", mentions: [], resources: [], raw: undefined, ts: Date.now(),
 	};
 	const lastSent = { has: () => false };
