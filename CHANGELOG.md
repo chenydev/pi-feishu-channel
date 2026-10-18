@@ -4,34 +4,47 @@
 
 ## 未发布
 
-- 重构（会话）：`ConversationManager` 拆掉两块 —— 拼一轮输入的逻辑搬进 `session/turn-input.ts`
-  （纯拼文本，依赖显式传入），会话表与 `sessionId → 会话` 的自我修正索引搬进
-  `session/session-table.ts`；用户可见提示（排队/忙碌/出错）的投递规则搬进 `session/notices.ts`
-  （虚拟会话跳过、优先持久 outbox、失败必留日志）。行为不变，三个模块各自可单独读、单独测。
+（暂无）
+
+## 0.3.1
+
 ### 新能力（默认关闭）
 
 - `/healthz` + `/metrics`（`metrics.enabled`，默认关）：只读 HTTP 端点。`/healthz` 用状态码表达
   健康（200 = 连接正常且心跳未过期，503 = 断线/心跳停了），`/metrics` 输出 Prometheus 文本格式
   （连接状态、重连数、待投递/失败条数、待审批、消息计数、兜底 rejection 数）。默认只绑 `127.0.0.1`
   —— 端点没有鉴权，容器里要暴露给探针再配 `metrics.host: "0.0.0.0"`。
+- 按人限流 `rateLimit.perUserPerMinute`（默认 0 = 不限）：放行的人在 60 秒滑动窗口里超过上限后，
+  后面的消息直接丢并计入 `rate_limited`。**不回话** —— 对方正在刷屏，回一句只是放大流量。
+  上限现读配置（live 字段），`/feishu config reload` 即生效。
+
+### 新增命令
+
+- `/feishu dropstats`：准入丢弃按原因计数（`bots_disabled` / `not_allowlisted` / `bot_not_mentioned` /
+  `rate_limited` …），每个原因带一句「怎么放行」。只给管理员：原因分布能反推出谁被挡了。
+  同一份数据也写进 `status.json` 的 `dropReasons`。
+- `/feishu outbox list|retry <id 前缀|all>`：死信不再只活在日志里。列表带可读原因（无发言权限 /
+  编辑次数用尽 / 附件丢失），重投按 id 前缀匹配，重投后是全新的尝试次数。
+- `/feishu doctor` 默认结论版：只列异常项，全绿时一行「N 项检查全部正常」；`/feishu doctor full`
+  才列全部。19 项逐条刷屏时，真正有问题的那条反而找不到。
 
 ### 内部
 
 - 状态文件统一走 `atomicWriteFile` / `atomicWriteJson`（`src/runtime/atomic-file.ts`）：原来 11 个模块
   各写了一遍「临时文件 + rename」，差异只在缩进、权限、是否留换行，改一处特性要改 11 遍。现在
   统一 0600 权限、同目录临时文件名带 pid + 序号（避免撞名写串）、失败清临时文件、可选 `fsync`。
-  覆盖面：待处理记录、去重表、出站队列、审批「始终批准」规则、提问卡、cron、会话索引、聊天名录、
-  用量账本、模型使用统计、状态文件、config.json、pi 的 settings.json。
 - `status.json` 补上运维看得懂的指标：出站投递耗时 **p50/p95**（最近 200 次成功投递，从真正开始发送算起，
-  不含排队）、以及常驻内存的条目数 `caches`（引用原文缓存 / 实时写入链 / 待点提问卡 / 待处理记录 /
-  去重表 / 未决审批）和 `unhandledRejections`。这些都是原来完全没有出口的结构。
+  不含排队）、常驻内存的条目数 `caches`（引用原文缓存 / 实时写入链 / 待点提问卡 / 待处理记录 /
+  去重表 / 未决审批）和 `unhandledRejections`。
 - 进程级兜底（`runtime/process-guards.ts`）：未处理的 promise rejection 记日志并计数，不再让整个桥
   退出 —— 一条漏 `await` 的路径不该带走所有进行中的会话。计数进 `status.json`，`/feishu doctor`
   新增 `unhandled_rejection` 项（> 0 就报警），兜底不等于把 bug 藏起来。
-- 待处理记录（`pending.jsonl`）改成**追加式日志**：原来每次变动（认领/合并/标记/确认）都要把全部
-  记录重写一遍，一条消息的成本是 O(待处理条数)。现在只追加一行（删除写墓碑），行数超过记录数三倍
-  且多于 50 行时压实成完整快照。旧文件格式天然兼容（同样是「快照 + 后写覆盖先写」）。
-
+- 待处理记录（`pending.jsonl`）改成**追加式日志**：原来每次变动都要把全部记录重写一遍，一条消息的
+  成本是 O(待处理条数)。现在只追加一行（删除写墓碑），行数超过记录数三倍且多于 50 行时压实。
+  旧文件格式天然兼容（同样是「快照 + 后写覆盖先写」）。
+- 会话模块拆分（纯搬运，行为不变）：拼一轮输入 → `session/turn-input.ts`；会话表与
+  `sessionId → 会话` 的自我修正索引 → `session/session-table.ts`；用户可见提示的投递规则 →
+  `session/notices.ts`。三个模块各自可单独读、单独测。
 ## 0.3.0
 
 - 修复（开通申请）：部署里没有可审批的人（没配 `admins`、也查不到应用归属人）时，
