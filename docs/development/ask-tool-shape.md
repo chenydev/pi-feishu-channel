@@ -1,7 +1,8 @@
 # `feishu_ask` 的交互形态：调研与建议
 
-> 状态：**已实施第一版**（0.4 未发布）：`waitMs` 默认 60 秒、`onTimeout` 支持 `wait`/`abort`、
+> 状态：**已实施第一版**（未发布）：`waitMs` 默认 60 秒、`onTimeout` 支持 `wait`/`abort`、
 > 超时后不替用户选择、隐式跳过（`skipped`）。`recommend` / `ask_again` 仍未做。
+> §10–§11 是与 hermes 最新实现的对照（含「该抄什么、不该抄什么」）。
 > 适用版本：0.3.2（`feishu_ask` 目前完全异步）。
 
 ## 1. 问题
@@ -195,3 +196,115 @@ feishu_ask({ question, options, waitSeconds?: number })  // 默认 60，0 = 纯�
 - Temporal approval pattern（Signal + durable timer）：<https://docs.temporal.io/design-patterns/approval>
 - Slack 3 秒 ack：<https://github.com/slackapi/bolt-js/issues/1504>
 - 飞书事件回调重试策略：<https://open.feishu.cn/document/event-subscription-guide/event-subscriptions/event-callback-optimization-guide>
+
+## 10. 参考实现：hermes 的 `clarify`（2026-10-18 最新版）
+
+> **版本核对**：本地 clone `~/dev/projects/quanbu/basic/hermes-agent` 在 `merge/zj-upstream-20260716`
+> （2026-07-16），基于 `upstream/main` 2026-07-15 的 `f8b6d381e`。真实远端 main 头是
+> `08a91ad2ab`（2026-10-18），`tools/clarify_gateway.py` 与 `tools/clarify_tool.py` 相对那份旧代码分别
+> 改了 445 / 322 行，并新增了 `gateway/session_clarify_batch.py`、`gateway/run_turn_runner_clarify_delivery.py`
+> 和桌面端 clarify UI。**下文全部基于 `08a91ad2ab`。**
+
+### 10.1 形态：阻塞 + 可配超时（默认 1 小时）
+
+```python
+# tools/clarify_gateway.py
+def resolve_clarify_timeout(config) -> int:
+    raw = (config.get("clarify") or {}).get("timeout")          # legacy
+    if raw is None: raw = (config.get("agent") or {}).get("clarify_timeout", 3600)
+    return int(raw)                                              # <= 0 = 无限
+```
+
+源码注释记录了为什么是 3600 而不是 600：早期默认 600 秒会在用户思考期间把条目清掉，于是
+「晚点的点击落到死条目上，agent 卡在 `running: clarify`」（#32762）。取舍原话：够长让离开的用户回来还能点，
+够短让被放弃的提问最终释放 running-agent guard。
+
+`wait_for_response` 用 **1 秒切片**轮询 `threading.Event`，每片 `touch_activity_if_due(...)` ——
+一次长 `Event.wait` 会让 gateway 的 inactivity watchdog 在用户还在打字时把 agent 杀掉（#10807）。
+
+### 10.2 超时 → **卡片必须退役**
+
+```python
+# gateway/run_turn_runner.py :: _ask_clarify_question
+if not answered:
+    retire = getattr(type(ctx._status_adapter), "retire_clarify_card", None)
+    if callable(retire):
+        self._schedule(retire(ctx._status_adapter, clarify_id, _clarify_expired_notice()))
+```
+
+文案：`⏳ This prompt expired — please send a new request.`
+
+**这是他们和我们最根本的差异**：hermes 是线程阻塞等待，超时后 agent 线程已经跑了，答案**无处可去** ——
+留一张还能点的卡只会出现「点了没人接」，所以他们必须退役，还专门写了 `_notify_clarify_expired`
+（「⚠️ This prompt expired — please /retry」）。
+
+我们的等待是「可选的一次等待」：超时后记录还在、卡片还能点，答案仍然有一条合法路径（新消息进会话）。
+所以**保留比退役更有价值** —— `skipped` 和「补充作答」两套语义都建立在"记录还在"上。
+
+代价是：卡片看起来仍像"在等你"，用户不知道等待已经结束。这点该补（见 §10.6）。
+
+### 10.3 结果形状：一个 JSON，四种结局
+
+```jsonc
+{
+  "responses": [{"question": "...", "choices_offered": ["a","b"],
+                 "status": "answered|skipped|unanswered", "user_response": "b" | null}],
+  "outcome": "submitted|timed_out|cancelled|undelivered",
+  "notice": "[user did not respond within 60m]"     // 超时/投递失败的人话原因
+}
+```
+
+要点：**超时不引入新结构**，只是 `status: "unanswered"` + `outcome: "timed_out"` + `notice`。
+`notice` 存在的理由写得很明确：只有空答案会把「投递失败」误报成「用户不理」（#112684）。
+
+### 10.4 不替用户决定
+
+全库没有 recommend / default / assume 分支：超时就是 unanswered。推荐的表达只在展示层：
+`mark_recommended()` 把**第一个**选项后缀 `(Recommended)`（schema 约定 best-first），
+答复时 `strip_recommended()` 剥掉，保证展示不进 `user_response`。
+
+### 10.5 打字回复：三种结局分开处理（最值得抄）
+
+```python
+# gateway/run_inbound.py
+_text_outcome = attempt_text_response_for_session(session_key, text)
+# TEXT_RESOLVED           数字 / 完全匹配选项文本 → 当答案，作废卡片按钮
+# TEXT_REJECTED_SELECTION 选择形状但无效（"9"、错误逗号列表）→ 保留提问，等用户重试
+# TEXT_REJECTED_PROSE     自然语言散文 → 先 CANCELLED 解掉等待，退役卡片，再走正常路由
+```
+
+注释点明散文为什么必须先解除等待：`redirect()` 在工具执行期间退化为 `steer()`，而那个 steer
+**要等 clarify 工具返回才能排空** —— 不先解除就死锁。斜杠命令不算答案（保留 pending）。
+
+### 10.6 其它细节
+
+| 点 | hermes 的做法 |
+|---|---|
+| 多题（消息平台） | **一题一张卡，串行**；第一题没答就停。本地 CLI/TUI 才用一次性面板 |
+| 多题（上限） | 5 题；每题 4 个选项 + 自动追加 `Other / type answer` 行 |
+| 多选 | 支持；文本 `1,3` / `1 3` / 标签解析成 JSON 数组，任一项无效则整条拒绝 |
+| 跳过单题 | 文本 `skip` → `status: "skipped"`；消息平台卡上带提示 `Reply "skip" to skip this question.` |
+| `/stop` | `is_interrupted()` 在 1 秒切片里检查 → `CANCELLED`，不白等超时 |
+| `/new`、关闭、缓存淘汰 | `clear_session()` 批量取消；**首次写入获胜**（已 set 的真实答案不被覆盖） |
+| 投递失败 | 专门 sentinel `[clarify prompt could not be delivered]`（含 declined / 无会话三种），并发一次纯文本兜底；**只有确定性失败才拆注册**，发送超 15 秒未确认算 `ambiguous`，继续等待 |
+| 可观测 | `human_input_request` 观察者只拿问题，**不拿答案** |
+
+## 11. 对照我们的实现：该抄什么、不该抄什么
+
+| 我们现在的做法 | hermes | 结论 |
+|---|---|---|
+| 默认等 60 秒，超时保留记录 + 卡片可点 | 默认等 3600 秒，超时退役卡片 | **保留我们的**：长等待会占住会话（15 分钟保护窗口 + 流式卡 + `/progress`），60 秒换更快反馈；卡片继续可点是我们的优势 |
+| 超时后卡片**没有任何可见变化** | 退役并把文案改成「已过期」 | **要补**：卡片头部改成「⏳ 等待已结束，仍可作答」——不误导、又不作废 |
+| 下一条消息一律「跳过」提问 | 三分法：答案是答案 / 无效选择重试 / 散文才取消 | **要抄**：现在用户直接打字回答会被当成"跳过"，他以为自己答了 |
+| 超时 → `{status:"pending"}`，模型收到中文说明 | 超时 → 同形状 + `outcome` + `notice` | 我们的可读性更好，但**可考虑加 `notice`** 供日志/卡片复用 |
+| `abort` 策略作废记录 | 无对应概念（内部就是退役卡片） | **建议删掉或降级为按次参数**：有了「等待已结束」卡片，作废记录的唯一收益（卡片失效）已由视觉解决，而它的四个坑（文案、失败计数、模型重问、重启不一致）还在 |
+| 一张表单卡多题（一次提交） | 一题一张卡串行 | **保留我们的**：群里 N 题 = N 张卡 + N 次编辑 |
+| 必须 2-4 个选项 | 支持省略 choices 的开放式提问 | 可后置：`options` 省略 → 纯文本提问卡 |
+| `clarify.audit` 记录选项内容 | 观察者刻意不记答案 | 我们记的是选项文本（不含自填全文），可接受；自填内容建议不记 |
+
+### 排序建议
+
+1. **打字回复三分法**（真实困惑：用户打了字却没生效）——中等工作量，要改入站路由入口 + 提示文案。
+2. **「等待已结束」的卡片状态**——小工作量，直接把 `abort` 的四个坑一起消掉。
+3. **删掉 / 降级 `onTimeout: "abort"`**。
+4. 后置：开放式提问、`1,3` 文本多选。
