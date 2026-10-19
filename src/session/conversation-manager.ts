@@ -397,23 +397,34 @@ export class ConversationManager {
 	}
 
 	/**
-	 * 取出 pi 侧还在排队的 steer / followUp 文本（并清空它）。
-	 *
-	 * 一轮收尾时调用：run 已经结束了，pi 队列里还留着的文本就是**没被执行**的 ——
-	 * 调用方据此把这些消息退回桥自己的队列，而不是按「已并入」确认掉（那样消息就丢了）。
-	 * 老 SDK 没有 `clearQueue` 时返回 undefined，调用方退化为按 turn 边界判断。
-	 */
 	/** 常驻内存的条目数（status.json / 诊断用）：实时写入链 + 待处理记录。 */
 	cacheSizes(): { liveChains: number; pendingRecords: number } {
 		return { liveChains: this.liveChannel?.pendingWrites ?? 0, pendingRecords: this.pendingStore?.depth() ?? 0 };
 	}
 
+	/**
+	 * 取出 pi 侧还在排队的 steer 文本（并清空 pi 的队列）。
+	 *
+	 * 一轮收尾时调用：run 已经结束了，pi 队列里还留着的文本就是**没被执行**的 ——
+	 * 调用方据此把这些消息退回桥自己的队列，而不是按「已并入」确认掉（那样消息就丢了）。
+	 * 老 SDK 没有 `clearQueue` 时返回 undefined，调用方退化为按 turn 边界判断。
+	 *
+	 * 桥只用 steer，followUp 队列里的只可能是别的扩展排的。正常跑完时 pi 在结束前就把 followUp 取走了，
+	 * 只有 run 异常结束（或在 agent_end 回调里才排的）才会留下；不清掉的话它会在下一条飞书消息那轮里执行。
+	 * 清掉时记一条 warn，否则那条消息消失得无声无息。
+	 */
 	drainPiSteerQueue(sess: BridgeSession): string[] | undefined {
 		const agent = sess.agent;
 		if (!agent?.clearQueue) return undefined;
 		try {
 			const queue = agent.clearQueue();
-			return [...(queue.steering ?? []), ...(queue.followUp ?? [])];
+			const followUp = queue.followUp ?? [];
+			if (followUp.length > 0) {
+				this.deps.log?.("warn", "feishu.conv.followup_dropped", {
+					conversationKey: sess.conversationKey, count: followUp.length, preview: followUp.map((text) => text.slice(0, 80)),
+				});
+			}
+			return [...(queue.steering ?? [])];
 		} catch {
 			return undefined;
 		}

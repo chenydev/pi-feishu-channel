@@ -755,6 +755,47 @@ test("steer 没被 pi 消费时退回桥队列重跑，不会被当成已并入�
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("两条文本相同的 steer 只执行了一条：只退回一条；别的扩展排的 followUp 被清掉时记 warn", async () => {
+	const prompts: string[] = [];
+	const resolvers: Array<(value: string) => void> = [];
+	const steeredTexts: string[] = [];
+	const logs: Array<{ event: string; meta: unknown }> = [];
+	const backend: SessionBackend = {
+		async createSession() {
+			return {
+				sessionId: "sid-steer-dup",
+				async prompt(text: string) {
+					prompts.push(text);
+					return new Promise<string>((resolve) => { resolvers.push(resolve); });
+				},
+				async steer(text: string) { steeredTexts.push(text); },
+				// 两条相同的 steer 执行了一条，队列里只剩一份；另有别的扩展排的 followUp
+				clearQueue: () => {
+					const steering = steeredTexts.length ? [steeredTexts[0]!] : [];
+					const followUp = steeredTexts.length ? ["来自别的扩展的 followUp"] : [];
+					steeredTexts.length = 0;
+					return { steering, followUp };
+				},
+				subscribe: () => () => {}, async abort() {}, async dispose() {}, modelId: "m",
+			};
+		},
+	};
+	const manager = new ConversationManager({
+		config: config(), sessionDir: "/tmp/feishu-steer-dup", sessionBackend: backend, sender: sender([]) as never,
+		log: (level, event, meta) => { logs.push({ event: `${level}:${event}`, meta }); },
+	});
+	await manager.route(message("dup-active"));
+	await waitUntil(() => resolvers.length === 1);
+	assert.equal(await manager.route({ ...message("dup-1"), text: "同一句话" }), "steered");
+	assert.equal(await manager.route({ ...message("dup-2"), text: "同一句话" }), "steered");
+	resolvers[0]!("first-done");
+	await waitUntil(() => prompts.length === 2);
+	resolvers[1]!("second-done");
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.equal(prompts.length, 2, "只能退回一条，另一条已经执行过了");
+	assert.ok(logs.some((entry) => entry.event === "warn:feishu.conv.followup_dropped"), "丢掉别人的 followUp 要留痕");
+});
+
 test("Pi 拒绝 steer 时消息降级为独立 FIFO turn", async () => {
 	let releaseFirst!: () => void;
 	const prompts: string[] = [];
