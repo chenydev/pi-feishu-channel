@@ -110,6 +110,7 @@ export interface BridgeHookContext {
 		| { status: "answered"; text: string; late?: boolean }
 		| { status: "pending"; waitedMs: number }
 		| { status: "abandoned"; detail: string }
+		| { status: "skipped" }
 		| { status: "cancelled" }
 		| { status: "unavailable"; detail: string }
 	>;
@@ -354,8 +355,11 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 						content: [{ type: "text", text: `用户还没作答（已等 ${Math.round(result.waitedMs / 1000)} 秒）。提问卡片仍然有效，用户之后点选会以「[选择] …」的新消息发来。现在不要重复提问，也不要假设答案：可以先说明你打算怎么继续（例如等用户回答后再做），把依赖这个答案的部分留到下一轮。` }],
 					} as ExtensionToolResult;
 				}
+				if (result.status === "skipped") {
+					return { content: [{ type: "text", text: "用户没有作答，转而发了一条新消息（或回了 skip），这次提问已作废。不要假设答案，也不要重复提问：按用户的新消息继续。" }] } as ExtensionToolResult;
+				}
 				if (result.status === "abandoned") {
-					return { content: [{ type: "text", text: `超时未作答，这次提问已作废（${result.detail}）。不要假设答案，直接说明你需要用户回答什么。` }], isError: true } as ExtensionToolResult;
+					return { content: [{ type: "text", text: `这次提问已作废（${result.detail}），没有拿到答案。不要假设答案，直接说明你需要用户回答什么。` }], isError: true } as ExtensionToolResult;
 				}
 				if (result.status === "cancelled") {
 					return { content: [{ type: "text", text: "等待用户作答时被中止（/stop 或桥关闭）。不要再发起同样的提问，等用户下一条消息。" }], isError: true } as ExtensionToolResult;

@@ -59,18 +59,19 @@ test("中止（/stop）：立刻返回 cancelled，记录仍保留", async () =>
 	assert.equal(store.pendingCount(), 1, "中止不等于放弃这道题的作答机会");
 });
 
-test("隐式跳过：用户发了别的消息 → 记录作废、等待器收到 dropped、卡片能重绘成「已跳过」", async () => {
+test("隐式跳过：用户发了别的消息 → 记录作废、等待器立刻收到 dropped(skipped)、卡片能重绘成「已跳过」", async () => {
 	const { store, audits } = makeStore();
 	const record = store.create(request());
 	store.attachCard(record.id, "om_card");
 	const waiting = store.waitForAnswer(record.id, 60_000);
-	const skipped = store.skipPending("oc_1");
-	assert.equal(skipped.length, 1);
-	assert.equal((await waiting).kind, "dropped");
+	const outcome = store.attemptTextResponse("oc_1", "先别管这个，帮我看下构建为什么失败");
+	assert.equal(outcome.kind, "prose");
+	assert.deepEqual(await waiting, { kind: "dropped", reason: "skipped" }, "工具不能等到超时");
 	assert.equal(store.pendingCount(), 0);
 	assert.ok(audits.some((event) => event.decision === "skipped"), "跳过要留审计");
+	assert.equal(store.attemptTextResponse("oc_1", "1").kind, "none", "之后回「1」不再算作这道已放弃的题的答案");
 
-	const card = JSON.stringify(skippedCardFor(skipped[0]!));
+	const card = JSON.stringify(skippedCardFor(record));
 	assert.match(card, /已跳过/);
 	assert.match(card, /"disabled":true/, "选项只读");
 	assert.doesNotMatch(card, /"behaviors"/, "跳过后不能再触发回调");
@@ -119,12 +120,19 @@ test("打字：像选择但无效 → 保留提问，让用户重试（不要当
 	assert.equal(store.pendingCount(), 1, "卡片还在，改一下就能答");
 });
 
-test("打字：散文 → 判为「说别的事」，由调用方作废提问", () => {
+test("打字：散文 → 判为「说别的事」，当场作废提问（单题只能选、多题表单都一样）", async () => {
 	const { store } = makeStore();
 	store.create(request());
-	const outcome = store.attemptTextResponse("oc_1", "先别管这个，帮我看下构建为什么失败");
-	assert.equal(outcome.kind, "prose");
-	assert.equal(store.pendingCount(), 1, "作废由调用方做（它还要重绘卡片）");
+	assert.equal(store.attemptTextResponse("oc_1", "先别管这个，帮我看下构建为什么失败").kind, "prose");
+	assert.equal(store.pendingCount(), 0);
+
+	const form = store.create({ conversationKey: "oc_1", chatId: "oc_1", chatType: "group", questions: [
+		{ question: "字段？", options: ["名称", "价格"] }, { question: "范围？", options: ["当前", "近 7 天"] },
+	] });
+	const waiting = store.waitForAnswer(form.id, 60_000);
+	assert.equal(store.attemptTextResponse("oc_1", "名称，当前").kind, "prose", "多题靠自由文本猜不可靠，当散文");
+	assert.deepEqual(await waiting, { kind: "dropped", reason: "skipped" });
+	assert.equal(store.pendingCount(), 0);
 });
 
 test("打字：skip 关键字显式跳过；多选支持 1,3 与「1 3」", () => {

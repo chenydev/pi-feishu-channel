@@ -550,7 +550,7 @@ export class ConversationManager {
 			this.deps.onClarifySkipped?.([outcome.record]);
 			return true; // 「skip」是指令，不是要跟模型说的话
 		}
-		// 散文：用户去说别的事了 —— 作废这张卡，消息正常投递
+		// 散文：用户去说别的事了 —— 记录已在 store 里作废（等着的工具随之返回），这里重绘卡片，消息正常投递
 		this.deps.onClarifySkipped?.([outcome.record]);
 		return false;
 	}

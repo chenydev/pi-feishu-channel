@@ -335,6 +335,8 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 							return { status: "cancelled" as const };
 						}
 						if (outcome.kind === "dropped") {
+							// 用户没答、转而发了别的消息（或回了 skip）：和其它失效原因分开，模型要按那条新消息继续
+							if (outcome.reason === "skipped") return { status: "skipped" as const };
 							return { status: "abandoned" as const, detail: `提问已失效（${outcome.reason}）` };
 						}
 						// 超时：只报告「还没答」，绝不替用户选。卡片保留（点选项仍然有效），

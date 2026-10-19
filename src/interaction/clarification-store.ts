@@ -332,22 +332,6 @@ export class ClarificationStore {
 		return count;
 	}
 
-	/**
-	 * 隐式跳过：用户没说答案、直接发了别的消息。
-	 *
-	 * 不这么做的话，那张卡会一直挂在群里；用户几天后误点，一个过时答案会插进当时的对话里，
-	 * 被模型当成现在的指令。返回被跳过的记录，调用方据此把卡片改成「已跳过」。
-	 */
-	skipPending(conversationKey: string, reason = "skipped"): ClarificationRecord[] {
-		const skipped: ClarificationRecord[] = [];
-		for (const record of [...this.records.values()]) {
-			if (record.conversationKey !== conversationKey) continue;
-			skipped.push(record);
-			this.drop(record, reason);
-		}
-		return skipped;
-	}
-
 	/** 让等待器落定（记录已删除时调用）。返回「刚才是否真有人在等」。 */
 	private settle(id: string, outcome: ClarifyWaitOutcome): boolean {
 		const waiter = this.waiters.get(id);
@@ -361,6 +345,13 @@ export class ClarificationStore {
 	 *
 	 * 只认「单题」：多题表单需要每题各一个值，靠自由文本猜不可靠 —— 那种情况当散文处理（作废提问、
 	 * 让这条消息正常走）。`skip` 关键字显式跳过，用户不用点卡片也能脱身。
+	 *
+	 * 散文和 `skip` 一样**在这里就作废记录**：等待器随之以 `dropped(skipped)` 落定，工具立刻返回。
+	 * 只交给调用方重绘卡片是不够的 —— 记录还在，工具会一直等到超时，超时后卡片又被画回可点，
+	 * 用户之后回个「1」还会被当成对这道已放弃的题的作答。
+	 *
+	 * 不这么做的话，那张卡会一直挂在群里；用户几天后误点，一个过时答案会插进当时的对话里，
+	 * 被模型当成现在的指令。
 	 */
 	attemptTextResponse(conversationKey: string, text: string): ClarifyTextOutcome {
 		let record: ClarificationRecord | undefined;
@@ -375,7 +366,7 @@ export class ClarificationStore {
 			return { kind: "skipped", record };
 		}
 		const questions = this.questionsOf(record);
-		if (questions.length > 1) return { kind: "prose", record };
+		if (questions.length > 1) return this.abandon(record);
 		const question = questions[0]!;
 		const matched = matchChoiceText(raw, question);
 		if (matched === "invalid") {
@@ -383,11 +374,17 @@ export class ClarificationStore {
 		}
 		if (matched === undefined) {
 			// 形状不像选择（或是自由文本）：只有「只能从选项里选」的题才算散文；能自填的题当自填答案。
-			if (!question.allowOther) return { kind: "prose", record };
+			if (!question.allowOther) return this.abandon(record);
 			const choice = raw.slice(0, 500);
 			return this.consume(record, choice, { other: choice });
 		}
 		return this.consume(record, matched);
+	}
+
+	/** 用户去说别的事了：作废提问（等待器落定为 dropped），调用方负责把卡片重绘成「已跳过」。 */
+	private abandon(record: ClarificationRecord): ClarifyTextOutcome {
+		this.drop(record, "skipped");
+		return { kind: "prose", record };
 	}
 
 	/** 消费记录（文本作答）：删记录 → 落定等待器 → 审计。 */

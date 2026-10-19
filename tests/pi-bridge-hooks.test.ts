@@ -280,11 +280,22 @@ test("子会话钩子：feishu_ask 发出提问就返回并结束本轮（termin
 	assert.equal(answered.terminate, undefined, "拿到答案就继续，不结束本轮");
 	assert.match(answered.content[0].text, /用户已作答[\s\S]*\[选择\] A/);
 
-	// 超时（onTimeout=wait）：不替用户选择，明确让模型不要假设答案
+	// 超时：不替用户选择，明确让模型不要假设答案
 	ctx.askChoice = async () => ({ status: "pending", waitedMs: 60_000 });
 	const pending = await ask.execute("tc-4", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { content: Array<{ text: string }> };
 	assert.match(pending.content[0].text, /还没作答（已等 60 秒）/);
 	assert.match(pending.content[0].text, /不要重复提问，也不要假设答案/);
+
+	// 用户没答、去说别的事：不是错误，让模型按那条新消息继续
+	ctx.askChoice = async () => ({ status: "skipped" });
+	const skipped = await ask.execute("tc-7", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { isError?: boolean; terminate?: boolean; content: Array<{ text: string }> };
+	assert.deepEqual([skipped.isError, skipped.terminate], [undefined, undefined]);
+	assert.match(skipped.content[0].text, /没有作答[\s\S]*按用户的新消息继续/);
+
+	// 其它失效原因（/new 等）：不能再说成「超时」
+	ctx.askChoice = async () => ({ status: "abandoned", detail: "提问已失效（conversation_reset）" });
+	const abandoned = await ask.execute("tc-8", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { content: Array<{ text: string }> };
+	assert.doesNotMatch(abandoned.content[0].text, /超时/);
 
 	// 中止：告诉模型别再发同样的提问
 	ctx.askChoice = async () => ({ status: "cancelled" });
