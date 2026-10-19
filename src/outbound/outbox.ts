@@ -392,7 +392,7 @@ export class Outbox {
 				entry.status = "failed";
 				this.deps.log?.("error", "feishu.outbox.failed", { envelopeId: entry.id, conversationKey: entry.laneKey, kind: entry.kind, attempts: entry.attempts, errorClass: entry.errorClass, lastError: entry.lastError });
 				try {
-					const siblings = [...this.entries.values()].filter((other) => other.id !== entry.id && other.dedupeKey === entry.dedupeKey).length;
+					const siblings = this.entriesFor(entry.dedupeKey).filter((other) => other.id !== entry.id).length;
 					this.deps.onTerminalFailure?.(entry, { siblings });
 				} catch { /* 通知失败不影响待处理记录 */ }
 				return;

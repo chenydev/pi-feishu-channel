@@ -281,8 +281,8 @@ export class ClarificationStore {
 
 		const answers: ClarificationAnswer[] = [];
 		for (const question of this.questionsOf(record)) {
+			// 只认题目里声明过的选项：伪造 / 未声明的值在 pickedOptions 里就被丢掉了
 			const picked = pickedOptions(input.values, question);
-			for (const entry of picked) if (!question.options.includes(entry)) return { ok: false, reason: "无效选项" };
 			const otherRaw = input.values[`${question.id}__other`];
 			const other = typeof otherRaw === "string" ? otherRaw.trim().slice(0, 500) : "";
 			if (picked.length === 0 && !other) return { ok: false, reason: `还有问题没作答：${question.question}` };

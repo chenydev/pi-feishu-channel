@@ -8,6 +8,10 @@
  *   兜底是为了「不因为一个疏漏全线中断」，不是为了把 bug 藏起来。
  *
  * 注意只兜 `unhandledRejection`：`uncaughtException` 之后进程状态未知，继续跑比重启更危险。
+ *
+ * 监听挂在整个 pi 宿主进程上，同进程里其它扩展的未处理 rejection 也会被拦下、不再让进程退出。
+ * 这是有意的：桥所在的 `pi --mode rpc` 进程就是为飞书通道跑的，一个扩展的疏漏不该带走所有会话；
+ * 日志里的堆栈能看出是谁的。桥停止时 `dispose()` 摘掉监听，恢复 Node 默认行为。
  */
 import type { BridgeLogger } from "./logger.js";
 
