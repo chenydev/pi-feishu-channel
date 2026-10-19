@@ -113,7 +113,9 @@ grep -E 'feishu\.(pipeline\.drop|conv\.event|conv\.run_error|outbox\.failed)' <�
 | 群切到全群共用后机器人不记得之前的内容 | 会话 key 从 `<chatId>:u:<openId>` 变成 `<chatId>`，旧个人会话还在；几个人在群里各做各的事时，该群应设 `groupRules.<id>.sessionsPerUser: true` | 群里 `/sessions` 找「某某 的个人会话」，本人或管理员 `/resume #N`（恢复后全群共用）。见 [运维 §4](../../docs/operations.md#4-常见症状) |
 | 任务执行中问进度没回应 | 普通消息要等当前工具结束才交给模型 | 发 `/progress`（立即回复，不打断任务） |
 | 提问卡发出后模型没等就继续做了 | 现在默认等 60 秒（`clarify.waitMs`）；若是老版本或配成 0 → 模型只能靠提示词。看 `feishu.clarify.wait_timeout` |
-| 提问卡变成「⏭ 已跳过」 | 用户没说答案、直接发了别的消息（隐式跳过，防误点插过时答案）；日志 `feishu.clarify.skipped` |
+| 提问卡变成「⏭ 已跳过」 | 用户发了散文（不是编号/选项原文）去说别的事 → 作废提问；日志 `feishu.clarify.skipped` |
+| 用户说"我答了但机器人没照做" | 现在编号/选项原文（含 `skip`）都算答案；像选择但无效会回「没听懂…」并保留卡片。看 `feishu.clarify.audit` 的 `answered_text` |
+| 提问卡顶部出现「⏳ 已经等了一会儿」 | 等待超时后重绘的提示：卡片仍然有效，点一下就行（只有原子卡会重绘，表单卡不动） |
 | 点提问卡片选项提示没有权限 / 已过期 | 作答权限 = 能在这里 @ 机器人；卡片答过一次、有新提问、`/new` 或超过 `clarify.ttlMs`（24 小时）后失效 | 放行这个人（§3），或直接打字回复；看 `feishu.clarify.audit` |
 | 开了开通申请，没权限的人找机器人没收到申请卡 | 冷却期内已发过、被「暂不放行」（24 小时）、超出每小时上限，或群策略本身拒绝 | 看 `feishu.access_request.silent` 的 `reason`（`reminded` / `ignored` / `rate_limited`）；急用直接改配置 |
 | 开了 `groupAlsoOnReply`，回复机器人仍要 @ | 被回复的消息不在最近 `lastSentCacheSize` 条里，或发于重启前 | 设计如此；@ 机器人即可 |

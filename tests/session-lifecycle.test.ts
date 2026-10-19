@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { ConversationManager } from "../src/session/conversation-manager.js";
+import { ClarificationStore } from "../src/interaction/clarification-store.js";
 import { DEFAULT_CONFIG, type BridgeConfig, type FeishuInboundMessage, type SessionBackend } from "../src/types.js";
 
 function config(over: Partial<BridgeConfig> = {}): BridgeConfig {
@@ -159,23 +160,28 @@ test("会话回收：有提问在等作答时不回收（保护窗口内）", as
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("入站消息会通知「作废没答的提问」，桥自己合成的作答消息不触发", async () => {
+test("入站文本先过「这是不是答案」：散文作废提问、合成的作答消息不触发", async () => {
 	const dir = tempDir();
 	try {
 		const seen: string[] = [];
+		const store = new ClarificationStore();
 		const manager = new ConversationManager({
 			config: config(),
 			sessionDir: dir,
 			sessionBackend: trackingBackend({ created: 0, disposed: 0 }),
 			sender: sender([]) as never,
-			onInboundMessage: (key) => { seen.push(key); },
+			resolveClarifyText: (key, text) => store.attemptTextResponse(key, text),
+			onClarifySkipped: (records) => { seen.push(...records.map((record) => record.id)); },
 		});
-		await manager.route(message("hi-1"));
-		assert.equal(seen.length, 1, "真实消息要作废待答提问");
-		const first = seen[0];
+		const record = store.create({ conversationKey: "oc_real_chat", chatId: "oc_real_chat", chatType: "group", question: "选哪个？", options: ["A", "B"] });
 
+		await manager.route(message("hi-1"));
+		assert.deepEqual(seen, [record.id], "散文（不是答案）要作废提问");
+
+		const second = store.create({ conversationKey: "oc_real_chat", chatId: "oc_real_chat", chatType: "group", question: "选哪个？", options: ["A", "B"] });
 		await manager.route({ ...message("ans-1"), synthetic: true });
-		assert.deepEqual(seen, [first], "合成的作答消息不算「用户发别的消息」");
+		assert.equal(store.pendingCount(), 1, "合成的作答消息（点卡片）不参与文本判定");
+		assert.ok(store.snapshot().some((item) => item.id === second.id));
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

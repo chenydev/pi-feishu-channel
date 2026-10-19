@@ -18,7 +18,7 @@ import { deliverDocCommentReply } from "../inbound/doc-comments.js";
 import { InboundPipeline } from "../inbound/pipeline.js";
 import { ResourceResolver } from "../inbound/resource-resolver.js";
 import type { LarkSdkLike, TransportDeps } from "../inbound/transport.js";
-import { ClarificationStore, buildClarificationCard, clarificationAnswersText, clarificationTextFallback, skippedCardFor, type ClarificationRecord } from "../interaction/clarification-store.js";
+import { ClarificationStore, buildClarificationCard, clarificationAnswersText, clarificationTextFallback, isAtomicClarificationCard, skippedCardFor, type ClarificationRecord } from "../interaction/clarification-store.js";
 import { queueLocalFile } from "../outbound/local-file-tool.js";
 import { Outbox } from "../outbound/outbox.js";
 import { Sender } from "../outbound/sender.js";
@@ -61,12 +61,24 @@ export interface AssembleContext {
  */
 const CLARIFY_PROTECT_MS = 15 * 60_000;
 
-/** 把「已跳过 / 已放弃」的提问卡重绘成只读，免得之后误点插进过时答案。 */
+/** 把「已跳过」的提问卡重绘成只读，免得之后误点插进过时答案。 */
 function redrawClarificationCards(rt: { transport?: { updateCard(messageId: string, card: unknown): Promise<boolean> } }, records: ClarificationRecord[]): void {
 	for (const record of records) {
 		if (!record.cardMessageId) continue;
 		void rt.transport?.updateCard(record.cardMessageId, skippedCardFor(record)).catch(() => undefined);
 	}
+}
+
+/**
+ * 等待超时：卡片**保持可点**，只在原子卡上加一行「等待已结束」。
+ *
+ * 表单卡不重绘 —— 用户可能正在里面勾选/填写，整卡替换会把他没提交的输入清掉。
+ */
+function notifyWaitEnded(rt: { transport?: { updateCard(messageId: string, card: unknown): Promise<boolean> } }, record: ClarificationRecord): void {
+	if (!record.cardMessageId || !isAtomicClarificationCard(record)) return;
+	void rt.transport?.updateCard(record.cardMessageId, buildClarificationCard(record, {
+		note: "⏳ 已经等了一会儿还没收到你的选择 —— 这张卡仍然有效，点一下就行（或直接回复编号）。",
+	})).catch(() => undefined);
 }
 
 export async function assembleBridge(ctx: AssembleContext): Promise<void> {
@@ -325,13 +337,10 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 						if (outcome.kind === "dropped") {
 							return { status: "abandoned" as const, detail: `提问已失效（${outcome.reason}）` };
 						}
-						// 超时：默认只报告「还没答」，绝不替用户选
-						if ((rt.config.clarify?.onTimeout ?? "wait") === "abort") {
-							const dropped = rt.clarificationStore.skipPending(record.conversationKey, "abandoned");
-							redrawClarificationCards(rt, dropped);
-							return { status: "abandoned" as const, detail: `等了 ${Math.round(waitMs / 1000)} 秒没有作答` };
-						}
+						// 超时：只报告「还没答」，绝不替用户选。卡片保留（点选项仍然有效），
+						// 原子卡顺手重绘一行「等待已结束」，否则用户会以为还在等他。
 						log.info("feishu.clarify.wait_timeout", { clarificationId: record.id, waitMs });
+						notifyWaitEnded(rt, record);
 						return { status: "pending" as const, waitedMs: waitMs };
 					}
 				} catch (error) {
@@ -370,12 +379,10 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 		// 澄清提问不算：它不阻塞会话，记录落盘，句柄回收后点击照样进入会话
 		pendingApprovalCount: (conversationKey) => rt.permissionBridge?.pendingForConversation(conversationKey) ?? 0,
 		pendingClarificationCount: (conversationKey) => rt.clarificationStore?.pendingRecentCount(conversationKey, CLARIFY_PROTECT_MS) ?? 0,
-		onInboundMessage: (conversationKey) => {
-			// 用户没答、直接说别的 → 那张卡作废（不重绘的话，几天后误点会把过时答案插进当时的对话）
-			const skipped = rt.clarificationStore?.skipPending(conversationKey) ?? [];
-			if (skipped.length === 0) return;
-			log.info("feishu.clarify.skipped", { conversationKey, count: skipped.length });
-			redrawClarificationCards(rt, skipped);
+		resolveClarifyText: (conversationKey, text) => rt.clarificationStore?.attemptTextResponse(conversationKey, text),
+		onClarifySkipped: (records) => {
+			log.info("feishu.clarify.skipped", { count: records.length });
+			redrawClarificationCards(rt, records);
 		},
 		onApprovalInvalidate: ({ conversationKey, runId, reason }) => {
 			if (!rt.permissionBridge) return;

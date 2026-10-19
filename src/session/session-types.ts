@@ -59,8 +59,13 @@ export interface ConversationManagerDeps {
 	pendingApprovalCount?: (conversationKey: string) => number;
 	/** 该会话里还在等作答的提问数（只算最近一段时间，见 CLARIFY_PROTECT_MS）。 */
 	pendingClarificationCount?: (conversationKey: string) => number;
-	/** 收到一条真实用户消息（非桥自己合成的）→ 用来作废没答的提问。 */
-	onInboundMessage?: (conversationKey: string) => void;
+	/**
+	 * 真实用户消息到达时的文本判定（`attemptTextResponse` 的三分法）：
+	 * 数字/选项原文 = 答案；长得像选择但无效 = 保留提问；其它散文 = 作废提问。
+	 */
+	resolveClarifyText?: (conversationKey: string, text: string) => import("../interaction/clarification-store.js").ClarifyTextOutcome | undefined;
+	/** 提问被作废（散文跳过 / `skip` 关键字）→ 调用方把卡片重绘成只读。 */
+	onClarifySkipped?: (records: import("../interaction/clarification-store.js").ClarificationRecord[]) => void;
 	/**
 	 * 审批失效回调 —— run 结束（带 runId）或会话重置（无 runId）时撤销未决审批，
 	 * 使已超时/结束/替换的任务再也无法通过旧卡授予 session/always 权限。

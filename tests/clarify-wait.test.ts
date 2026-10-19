@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ClarificationStore, buildClarificationCard, skippedCardFor } from "../src/interaction/clarification-store.js";
+import { ClarificationStore, buildClarificationCard, isAtomicClarificationCard, skippedCardFor } from "../src/interaction/clarification-store.js";
 
 function makeStore() {
 	let now = 1_000_000;
@@ -92,4 +92,86 @@ test("等待不影响提问卡本身：卡片仍然可点（没有变成只读�
 	const card = JSON.stringify(buildClarificationCard(record));
 	assert.match(card, /"op":"clarify"/, "等待期间卡片照常可点");
 	assert.doesNotMatch(card, /"disabled":true/);
+});
+
+// ── 打字回复的三分法（对照 hermes）：答案是答案 / 无效选择重试 / 散文才取消 ──────────
+
+test("打字：数字与选项原文都算答案（忽略卡片上的 ⭐/（推荐）装饰）", () => {
+	const { store } = makeStore();
+	store.create(request());
+	const viaNumber = store.attemptTextResponse("oc_1", "2");
+	assert.equal(viaNumber.kind, "answered");
+	if (viaNumber.kind === "answered") assert.equal(viaNumber.choice, "正式");
+	assert.equal(store.pendingCount(), 0, "答过就消费掉");
+
+	store.create({ ...request(), recommended: [1] });
+	const viaLabel = store.attemptTextResponse("oc_1", "正式（推荐）");
+	assert.equal(viaLabel.kind, "answered", "带装饰的选项文本也要匹配上");
+	if (viaLabel.kind === "answered") assert.equal(viaLabel.choice, "正式");
+});
+
+test("打字：像选择但无效 → 保留提问，让用户重试（不要当成散文作废）", () => {
+	const { store } = makeStore();
+	store.create(request());
+	const outcome = store.attemptTextResponse("oc_1", "9");
+	assert.equal(outcome.kind, "invalid_selection");
+	assert.match(outcome.kind === "invalid_selection" ? outcome.reason : "", /没听懂「9」/);
+	assert.equal(store.pendingCount(), 1, "卡片还在，改一下就能答");
+});
+
+test("打字：散文 → 判为「说别的事」，由调用方作废提问", () => {
+	const { store } = makeStore();
+	store.create(request());
+	const outcome = store.attemptTextResponse("oc_1", "先别管这个，帮我看下构建为什么失败");
+	assert.equal(outcome.kind, "prose");
+	assert.equal(store.pendingCount(), 1, "作废由调用方做（它还要重绘卡片）");
+});
+
+test("打字：skip 关键字显式跳过；多选支持 1,3 与「1 3」", () => {
+	const { store } = makeStore();
+	store.create(request());
+	assert.equal(store.attemptTextResponse("oc_1", "skip").kind, "skipped");
+	assert.equal(store.pendingCount(), 0);
+
+	store.create({ ...request(), multiSelect: true, options: ["登录", "下单", "支付"] });
+	const picked = store.attemptTextResponse("oc_1", "1, 3");
+	assert.equal(picked.kind, "answered");
+	if (picked.kind === "answered") assert.equal(picked.choice, "登录、支付");
+
+	store.create({ ...request(), multiSelect: true, options: ["登录", "下单", "支付"] });
+	assert.equal(store.attemptTextResponse("oc_1", "1 9").kind, "invalid_selection", "任一项越界整条无效");
+});
+
+test("打字答案正在被等待时：交给工具，消息不再进会话（waiterActive）", async () => {
+	const { store } = makeStore();
+	const record = store.create(request());
+	const waiting = store.waitForAnswer(record.id, 60_000);
+	const outcome = store.attemptTextResponse("oc_1", "1");
+	assert.equal(outcome.kind, "answered");
+	if (outcome.kind === "answered") assert.equal(outcome.waiterActive, true, "有工具在等 → 这条消息归于工具结果");
+	const settled = await waiting;
+	assert.equal(settled.kind, "answered");
+});
+
+test("打字答案在超时之后：标记为补充作答（late）", async () => {
+	const { store } = makeStore();
+	const record = store.create(request());
+	await store.waitForAnswer(record.id, 10);
+	const outcome = store.attemptTextResponse("oc_1", "正式");
+	assert.equal(outcome.kind, "answered");
+	if (outcome.kind === "answered") {
+		assert.equal(outcome.waiterActive, false, "没有工具在等了");
+		assert.equal(outcome.late, true, "要让消息带上「补充作答」标记");
+	}
+});
+
+test("超时重绘只动原子卡（表单卡不重绘，免得清掉用户没提交的输入）", () => {
+	const { store } = makeStore();
+	const button = store.create(request());
+	const form = store.create({ conversationKey: "oc_2", chatId: "oc_2", chatType: "group", question: "要包含哪些？", options: ["名称", "价格"], multiSelect: true });
+	assert.equal(isAtomicClarificationCard(button), true);
+	assert.equal(isAtomicClarificationCard(form), false);
+	const withNote = JSON.stringify(buildClarificationCard(button, { note: "⏳ 等待已结束" }));
+	assert.match(withNote, /等待已结束/);
+	assert.match(withNote, /"op":"clarify"/, "注记不影响可点");
 });

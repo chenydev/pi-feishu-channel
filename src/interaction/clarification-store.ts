@@ -89,6 +89,20 @@ export interface ClarificationRequest {
 	questions?: Array<Omit<ClarificationQuestion, "id"> & { id?: string }>;
 }
 
+/**
+ * 用户「直接打字」时的判定结果。
+ *
+ * 三种情况必须分开（学 hermes）：**数字/选项原文是答案**；**长得像选择但无效**（"9"、错逗号列表）
+ * 要保留提问让用户重试；**其它散文**才算「不答了、说别的事」，作废这张卡。
+ * 一律当「跳过」会把"用户以为自己答了"变成静默丢失。
+ */
+export type ClarifyTextOutcome =
+	| { kind: "none" }
+	| { kind: "answered"; record: ClarificationRecord; choice: string; waiterActive: boolean; late: boolean }
+	| { kind: "invalid_selection"; record: ClarificationRecord; reason: string }
+	| { kind: "prose"; record: ClarificationRecord }
+	| { kind: "skipped"; record: ClarificationRecord };
+
 /** `waitForAnswer` 的结局。超时**不**删记录：卡片继续有效，用户之后还能点。 */
 export type ClarifyWaitOutcome =
 	| { kind: "answered"; record: ClarificationRecord; answers: ClarificationAnswer[] }
@@ -334,10 +348,62 @@ export class ClarificationStore {
 		return skipped;
 	}
 
-	/** 让等待器落定（记录已删除时调用；没有等待器就什么都不做）。 */
-	private settle(id: string, outcome: ClarifyWaitOutcome): void {
+	/** 让等待器落定（记录已删除时调用）。返回「刚才是否真有人在等」。 */
+	private settle(id: string, outcome: ClarifyWaitOutcome): boolean {
 		const waiter = this.waiters.get(id);
-		if (waiter) waiter(outcome);
+		if (!waiter) return false;
+		waiter(outcome);
+		return true;
+	}
+
+	/**
+	 * 用户直接打字时的判定（对应 hermes 的三分法）。
+	 *
+	 * 只认「单题」：多题表单需要每题各一个值，靠自由文本猜不可靠 —— 那种情况当散文处理（作废提问、
+	 * 让这条消息正常走）。`skip` 关键字显式跳过，用户不用点卡片也能脱身。
+	 */
+	attemptTextResponse(conversationKey: string, text: string): ClarifyTextOutcome {
+		let record: ClarificationRecord | undefined;
+		for (const candidate of this.records.values()) {
+			if (candidate.conversationKey === conversationKey) { record = candidate; break; }
+		}
+		if (!record) return { kind: "none" };
+		const raw = String(text ?? "").trim();
+		if (!raw) return { kind: "none" };
+		if (raw.toLowerCase() === SKIP_WORD) {
+			this.drop(record, "skipped");
+			return { kind: "skipped", record };
+		}
+		const questions = this.questionsOf(record);
+		if (questions.length > 1) return { kind: "prose", record };
+		const question = questions[0]!;
+		const matched = matchChoiceText(raw, question);
+		if (matched === "invalid") {
+			return { kind: "invalid_selection", record, reason: `没听懂「${truncateText(raw)}」—— 回编号、选项原文，或直接说你的答案` };
+		}
+		if (matched === undefined) {
+			// 形状不像选择（或是自由文本）：只有「只能从选项里选」的题才算散文；能自填的题当自填答案。
+			if (!question.allowOther) return { kind: "prose", record };
+			const choice = raw.slice(0, 500);
+			return this.consume(record, choice, { other: choice });
+		}
+		return this.consume(record, matched);
+	}
+
+	/** 消费记录（文本作答）：删记录 → 落定等待器 → 审计。 */
+	private consume(record: ClarificationRecord, choice: string, extra: { other?: string } = {}): ClarifyTextOutcome {
+		const late = Boolean(record.timedOutAt);
+		this.records.delete(record.id);
+		const waiterActive = this.settle(record.id, {
+			kind: "answered", record,
+			answers: [{ question: record.question, choices: extra.other ? [] : [choice], ...(extra.other ? { other: extra.other } : {}) }],
+		});
+		this.persist();
+		this.deps.onAudit?.({
+			clarificationId: record.id, conversationKey: record.conversationKey, question: record.question,
+			decision: "answered_text", choice,
+		});
+		return { kind: "answered", record, choice, waiterActive, late };
 	}
 
 	pendingCount(): number { return this.records.size; }
@@ -506,7 +572,35 @@ function buildRadioCard(pending: ClarificationRecord): unknown {
 	return { schema: "2.0", body: { elements } };
 }
 
-export function buildClarificationCard(pending: ClarificationRecord): unknown {
+/**
+ * 卡片的形态判定：`true` = 点一下即答（整行按钮 / 勾选式单选），`false` = 表单（一次提交）。
+ *
+ * 用途：等待超时后要重绘卡片提示「等待已结束」。表单卡里可能已经勾了一半、填了一半，
+ * 重绘会把用户没提交的输入清掉 —— 所以只在原子卡上重绘。
+ */
+export function isAtomicClarificationCard(record: ClarificationRecord): boolean {
+	const questions = record.questions?.length ? record.questions : [{ id: "q1", question: record.question, options: record.options }];
+	return !(questions.length > 1 || questions.some((question) => question.multiSelect || question.allowOther));
+}
+
+/** 超时之后才作答的答案：标明是「补充」，模型据此决定纠正还是接着做。 */
+export function lateAnswerNote(record: ClarificationRecord, text: string): string {
+	return record.timedOutAt
+		? `（补充作答：之前等作答超时了，当时没有按任何选项继续）\n${text}`
+		: text;
+}
+
+export function buildClarificationCard(pending: ClarificationRecord, options: { note?: string } = {}): unknown {
+	const card = buildClarificationCardInner(pending) as { body?: { elements?: unknown[] } };
+	if (options.note) {
+		card.body ??= {};
+		card.body.elements ??= [];
+		card.body.elements.unshift({ tag: "markdown", content: `<font color='grey'>${options.note}</font>` });
+	}
+	return card;
+}
+
+function buildClarificationCardInner(pending: ClarificationRecord): unknown {
 	const questions = pending.questions?.length ? pending.questions : [{ id: "q1", question: pending.question, options: pending.options }];
 	const form = questions.length > 1 || questions.some((question) => question.multiSelect || question.allowOther);
 	if (form) return buildFormCard(pending, questions, { panels: pending.panels !== false });
@@ -679,6 +773,76 @@ export function buildClarificationResultCard(question: string, choice: string, o
 		answers: [{ question, choices: [choice] }],
 		operatorOpenId,
 	});
+}
+
+/** 用户显式打字跳过这道题。 */
+const SKIP_WORD = "skip";
+
+/** 去掉卡片上给选项加的展示装饰（⭐ 前缀、「（推荐）」后缀），匹配时只看选项原文。 */
+export function stripChoiceDecoration(text: string): string {
+	return String(text ?? "")
+		.replace(/^[⭐✓\s]+/u, "")
+		.replace(/\s*（推荐）\s*$/u, "")
+		.replace(/\s*\(Recommended\)\s*$/iu, "")
+		.trim();
+}
+
+/** 提示里回显用户输入时的截断（不把整段话贴回去）。 */
+function truncateText(text: string): string {
+	return text.length > 20 ? `${text.slice(0, 20)}…` : text;
+}
+
+/**
+ * 把一段打字内容匹配成选项：命中返回选项原文，`"invalid"` 表示「像选择但无效」，`undefined` 表示不像选择。
+ *
+ * 只认两种形状：**纯数字编号**、**与选项原文完全一致**（忽略大小写与卡片装饰）。多选额外接受
+ * 「1,3」「1 3」这种逗号/空格分隔的数字列表；其中任一项无效就整条判为无效（不要"部分生效"）。
+ */
+function matchChoiceText(text: string, question: ClarificationQuestion): string | "invalid" | undefined {
+	const options = question.options;
+	const matchLabel = (candidate: string): string | undefined => {
+		const wanted = stripChoiceDecoration(candidate).toLowerCase();
+		for (const option of options) {
+			if (stripChoiceDecoration(option).toLowerCase() === wanted) return option;
+		}
+		return undefined;
+	};
+	const trimmed = text.trim();
+	if (!question.multiSelect) {
+		if (/^\d+$/u.test(trimmed)) {
+			const index = Number(trimmed) - 1;
+			return index >= 0 && index < options.length ? options[index]! : "invalid";
+		}
+		return matchLabel(trimmed);
+	}
+	// 多选：逗号分隔，或全数字的空格分隔
+	const tokens = trimmed.includes(",")
+		? trimmed.split(",").map((token) => token.trim()).filter(Boolean)
+		: (() => {
+			const parts = trimmed.split(/\s+/u);
+			return parts.length > 1 && parts.every((part) => /^\d+$/u.test(part)) ? parts : null;
+		})();
+	if (!tokens) {
+		if (/^\d+$/u.test(trimmed)) {
+			const index = Number(trimmed) - 1;
+			return index >= 0 && index < options.length ? options[index]! : "invalid";
+		}
+		const single = matchLabel(trimmed);
+		return single;
+	}
+	const picked: string[] = [];
+	for (const token of tokens) {
+		if (/^\d+$/u.test(token)) {
+			const index = Number(token) - 1;
+			if (index < 0 || index >= options.length) return "invalid";
+			picked.push(options[index]!);
+			continue;
+		}
+		const label = matchLabel(token);
+		if (!label) return "invalid";
+		picked.push(label);
+	}
+	return picked.length > 0 ? picked.join("、") : "invalid";
 }
 
 /** 一题答案的展示文本：「登录、下单（自填：只跑冒烟）」。 */

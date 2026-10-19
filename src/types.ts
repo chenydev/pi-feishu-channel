@@ -256,8 +256,6 @@ export interface BridgeConfig {
 		panels?: boolean;
 		/** 发出提问后等作答多久（毫秒；0 = 不等，纯异步）。 */
 		waitMs?: number;
-		/** 超时策略：`wait` 只报告「还没答」，不替用户选择；`abort` 放弃这次提问。 */
-		onTimeout?: "wait" | "abort";
 	};
 	/** 按人限流（默认关闭：`perUserPerMinute` 为 0）。 */
 	rateLimit?: { perUserPerMinute?: number };

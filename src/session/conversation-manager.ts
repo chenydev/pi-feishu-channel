@@ -25,6 +25,7 @@ import { buildTurnInput } from "./turn-input.js";
 import { SessionTable } from "./session-table.js";
 import { createHistoryOps, type HistoryOps } from "./history-ops.js";
 import { createNoticeSender, queuedNoticeText } from "./notices.js";
+import { clarificationAnswerText, lateAnswerNote } from "../interaction/clarification-store.js";
 import { progressReportOf, queueSnapshotOf, queueStatsOf, schedulerSnapshotOf, usageSnapshotOf } from "./session-views.js";
 import { SessionScheduler } from "./scheduler.js";
 import { ConversationCommands } from "./conversation-commands.js";
@@ -443,8 +444,12 @@ export class ConversationManager {
 		//    （B 在主聊天发无关联新消息 → B 自己的新会话）
 		// 3. 私聊：chatId（p2p chat）
 		const key = options.conversationKey ?? buildConversationKey(msg, this.deps.config);
-		// 用户没说答案、直接发了别的消息 → 作废那张卡（合成的消息不算：那正是作答本身）
-		if (!msg.synthetic) this.deps.onInboundMessage?.(key);
+		// 真实用户消息先过一遍「这是不是一个答案」：数字/选项原文当答案，无效选择让他重试，
+		// 其它散文才作废提问。合成的消息不算（那正是点击作答本身）。
+		if (!msg.synthetic) {
+			const handled = this.takeClarifyText(key, msg);
+			if (handled) return "rejected";
+		}
 		const sess = this.getOrCreateSession(msg, key);
 
 		const queued: QueuedMessage = {
@@ -516,6 +521,38 @@ export class ConversationManager {
 		// （/queue 命令自己有回执；恢复重放的不提示）
 		if (wasBusy && options.behavior !== "queue" && !options.pendingClaimed) await this.noticeQueued(sess, queued);
 		return "queued";
+	}
+
+	/**
+	 * 入站文本是不是一次作答（返回 true = 这条消息已被消化，不要再投给模型）。
+	 *
+	 * 三分法（对照 hermes）：数字/选项原文 → 答案是答案；长得像选择但无效 → 保留提问、回一句让他重试；
+	 * 其它散文 → 作废这张卡，消息照常走。
+	 *
+	 * 工具正在等（`waiterActive`）时，答案已经交回给工具了，这条消息**不能**再进会话 ——
+	 * 否则模型会同时收到「工具结果」和「同一条指令的重复消息」。
+	 */
+	private takeClarifyText(key: string, msg: FeishuInboundMessage): boolean {
+		const outcome = this.deps.resolveClarifyText?.(key, msg.text);
+		if (!outcome || outcome.kind === "none") return false;
+		if (outcome.kind === "answered") {
+			if (outcome.waiterActive) return true;
+			// 等待早就结束了：把这条消息改写成标准答案文本，和点卡片等价（含「补充作答」标记）
+			msg.text = lateAnswerNote(outcome.record, clarificationAnswerText(outcome.record.question, outcome.choice));
+			return false;
+		}
+		if (outcome.kind === "invalid_selection") {
+			// 卡片还在，用户改一下就能答；正文不要进会话（"9" 对模型没有意义）
+			void this.notify(outcome.record.chatId, outcome.reason);
+			return true;
+		}
+		if (outcome.kind === "skipped") {
+			this.deps.onClarifySkipped?.([outcome.record]);
+			return true; // 「skip」是指令，不是要跟模型说的话
+		}
+		// 散文：用户去说别的事了 —— 作废这张卡，消息正常投递
+		this.deps.onClarifySkipped?.([outcome.record]);
+		return false;
 	}
 
 	/** 普通忙碌消息与 /steer 都优先注入当前 Pi run；空闲时退化为普通新 turn。 */
