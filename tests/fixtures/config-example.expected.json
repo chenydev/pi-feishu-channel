@@ -37,7 +37,6 @@
   },
   "approval": {
     "autoApprove": [],
-    "mode": "off",
     "timeoutMs": 300000,
     "adminSkipApproval": false,
     "commandPolicy": {
@@ -45,7 +44,8 @@
     },
     "plugin": {
       "alwaysApprove": true
-    }
+    },
+    "mode": "off"
   },
   "reaction": {
     "processingEmoji": "Typing",
@@ -126,7 +126,9 @@
     "enabled": true
   },
   "clarify": {
-    "ttlMs": 86400000
+    "ttlMs": 86400000,
+    "waitMs": 60000,
+    "onTimeout": "wait"
   },
   "cardTool": {
     "enabled": false

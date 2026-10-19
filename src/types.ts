@@ -251,7 +251,14 @@ export interface BridgeConfig {
 	/** 表情反馈统计（默认开，只记计数）与 agent 自定义卡片工具（默认关）。 */
 	feedback?: { enabled?: boolean };
 	/** `feishu_ask` 提问卡片：兜底有效期（毫秒，默认 24 小时；0 = 不设上限）。 */
-	clarify?: { ttlMs?: number; panels?: boolean };
+	clarify?: {
+		ttlMs?: number;
+		panels?: boolean;
+		/** 发出提问后等作答多久（毫秒；0 = 不等，纯异步）。 */
+		waitMs?: number;
+		/** 超时策略：`wait` 只报告「还没答」，不替用户选择；`abort` 放弃这次提问。 */
+		onTimeout?: "wait" | "abort";
+	};
 	/** 按人限流（默认关闭：`perUserPerMinute` 为 0）。 */
 	rateLimit?: { perUserPerMinute?: number };
 	/** 只读 HTTP 端点（`/healthz`、`/metrics`，默认关闭；无鉴权，默认只绑 127.0.0.1）。 */

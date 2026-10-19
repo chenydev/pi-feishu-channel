@@ -132,6 +132,53 @@ test("会话回收：有未决审批时不回收", async () => {
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("会话回收：有提问在等作答时不回收（保护窗口内）", async () => {
+	const dir = tempDir();
+	try {
+		const sent: Array<{ chatId: string; text: string }> = [];
+		const state = { created: 0, disposed: 0 };
+		let now = 1_000_000;
+		let pending = 1;
+		const manager = new ConversationManager({
+			config: config(),
+			sessionDir: dir,
+			sessionBackend: trackingBackend(state),
+			sender: sender(sent) as never,
+			pendingClarificationCount: () => pending, // 模拟「等你作答」
+		});
+		(manager as unknown as { now: () => number }).now = () => now;
+		(manager as unknown as { idleTtlMs: number }).idleTtlMs = 1;
+
+		await manager.commands.modelConversation(message("ask-1"));
+		now += 10_000;
+		assert.equal(await manager.reclaimIdle(), 0, "等待作答期间不得回收会话");
+		assert.equal(manager.residentCount(), 1);
+
+		pending = 0; // 保护窗口过了（记录还在，但不再挡住回收）
+		assert.equal(await manager.reclaimIdle(), 1);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("入站消息会通知「作废没答的提问」，桥自己合成的作答消息不触发", async () => {
+	const dir = tempDir();
+	try {
+		const seen: string[] = [];
+		const manager = new ConversationManager({
+			config: config(),
+			sessionDir: dir,
+			sessionBackend: trackingBackend({ created: 0, disposed: 0 }),
+			sender: sender([]) as never,
+			onInboundMessage: (key) => { seen.push(key); },
+		});
+		await manager.route(message("hi-1"));
+		assert.equal(seen.length, 1, "真实消息要作废待答提问");
+		const first = seen[0];
+
+		await manager.route({ ...message("ans-1"), synthetic: true });
+		assert.deepEqual(seen, [first], "合成的作答消息不算「用户发别的消息」");
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("会话回收：运行中/排队中的会话不被回收", async () => {
 	const dir = tempDir();
 	try {

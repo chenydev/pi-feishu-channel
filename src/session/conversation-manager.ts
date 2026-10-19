@@ -368,7 +368,10 @@ export class ConversationManager {
 
 	/** 只读视图统一从 `session-views.ts` 取：它们回答「现在什么样」，和「下一轮怎么跑」无关。 */
 	private viewState() {
-		return { sessions: this.sessions, activeItems: this.activeItems, scheduler: this.scheduler, now: () => this.now() };
+		return {
+			sessions: this.sessions, activeItems: this.activeItems, scheduler: this.scheduler, now: () => this.now(),
+			pendingClarifications: (key: string) => this.deps.pendingClarificationCount?.(key) ?? 0,
+		};
 	}
 
 	queueStats(): { queued: number; active: number; waiting: number } {
@@ -440,6 +443,8 @@ export class ConversationManager {
 		//    （B 在主聊天发无关联新消息 → B 自己的新会话）
 		// 3. 私聊：chatId（p2p chat）
 		const key = options.conversationKey ?? buildConversationKey(msg, this.deps.config);
+		// 用户没说答案、直接发了别的消息 → 作废那张卡（合成的消息不算：那正是作答本身）
+		if (!msg.synthetic) this.deps.onInboundMessage?.(key);
 		const sess = this.getOrCreateSession(msg, key);
 
 		const queued: QueuedMessage = {
@@ -691,7 +696,9 @@ export class ConversationManager {
 		if (session.activeRun || session.creatingAgent) return false;
 		if (session.queue.length > 0 || session.steered.length > 0) return false;
 		if (this.activeItems.has(key)) return false;
-		return (this.deps.pendingApprovalCount?.(key) ?? 0) === 0;
+		if ((this.deps.pendingApprovalCount?.(key) ?? 0) > 0) return false;
+		// 有提问在等作答：短时间内算忙（别把等待中的会话回收掉），超窗口后照常回收
+		return (this.deps.pendingClarificationCount?.(key) ?? 0) === 0;
 	}
 
 	/**

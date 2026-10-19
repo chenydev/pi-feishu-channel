@@ -274,6 +274,29 @@ test("子会话钩子：feishu_ask 发出提问就返回并结束本轮（termin
 	assert.match(result.content[0].text, /本轮到此结束/);
 	assert.equal((asked[0] as { route: BridgeRoute }).route.senderId, "ou_user", "带上发起人");
 
+	// 等到答案：当作普通工具结果，同一轮继续（不 terminate）
+	ctx.askChoice = async () => ({ status: "answered", text: "[选择] A\n（回答你的提问：选哪个？）" });
+	const answered = await ask.execute("tc-3", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { terminate?: boolean; isError?: boolean; content: Array<{ text: string }> };
+	assert.equal(answered.terminate, undefined, "拿到答案就继续，不结束本轮");
+	assert.match(answered.content[0].text, /用户已作答[\s\S]*\[选择\] A/);
+
+	// 超时（onTimeout=wait）：不替用户选择，明确让模型不要假设答案
+	ctx.askChoice = async () => ({ status: "pending", waitedMs: 60_000 });
+	const pending = await ask.execute("tc-4", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { content: Array<{ text: string }> };
+	assert.match(pending.content[0].text, /还没作答（已等 60 秒）/);
+	assert.match(pending.content[0].text, /不要重复提问，也不要假设答案/);
+
+	// 中止：告诉模型别再发同样的提问
+	ctx.askChoice = async () => ({ status: "cancelled" });
+	const cancelled = await ask.execute("tc-5", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { isError?: boolean; content: Array<{ text: string }> };
+	assert.equal(cancelled.isError, true);
+	assert.match(cancelled.content[0].text, /被中止/);
+
+	// 参数透传：waitSeconds 交给桥去决定等多久
+	ctx.askChoice = async (input) => { asked.push(input); return { status: "card" }; };
+	await ask.execute("tc-6", { question: "选哪个？", options: ["A", "B"], waitSeconds: 5 }, undefined, undefined, RUNTIME);
+	assert.equal((asked.at(-1) as { waitSeconds?: number }).waitSeconds, 5);
+
 	ctx.askChoice = async () => ({ status: "unavailable", detail: "没有活动会话" });
 	const failed = await ask.execute("tc-2", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { terminate?: boolean; isError?: boolean };
 	assert.deepEqual([failed.isError, failed.terminate], [true, undefined], "提问失败时不结束本轮，让模型改用文字");

@@ -61,6 +61,8 @@ export interface ClarificationRecord {
 	cardMessageId?: string;
 	createdAt: number;
 	expiresAt: number;
+	/** 曾经等待超时（之后用户再点，答案要标成「补充作答」）。 */
+	timedOutAt?: number;
 }
 
 export interface ClarificationRequest {
@@ -87,6 +89,13 @@ export interface ClarificationRequest {
 	questions?: Array<Omit<ClarificationQuestion, "id"> & { id?: string }>;
 }
 
+/** `waitForAnswer` 的结局。超时**不**删记录：卡片继续有效，用户之后还能点。 */
+export type ClarifyWaitOutcome =
+	| { kind: "answered"; record: ClarificationRecord; answers: ClarificationAnswer[] }
+	| { kind: "timeout" }
+	| { kind: "cancelled" }
+	| { kind: "dropped"; reason: string };
+
 export interface ClarificationStoreDeps {
 	/** 落盘文件；不设时只在内存里（测试用）。 */
 	file?: string;
@@ -102,6 +111,13 @@ const STORE_VERSION = 1;
 
 export class ClarificationStore {
 	private records = new Map<string, ClarificationRecord>();
+	/**
+	 * 「等待用户作答」的等待器，按记录 id 索引。
+	 *
+	 * 为什么是回调而不是 Promise 存在记录上：记录会落盘、会被新提问覆盖、会在重启后重新加载，
+	 * 而等待器只活在当前进程里。两者分开存，重启时记录还在、等待器自然没了（退化成异步路径）。
+	 */
+	private waiters = new Map<string, (outcome: ClarifyWaitOutcome) => void>();
 	private readonly now: () => number;
 	private readonly ttlMs: number;
 
@@ -172,6 +188,7 @@ export class ClarificationStore {
 		const refused = authorize(record);
 		if (refused) return { ok: false, reason: refused };
 		this.records.delete(record.id);
+		this.settle(record.id, { kind: "answered", record, answers: [{ question: record.question, choices: [input.choice] }] });
 		this.persist();
 		this.deps.onAudit?.({
 			clarificationId: record.id, conversationKey: record.conversationKey, question: record.question,
@@ -231,6 +248,7 @@ export class ClarificationStore {
 			answers.push({ question: question.question, choices: picked, ...(other ? { other } : {}) });
 		}
 		this.records.delete(record.id);
+		this.settle(record.id, { kind: "answered", record, answers });
 		this.persist();
 		this.deps.onAudit?.({
 			clarificationId: record.id, conversationKey: record.conversationKey, question: record.question,
@@ -249,6 +267,77 @@ export class ClarificationStore {
 			cancelled += 1;
 		}
 		return cancelled;
+	}
+
+	/**
+	 * 等用户作答（工具里用）。`ms <= 0` 不等待。
+	 *
+	 * 超时**不删记录**：卡片继续有效，用户之后还能点（那时走异步路径）。`signal` 触发（`/stop`、
+	 * 桥关闭）时立刻返回 cancelled，同样保留记录。
+	 */
+	waitForAnswer(id: string, ms: number, signal?: AbortSignal): Promise<ClarifyWaitOutcome> {
+		const record = this.records.get(id);
+		if (!record) return Promise.resolve({ kind: "dropped", reason: "missing" });
+		if (ms <= 0) return Promise.resolve({ kind: "timeout" });
+		if (signal?.aborted) return Promise.resolve({ kind: "cancelled" });
+		return new Promise<ClarifyWaitOutcome>((resolve) => {
+			let done = false;
+			const finish = (outcome: ClarifyWaitOutcome): void => {
+				if (done) return;
+				done = true;
+				clearTimeout(timer);
+				signal?.removeEventListener("abort", onAbort);
+				this.waiters.delete(id);
+				resolve(outcome);
+			};
+			const timer = setTimeout(() => {
+				// 超时：留痕（之后作答要标成「补充作答」），记录本身保留
+				if (this.records.has(id)) {
+					const current = this.records.get(id)!;
+					current.timedOutAt = this.now();
+					this.persist();
+				}
+				finish({ kind: "timeout" });
+			}, ms);
+			(timer as { unref?: () => void }).unref?.();
+			const onAbort = (): void => finish({ kind: "cancelled" });
+			signal?.addEventListener("abort", onAbort, { once: true });
+			this.waiters.set(id, finish);
+		});
+	}
+
+	/** 这个会话里有没有正在等作答的提问（`withinMs` 内提问的才算，避免会话永久占位）。 */
+	pendingRecentCount(conversationKey: string, withinMs: number): number {
+		const now = this.now();
+		let count = 0;
+		for (const record of this.records.values()) {
+			if (record.conversationKey !== conversationKey) continue;
+			if (now - record.createdAt > withinMs) continue;
+			count += 1;
+		}
+		return count;
+	}
+
+	/**
+	 * 隐式跳过：用户没说答案、直接发了别的消息。
+	 *
+	 * 不这么做的话，那张卡会一直挂在群里；用户几天后误点，一个过时答案会插进当时的对话里，
+	 * 被模型当成现在的指令。返回被跳过的记录，调用方据此把卡片改成「已跳过」。
+	 */
+	skipPending(conversationKey: string, reason = "skipped"): ClarificationRecord[] {
+		const skipped: ClarificationRecord[] = [];
+		for (const record of [...this.records.values()]) {
+			if (record.conversationKey !== conversationKey) continue;
+			skipped.push(record);
+			this.drop(record, reason);
+		}
+		return skipped;
+	}
+
+	/** 让等待器落定（记录已删除时调用；没有等待器就什么都不做）。 */
+	private settle(id: string, outcome: ClarifyWaitOutcome): void {
+		const waiter = this.waiters.get(id);
+		if (waiter) waiter(outcome);
 	}
 
 	pendingCount(): number { return this.records.size; }
@@ -280,6 +369,7 @@ export class ClarificationStore {
 
 	private drop(record: ClarificationRecord, reason: string): void {
 		this.records.delete(record.id);
+		this.settle(record.id, { kind: "dropped", reason });
 		this.persist();
 		this.deps.onAudit?.({ clarificationId: record.id, conversationKey: record.conversationKey, question: record.question, decision: reason });
 	}
@@ -536,13 +626,17 @@ export function buildAnsweredCard(input: {
 	operatorOpenId: string;
 	/** 用折叠面板收纳（与提问卡保持一致；单题或显式关闭时平铺）。 */
 	panels?: boolean;
+	/** 未作答就收场时的头部文案（默认「✅ 已作答」）。 */
+	headline?: string;
+	/** 未作答时标题里的摘要（默认「（未答）」）。 */
+	unansweredSummary?: string;
 }): unknown {
 	const { questions, answers, operatorOpenId } = input;
 	const answeredAt = new Map(answers.map((answer) => [answer.question, answer]));
 	const usePanels = (input.panels ?? true) && questions.length > 1;
 	const elements: unknown[] = [{
 		tag: "markdown",
-		content: `<at id=${operatorOpenId}></at> ✅ 已作答`,
+		content: `<at id=${operatorOpenId}></at> ${input.headline ?? "✅ 已作答"}`,
 	}];
 	for (const [index, question] of questions.entries()) {
 		const answer = answeredAt.get(question.question);
@@ -561,7 +655,7 @@ export function buildAnsweredCard(input: {
 			// 输入框不能只读，改成一行灰字（保留用户当时填的内容）
 			body.push({ tag: "markdown", content: `<font color='grey'>其他：${answer.other}</font>` });
 		}
-		const summary = answer ? formatAnswer(answer) : "（未答）";
+		const summary = answer ? formatAnswer(answer) : (input.unansweredSummary ?? "（未答）");
 		const title = `${questions.length > 1 ? `Q${index + 1} · ` : ""}${question.question}${question.multiSelect ? "（多选）" : "（单选）"}`;
 		if (index > 0) elements.push({ tag: "hr" });
 		elements.push(usePanels
@@ -601,6 +695,24 @@ export function answeredCardFor(record: ClarificationRecord, answers: Clarificat
 		answers,
 		operatorOpenId,
 		panels: record.panels !== false,
+	});
+}
+
+/**
+ * 隐式跳过后的卡片：保留题目与全部选项（只读），头部写明「已跳过」。
+ *
+ * 为什么也要重绘而不是放任不管：那张卡仍然可点，点下去会得到一个过期答案 ——
+ * 而用户当时其实已经用别的话继续了。重绘就是让这件事在屏幕上说得清楚。
+ */
+export function skippedCardFor(record: ClarificationRecord, byOpenId?: string): unknown {
+	const who = byOpenId ?? record.askerId ?? "";
+	return buildAnsweredCard({
+		questions: questionsOfRecord(record),
+		answers: [],
+		operatorOpenId: who,
+		panels: record.panels !== false,
+		headline: "⏭ 已跳过（后来发了别的消息，这条提问不再生效）",
+		unansweredSummary: "未作答",
 	});
 }
 

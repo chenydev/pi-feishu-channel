@@ -104,7 +104,9 @@
     "enabled": true
   },
   "clarify": {
-    "ttlMs": 86400000
+    "ttlMs": 86400000,
+    "waitMs": 60000,
+    "onTimeout": "wait"
   },
   "cardTool": {
     "enabled": false

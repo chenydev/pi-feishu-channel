@@ -31,6 +31,8 @@ export interface ViewState<S extends ViewSession> {
 	/** 当前正在跑的原始消息（按会话键）。 */
 	activeItems: Map<string, { text: string; senderName?: string }>;
 	scheduler: { active: number; waiting: unknown[] };
+	/** 该会话里还在等作答的提问数（可选：没有澄清能力时不给）。 */
+	pendingClarifications?(conversationKey: string): number;
 	now(): number;
 }
 
@@ -75,7 +77,11 @@ export function progressReportOf<S extends ViewSession>(state: ViewState<S>, con
 	if (own?.run && state.activeItems.has(key)) {
 		return describeProgress({ activity: own.run, now, task: state.activeItems.get(key)?.text, steered: own.steered.length, queued: own.queue.length });
 	}
-	const lines = [own?.queue.length ? `当前没有执行中的任务，排队 ${own.queue.length} 个` : "当前没有执行中的任务"];
+	const waiting = state.pendingClarifications?.(key) ?? 0;
+	const lines = [
+		...(waiting > 0 ? [`有 ${waiting} 个提问在等你作答（点卡片，或直接发消息跳过它）`] : []),
+		own?.queue.length ? `当前没有执行中的任务，排队 ${own.queue.length} 个` : "当前没有执行中的任务",
+	];
 	const others = [...state.sessions.values()].filter((session) => session !== own && session.chatId === msg.chatId && session.run && state.activeItems.has(session.conversationKey));
 	if (others.length > 0) {
 		lines.push(`这个群里另有 ${others.length} 个任务在执行：`);

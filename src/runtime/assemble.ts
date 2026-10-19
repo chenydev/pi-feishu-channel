@@ -18,7 +18,7 @@ import { deliverDocCommentReply } from "../inbound/doc-comments.js";
 import { InboundPipeline } from "../inbound/pipeline.js";
 import { ResourceResolver } from "../inbound/resource-resolver.js";
 import type { LarkSdkLike, TransportDeps } from "../inbound/transport.js";
-import { ClarificationStore, buildClarificationCard, clarificationTextFallback } from "../interaction/clarification-store.js";
+import { ClarificationStore, buildClarificationCard, clarificationAnswersText, clarificationTextFallback, skippedCardFor, type ClarificationRecord } from "../interaction/clarification-store.js";
 import { queueLocalFile } from "../outbound/local-file-tool.js";
 import { Outbox } from "../outbound/outbox.js";
 import { Sender } from "../outbound/sender.js";
@@ -52,6 +52,21 @@ export interface AssembleContext {
 	updateStatus(): void;
 	usageProvider(): UsageProvider;
 	sendLocalFile: NonNullable<ConversationManagerDeps["sendLocalFile"]>;
+}
+
+/**
+ * 待答提问给会话的「保护窗口」：这段时间内会话不算空闲（别把等待中的会话回收掉），
+ * 之后照常回收 —— 记录和卡片是持久的，用户点卡片时会按指针重建会话。
+ * 不能直接用卡片 TTL（24 小时）：那样空闲会话基本永远回收不了。
+ */
+const CLARIFY_PROTECT_MS = 15 * 60_000;
+
+/** 把「已跳过 / 已放弃」的提问卡重绘成只读，免得之后误点插进过时答案。 */
+function redrawClarificationCards(rt: { transport?: { updateCard(messageId: string, card: unknown): Promise<boolean> } }, records: ClarificationRecord[]): void {
+	for (const record of records) {
+		if (!record.cardMessageId) continue;
+		void rt.transport?.updateCard(record.cardMessageId, skippedCardFor(record)).catch(() => undefined);
+	}
 }
 
 export async function assembleBridge(ctx: AssembleContext): Promise<void> {
@@ -293,7 +308,31 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 					});
 					if (rt.clarificationStore.attachCard(record.id, messageId)) {
 						log.info("feishu.clarify.asked", { conversationKey: record.conversationKey, clarificationId: record.id, options: record.options.length });
-						return { status: "card" as const };
+						// 有界等待：等到就当作工具结果返回（同一轮继续）；超时按 onTimeout 处理。
+						// 默认 60 秒：多数人几十秒内会点，再长就不是「等着」而是「挂起」了。
+						const waitMs = Math.max(0, input.waitSeconds !== undefined
+							? Math.round(input.waitSeconds * 1000)
+							: (rt.config.clarify?.waitMs ?? 60_000));
+						if (waitMs === 0) return { status: "card" as const };
+						const outcome = await rt.clarificationStore.waitForAnswer(record.id, waitMs, input.signal);
+						if (outcome.kind === "answered") {
+							return { status: "answered" as const, text: clarificationAnswersText(outcome.answers), late: Boolean(outcome.record.timedOutAt) };
+						}
+						if (outcome.kind === "cancelled") {
+							log.info("feishu.clarify.wait_cancelled", { clarificationId: record.id });
+							return { status: "cancelled" as const };
+						}
+						if (outcome.kind === "dropped") {
+							return { status: "abandoned" as const, detail: `提问已失效（${outcome.reason}）` };
+						}
+						// 超时：默认只报告「还没答」，绝不替用户选
+						if ((rt.config.clarify?.onTimeout ?? "wait") === "abort") {
+							const dropped = rt.clarificationStore.skipPending(record.conversationKey, "abandoned");
+							redrawClarificationCards(rt, dropped);
+							return { status: "abandoned" as const, detail: `等了 ${Math.round(waitMs / 1000)} 秒没有作答` };
+						}
+						log.info("feishu.clarify.wait_timeout", { clarificationId: record.id, waitMs });
+						return { status: "pending" as const, waitedMs: waitMs };
 					}
 				} catch (error) {
 					log.warn("feishu.clarify.card_failed", { error: error instanceof Error ? error.message : String(error) });
@@ -330,6 +369,14 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 		// 有未决审批的会话不允许回收句柄（避免审批卡失去响应目标）。
 		// 澄清提问不算：它不阻塞会话，记录落盘，句柄回收后点击照样进入会话
 		pendingApprovalCount: (conversationKey) => rt.permissionBridge?.pendingForConversation(conversationKey) ?? 0,
+		pendingClarificationCount: (conversationKey) => rt.clarificationStore?.pendingRecentCount(conversationKey, CLARIFY_PROTECT_MS) ?? 0,
+		onInboundMessage: (conversationKey) => {
+			// 用户没答、直接说别的 → 那张卡作废（不重绘的话，几天后误点会把过时答案插进当时的对话）
+			const skipped = rt.clarificationStore?.skipPending(conversationKey) ?? [];
+			if (skipped.length === 0) return;
+			log.info("feishu.clarify.skipped", { conversationKey, count: skipped.length });
+			redrawClarificationCards(rt, skipped);
+		},
 		onApprovalInvalidate: ({ conversationKey, runId, reason }) => {
 			if (!rt.permissionBridge) return;
 			const cancelled = runId

@@ -57,6 +57,10 @@ export interface ConversationManagerDeps {
 	runMaxDurationMs?: number;
 	/** 该会话未决审批数；>0 时不回收会话句柄。 */
 	pendingApprovalCount?: (conversationKey: string) => number;
+	/** 该会话里还在等作答的提问数（只算最近一段时间，见 CLARIFY_PROTECT_MS）。 */
+	pendingClarificationCount?: (conversationKey: string) => number;
+	/** 收到一条真实用户消息（非桥自己合成的）→ 用来作废没答的提问。 */
+	onInboundMessage?: (conversationKey: string) => void;
 	/**
 	 * 审批失效回调 —— run 结束（带 runId）或会话重置（无 runId）时撤销未决审批，
 	 * 使已超时/结束/替换的任务再也无法通过旧卡授予 session/always 权限。
