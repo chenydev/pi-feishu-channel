@@ -2,10 +2,14 @@
  * 超长回答转文件（`longReply.asFile`，默认关）：回答超过 `longReply.thresholdChars`（默认 6000 字），
  * 或代码块很多时，正文只放开头 `previewChars` 字，全文作为 .md 附件经持久发送队列发出。
  * 附件写失败就退回原文（宁可分片刷屏，也不能丢内容）。
+ *
+ * 导出的 `exports/reply-*.md` 由本能力自己回收（启动时一次，之后每 6 小时）：只留最近 200 份，
+ * 24 小时内的不删。原来挂在会话归档（`retention.sessionDays`，默认关）上，默认配置下从不清理。
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolvePaths } from "../config.js";
+import { pruneExports } from "../runtime/retention.js";
 import type { ConversationManagerDeps, LongReplyInput } from "../session/conversation-manager.js";
 import type { BridgeConfig } from "../types.js";
 import type { BridgeFeature } from "./feature.js";
@@ -13,17 +17,41 @@ import type { BridgeFeature } from "./feature.js";
 type SendLocalFile = NonNullable<ConversationManagerDeps["sendLocalFile"]>;
 type Log = (level: "info" | "warn", msg: string, meta?: unknown) => void;
 
+/** 导出附件的巡检间隔、保留份数、最短保留时间。 */
+const EXPORTS_SWEEP_MS = 6 * 60 * 60_000;
+const EXPORTS_TO_KEEP = 200;
+const EXPORTS_MIN_AGE_MS = 24 * 60 * 60_000;
+
 export const longReplyFeature: BridgeFeature = {
 	name: "longReply",
 	enabled: (config) => config.longReply?.asFile === true,
 	setup({ rt, log, sendLocalFile }) {
+		const exportsDir = resolvePaths(rt.homeDir).exportsDir;
+		let timer: ReturnType<typeof setInterval> | undefined;
+		const sweep = (): void => {
+			try {
+				const prunedExports = pruneExports({ dir: exportsDir, keep: EXPORTS_TO_KEEP, minAgeMs: EXPORTS_MIN_AGE_MS });
+				if (prunedExports > 0) log.info("feishu.retention", { prunedExports });
+			} catch (error) {
+				log.warn("feishu.retention_failed", { error: error instanceof Error ? error.message : String(error) });
+			}
+		};
 		return {
 			replyAsFile: createReplyAsFile({
 				options: rt.config.longReply ?? {},
-				exportsDir: resolvePaths(rt.homeDir).exportsDir,
+				exportsDir,
 				sendLocalFile,
 				log: (level, msg, meta) => log[level](msg, meta),
 			}),
+			start() {
+				sweep();
+				timer = setInterval(sweep, EXPORTS_SWEEP_MS);
+				timer.unref?.();
+			},
+			stop() {
+				if (timer) clearInterval(timer);
+				timer = undefined;
+			},
 		};
 	},
 };

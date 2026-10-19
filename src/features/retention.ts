@@ -6,14 +6,11 @@
  * 永远归档不了新变旧的文件，磁盘只涨不降。
  */
 import { resolvePaths } from "../config.js";
-import { archiveOldSessions, pruneExports } from "../runtime/retention.js";
+import { archiveOldSessions } from "../runtime/retention.js";
 import type { BridgeFeature } from "./feature.js";
 
 /** 归档巡检间隔（6 小时）。 */
 const SWEEP_INTERVAL_MS = 6 * 60 * 60_000;
-
-/** 长回答导出的 `reply-*.md` 保留份数。 */
-const EXPORTS_TO_KEEP = 200;
 
 export const retentionFeature: BridgeFeature = {
 	name: "retention",
@@ -28,10 +25,7 @@ export const retentionFeature: BridgeFeature = {
 					keep: rt.convManager?.referencedSessionFiles() ?? new Set(),
 					days: rt.config.retention?.sessionDays ?? 0,
 				});
-				const prunedExports = pruneExports({ dir: paths.exportsDir, keep: EXPORTS_TO_KEEP });
-				if (archived.length > 0 || prunedExports > 0) {
-					log.info("feishu.retention", { tightened: 0, archived: archived.length, prunedExports });
-				}
+				if (archived.length > 0) log.info("feishu.retention", { tightened: 0, archived: archived.length });
 			} catch (error) {
 				log.warn("feishu.retention_failed", { error: error instanceof Error ? error.message : String(error) });
 			}

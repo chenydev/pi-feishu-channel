@@ -65,3 +65,20 @@ test("数据保留：长回答导出的附件只留最近 N 份（否则每次�
 		assert.equal(pruneExports({ dir, keep: 10 }), 0, "不足上限时不动");
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("数据保留：最近写下的导出附件即使超出份数也不删（可能还在发送队列里等重试）", () => {
+	const dir = mkdtempSync(join(tmpdir(), "exports-"));
+	try {
+		const now = Date.now();
+		const at = (name: string, ageMs: number) => {
+			writeFileSync(join(dir, name), "x");
+			utimesSync(join(dir, name), new Date(now - ageMs), new Date(now - ageMs));
+		};
+		at("reply-new.md", 60_000);
+		at("reply-hour.md", 3_600_000);
+		at("reply-old.md", 2 * 86_400_000);
+		assert.equal(pruneExports({ dir, keep: 1, minAgeMs: 86_400_000, now }), 1, "只删超过 24 小时的");
+		assert.equal(existsSync(join(dir, "reply-hour.md")), true);
+		assert.equal(existsSync(join(dir, "reply-old.md")), false);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});

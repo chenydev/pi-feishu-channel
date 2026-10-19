@@ -110,7 +110,7 @@ export const fileConfigSchema = z.object({
 	}).partial(), "处理状态表情"),
 	queueNotice: m(bool, "忙碌时排队的消息回复一次「已排队」（同一会话 10 秒内只提示一次）；工具执行超过 1 分钟时收到的消息回复一次正在做什么（5 分钟内只提示一次）"),
 	longReply: m(z.object({
-		asFile: m(bool, "超长回答只发开头，全文作为 .md 附件发送", { default: "false" }),
+		asFile: m(bool, "超长回答只发开头，全文作为 .md 附件发送。附件写在 `exports/reply-*.md`，每 6 小时回收一次：只留最近 200 份，24 小时内的不删", { default: "false" }),
 		thresholdChars: m(nonNegative, "超过多少字算超长", { default: "6000" }),
 		previewChars: m(nonNegative, "正文里保留的开头字数", { default: "1500" }),
 	}).partial(), "超长回答转文件（可选能力，默认关闭）"),

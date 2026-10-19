@@ -112,7 +112,7 @@
 
 | 字段 | 类型 | 默认 | 环境变量 | 改后 | 说明 |
 |---|---|---|---|---|---|
-| `longReply.asFile` | boolean | `false` |  | 重启 | 超长回答只发开头，全文作为 .md 附件发送 |
+| `longReply.asFile` | boolean | `false` |  | 重启 | 超长回答只发开头，全文作为 .md 附件发送。附件写在 `exports/reply-*.md`，每 6 小时回收一次：只留最近 200 份，24 小时内的不删 |
 | `longReply.thresholdChars` | number | `6000` |  | 重启 | 超过多少字算超长 |
 | `longReply.previewChars` | number | `1500` |  | 重启 | 正文里保留的开头字数 |
 

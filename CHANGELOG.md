@@ -46,6 +46,10 @@
 
 - 修复：开了 `rateLimit.perUserPerMinute` 后，被限流的人发 `/stop`、`/new` 也被静默丢弃，没法停下失控的任务。
   现在桥命令不计数也不拦；不是桥命令的 `/skill:xxx`、`!<命令>` 照常计数。
+- 修复：长回答导出附件（`exports/reply-*.md`）的回收挂在会话归档上，而归档默认关闭
+  （`retention.sessionDays: 0`），默认配置下附件照样只增不减。现在由产生它们的 `longReply.asFile`
+  自己回收（启动时一次，之后每 6 小时，只留最近 200 份），并且 24 小时内的文件不删 ——
+  它们可能还在发送队列里等重试。
 
 - 维护（公开仓库）：测试里原来直接用了真人姓名当 `senderName`，换成占位符「示例用户」。
   同时加了一条护栏测试 `tests/public-placeholders.test.ts`：扫源码/文档/测试里的

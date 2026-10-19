@@ -29,10 +29,14 @@ export function tightenSessionPermissions(dir: string): number {
  *
  * 这些文件是「回答太长，改成附件发」的副产物，内容在会话记录里也有；不清理的话
  * 每次长回答都会在运行时目录留一份，几个月就是几万个小文件。
+ *
+ * `minAgeMs` 内的文件即使超出份数也不删：附件经持久发送队列发出，发送失败会重试，
+ * 刚写下的文件可能还在等发 —— 删掉它，重试时就只剩一个找不到的路径。
  */
-export function pruneExports(input: { dir: string; keep: number }): number {
+export function pruneExports(input: { dir: string; keep: number; minAgeMs?: number; now?: number }): number {
 	if (!existsSync(input.dir)) return 0;
 	const keep = Math.max(1, input.keep);
+	const cutoff = (input.now ?? Date.now()) - (input.minAgeMs ?? 0);
 	let files: Array<{ name: string; mtime: number }> = [];
 	try {
 		files = readdirSync(input.dir)
@@ -44,6 +48,7 @@ export function pruneExports(input: { dir: string; keep: number }): number {
 	}
 	let removed = 0;
 	for (const file of files.slice(keep)) {
+		if (file.mtime > cutoff) continue;
 		try { unlinkSync(join(input.dir, file.name)); removed += 1; } catch { /* 单个文件失败不影响其余 */ }
 	}
 	return removed;

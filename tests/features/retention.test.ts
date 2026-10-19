@@ -2,7 +2,7 @@
  * 可选能力·会话归档（retention.sessionDays > 0）：开、关两种配置。
  */
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { resolvePaths } from "../../src/config.js";
@@ -36,18 +36,18 @@ test("会话归档·开：超过保留天数的会话归档为 .gz，并记录 f
 	assert.ok(logs.includes("feishu.retention"));
 });
 
-test("会话归档·开：启动时顺带清理长回答导出的附件", async () => {
+test("会话归档·开：不再管导出附件（由 longReply 自己回收），停止后不留定时器", async () => {
 	const { host, rt } = await featureHostFor([retentionFeature], { retention: { sessionDays: 30 } });
 	const exportsDir = resolvePaths(rt.homeDir).exportsDir;
 	mkdirSync(exportsDir, { recursive: true });
-	const base = Date.now() - 86_400_000;
-	for (let i = 0; i < 5; i += 1) {
+	const old = new Date(Date.now() - 10 * 86_400_000);
+	for (let i = 0; i < 205; i += 1) {
 		const file = join(exportsDir, `reply-${i}.md`);
 		writeFileSync(file, "内容");
-		utimesSync(file, new Date(base + i * 1_000), new Date(base + i * 1_000));
+		utimesSync(file, old, old);
 	}
 	await host.start();
-	assert.equal(existsSync(join(exportsDir, "reply-0.md")), true, "只有 5 份，远低于保留上限");
+	assert.equal(readdirSync(exportsDir).length, 205);
 	// 关掉后不再有定时器残留（unref + clearInterval）
 	await host.stop();
 });

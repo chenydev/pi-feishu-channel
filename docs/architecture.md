@@ -40,7 +40,7 @@ src/
 |---|---|---|
 | `commands` / `commandInterceptor` | 斜杠命令、`!<命令>` 这类先于命令解析的输入 | cron、directBash |
 | `cardOps` | 卡片按钮 | cardTool、accessRequest |
-| `start` / `stop` / `onHeartbeat` | 启动后、停止时、每次状态心跳 | cron、retention、alerts |
+| `start` / `stop` / `onHeartbeat` | 启动后、停止时、每次状态心跳 | cron、retention、longReply、alerts |
 | `onLifecycleEvent` / `onAdmissionDrop` | 平台事件；没有权限的人找机器人（未放行的群里 @、群名单外的人 @、未放行的人私聊） | docComments、meetingInvite、accessRequest |
 | `transcribe` / `replyAsFile` / `sendCard` / `readDoc` | 交给核心组件或子会话工具的实现 | stt、longReply、cardTool、docTools |
 | `statusLines` | `/feishu status` 追加的行 | cron |
