@@ -90,6 +90,7 @@ cat "$H/status.json"
 | `dm_policy_rejected` | 私聊未放行 | `allowUsers` |
 | `group_policy_rejected` | 群策略是 `disabled` / `admin_only` / `blacklist` | `groupPolicy` / `groupRules` |
 | `bot_not_mentioned` | 策略要求 @ 但没 @ | 消息里 @ 机器人，或改策略 |
+| `rate_limited` | 超过 `rateLimit.perUserPerMinute`（默认不限）；桥命令不受限 | 调大或设 0 |
 
 4. **执行了吗** → `feishu.session.created`、`feishu.conv.send_reply_start`；异常看 `feishu.conv.run_error`、`run_idle_timeout`（`phase: tool` 卡在工具，`model` 卡在等模型）、`model_retry`（pi 在自动重试）、`model_quiet`（等模型 1 分钟没输出）。任务还在跑时让用户发 `/progress` 看进度。
 5. **回复发出去了吗** → `feishu.outbox.delivered`；失败看 `feishu.outbox.failed` 的 `lastError`。

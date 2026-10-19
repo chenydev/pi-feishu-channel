@@ -134,6 +134,7 @@
 | `dm_policy_rejected` | 私聊未放行 | `allowUsers`（管理员始终放行） |
 | `group_policy_rejected` | 群策略拒绝（`disabled` / `admin_only` / `blacklist`） | `groupPolicy` / `groupRules` |
 | `bot_not_mentioned` | 群策略要求 @，但消息没有 @ 本机器人 | 在消息里 @，或修改群策略；想让「回复机器人的消息」免 @，开 `groupAlsoOnReply` |
+| `rate_limited` | 准入已放行，但这个人一分钟内的消息超过 `rateLimit.perUserPerMinute`（默认 0 = 不限）。直接丢弃、不回话；桥命令（`/stop`、`/new`、`/feishu …`）不计数也不拦 | `rateLimit.perUserPerMinute`；`/feishu dropstats` 看累计 |
 
 开了开通申请（`onboarding.accessRequest`）时，下面三种拒绝会给审批人发申请卡，审批结果直接写回 `config.json`：
 

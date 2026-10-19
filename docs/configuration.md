@@ -137,7 +137,7 @@
 
 | 字段 | 类型 | 默认 | 环境变量 | 改后 | 说明 |
 |---|---|---|---|---|---|
-| `rateLimit.perUserPerMinute` | number | `0` |  | 热加载 | 同一个人每分钟最多几条消息；0 = 不限（默认）。超出的消息直接丢弃，不回话（看 `/feishu dropstats` 的 `rate_limited`） |
+| `rateLimit.perUserPerMinute` | number | `0` |  | 热加载 | 同一个人每分钟最多几条消息；0 = 不限（默认）。超出的消息直接丢弃，不回话（看 `/feishu dropstats` 的 `rate_limited`）。桥命令（`/stop`、`/new`、`/feishu …`）不计数也不拦 |
 
 ## `metrics`：探活与指标端点（可选能力，默认关闭）
 

@@ -627,6 +627,22 @@ test("全链路：按人限流（rateLimit.perUserPerMinute），超出计 rate_
 	assert.ok(drop, "要有一条带 hint 的丢弃日志");
 	assert.match(JSON.stringify(drop?.meta), /perUserPerMinute/);
 
+	// 桥命令不受限流：刷屏被限后 /stop 仍然要能把任务停下来；不是桥命令的 / 开头照常计数
+	const commands: string[] = [];
+	const withCommands = new InboundPipeline({
+		config: cfg({ groupPolicy: "mention", batch: NO_BATCH, rateLimit: { perUserPerMinute: 1 } }),
+		transport: {} as FeishuTransport, lastSent: new LastSentCache(8),
+		onDispatch: async (m) => { dispatched.push(m); },
+		onCommand: async (m) => { if (m.text === "/stop") { commands.push(m.text); return true; } return false; },
+		isBridgeCommand: (text) => text === "/stop",
+	});
+	await withCommands.handle(fakeMsg({ messageId: "c1", text: "hi", mentions: [{ isSelf: true }] }));
+	await withCommands.handle(fakeMsg({ messageId: "c2", text: "hi again", mentions: [{ isSelf: true }] }));
+	await withCommands.handle(fakeMsg({ messageId: "c3", text: "/stop", mentions: [{ isSelf: true }] }));
+	await withCommands.handle(fakeMsg({ messageId: "c4", text: "/skill:deploy", mentions: [{ isSelf: true }] }));
+	assert.deepEqual(commands, ["/stop"], "被限流的人发 /stop 照样执行");
+	assert.equal(withCommands.getStats().dropsByReason.rate_limited, 2, "普通消息和非桥命令的 / 开头都计数");
+
 	// 默认（没配 rateLimit）不限
 	const unlimited = new InboundPipeline({
 		config: cfg({ groupPolicy: "mention", batch: NO_BATCH }),

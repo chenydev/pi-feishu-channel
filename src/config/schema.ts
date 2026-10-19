@@ -126,7 +126,7 @@ export const fileConfigSchema = z.object({
 		maxJobs: m(nonNegative, "最多多少个定时任务", { default: "20" }),
 	}).partial(), "定时任务（可选能力，默认关闭）"),
 	rateLimit: m(z.object({
-		perUserPerMinute: m(nonNegative, "同一个人每分钟最多几条消息；0 = 不限（默认）。超出的消息直接丢弃，不回话（看 `/feishu dropstats` 的 `rate_limited`）", { default: "0" }),
+		perUserPerMinute: m(nonNegative, "同一个人每分钟最多几条消息；0 = 不限（默认）。超出的消息直接丢弃，不回话（看 `/feishu dropstats` 的 `rate_limited`）。桥命令（`/stop`、`/new`、`/feishu …`）不计数也不拦", { default: "0" }),
 	}).partial(), "按人限流（默认关闭）"),
 	metrics: m(z.object({
 		enabled: m(bool, "开一个只读 HTTP 端点：`/healthz`（探活，503 = 断线或心跳停了）与 `/metrics`（Prometheus 文本格式）。端点没有鉴权，默认只绑 127.0.0.1", { default: "false" }),

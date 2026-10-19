@@ -10,6 +10,7 @@ import { AlwaysApprovedStore } from "../approval/always-approved-store.js";
 import { buildApprovalCard } from "../approval/cards.js";
 import type { ToolGateResult } from "../approval/gate.js";
 import { PermissionBridge, redactParams } from "../approval/permission-bridge.js";
+import { resolveCommand } from "../commands/registry.js";
 import { loadJsonFile, saveConfigFields, resolvePaths } from "../config.js";
 import type { FeatureHost } from "../features/feature.js";
 import { LastSentCache, effectiveAdmins } from "../inbound/admit.js";
@@ -425,6 +426,7 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 		intake: rt.convManager?.intakeLedger(),
 		onDispatch: async (msg) => { await rt.convManager!.route(msg); },
 		onCommand: ctx.dispatchCommand,
+		isBridgeCommand: (text) => resolveCommand(text) !== undefined,
 		onDrop: (msg, reason, mentioned) => { void ctx.onAdmissionDrop(msg, reason, mentioned); },
 		log: (level, m, meta) => log[level](m, meta),
 	});

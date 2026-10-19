@@ -51,6 +51,11 @@ export interface PipelineDeps {
 	onDispatch: (msg: FeishuInboundMessage) => Promise<void>;
 	/** 返回 true 表示命令已消费，不再进入 batch/Agent。 */
 	onCommand?: (msg: FeishuInboundMessage) => Promise<boolean>;
+	/**
+	 * 这条文本是不是桥命令（`/stop`、`/new`、`/feishu …`）。桥命令不受按人限流：
+	 * 用户刷屏被限流后，正需要 `/stop` 把失控的任务停下来。由装配层注入（入站层不依赖命令表）。
+	 */
+	isBridgeCommand?: (text: string) => boolean;
 	log?: (level: "debug" | "info" | "warn" | "error", msg: string, meta?: unknown) => void;
 	dedupeStore?: DedupeStore;
 	/** 持久待处理记录（可选；不设时退化为纯内存批处理）。 */
@@ -327,11 +332,12 @@ export class InboundPipeline {
 			return undefined;
 		}
 
-		// 3.5 按人限流（默认关闭）：已放行的人刷屏时，后面的直接丢
+		// 3.5 按人限流（默认关闭）：已放行的人刷屏时，后面的直接丢。桥命令不计数也不拦（/stop 要能用）；
+		// 不是桥命令的 `/skill:xxx`、`!<命令>` 照常计数 —— 它们都会实际干活。
 		const limit = this.deps.config.rateLimit?.perUserPerMinute ?? 0;
 		// 每 100 条顺手清一次过期窗口（长驻进程里 sender 数会慢慢变多）
 		if (this.stats.total % 100 === 0) this.limiter.prune();
-		if (limit > 0) {
+		if (limit > 0 && !this.deps.isBridgeCommand?.(msg.text)) {
 			const decision = this.limiter.allow(msg.senderId);
 			if (!decision.ok) {
 				this.countDrop("rate_limited");
