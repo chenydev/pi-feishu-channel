@@ -223,6 +223,57 @@ test("审批合并：重绘卡片失败时撤销合并，两个请求各弹一�
 	assert.equal(bridge.pendingCount(), 0);
 });
 
+test("审批合并：并发合并串行重绘，前一次重绘失败还原 token 时不覆盖后一次画出的卡", async () => {
+	const asked: string[] = [];
+	const pendings: PendingApproval[] = [];
+	const refreshes: Array<{ token: string; settle: (drawn: boolean) => void }> = [];
+	const bridge = new PermissionBridge({
+		getConfig: () => ({ autoApprove: [], timeoutMs: 60_000 }),
+		onAsk: async (pending) => { asked.push(pending.toolCallId); pendings.push(pending); return `card-${pending.toolCallId}`; },
+		onCardRefresh: (pending) => new Promise<boolean>((resolve) => { refreshes.push({ token: pending.token, settle: resolve }); }),
+	});
+	const run = (toolCallId: string) => ({ ...input(toolCallId), runId: "run-1" });
+	await bridge.gate(run("a"));
+	const leader = pendings[0]!;
+	const b = bridge.gate(run("b"));
+	const c = bridge.gate(run("c"));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(refreshes.length, 1, "第二次合并要等第一次重绘结束");
+	refreshes[0]!.settle(false); // b 的重绘失败 → 撤销合并、b 自己弹卡
+	await b;
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(refreshes.length, 2);
+	refreshes[1]!.settle(true); // c 的重绘成功：屏幕上是带着这个 token 的卡
+	const merged = await c;
+	assert.equal(leader.token, refreshes[1]!.token, "主卡 token 必须是屏幕上那张卡的");
+	assert.deepEqual(asked, ["a", "b"]);
+	assert.equal(bridge.decide({ id: leader.id, token: leader.token, messageId: "card-a", chatId: "oc", operatorOpenId: "admin", choice: "once" }).ok, true);
+	assert.equal(await merged.verdict, "approved");
+});
+
+test("审批合并：重绘期间主卡已被决定，跟随者随它落定，不再另弹一张卡", async () => {
+	const asked: string[] = [];
+	const pendings: PendingApproval[] = [];
+	let settleRefresh: (drawn: boolean) => void = () => {};
+	const bridge = new PermissionBridge({
+		getConfig: () => ({ autoApprove: [], timeoutMs: 60_000 }),
+		onAsk: async (pending) => { asked.push(pending.toolCallId); pendings.push(pending); return `card-${pending.toolCallId}`; },
+		onCardRefresh: () => new Promise<boolean>((resolve) => { settleRefresh = resolve; }),
+	});
+	const run = (toolCallId: string) => ({ ...input(toolCallId), runId: "run-1" });
+	await bridge.gate(run("a"));
+	const leader = pendings[0]!;
+	const b = bridge.gate(run("b"));
+	await new Promise((resolve) => setImmediate(resolve));
+	// 新卡其实已经到了用户手里（只是编辑接口的返回还没回来），用户点了批准
+	assert.equal(bridge.decide({ id: leader.id, token: leader.token, messageId: "card-a", chatId: "oc", operatorOpenId: "admin", choice: "once" }).ok, true);
+	settleRefresh(false);
+	const gated = await b;
+	assert.deepEqual(asked, ["a"], "已经决定了的请求不能再要一次审批");
+	assert.equal(await gated.verdict, "approved");
+	assert.equal(bridge.pendingCount(), 0);
+});
+
 test("审批合并与提醒：主卡失效时跟随者一并拒绝；不同 run 不合并", async () => {
 	const asked: string[] = [];
 	const bridge = new PermissionBridge({

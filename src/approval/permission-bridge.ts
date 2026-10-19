@@ -139,6 +139,8 @@ export function classifyToolCall(toolName: string, autoApprove: string[], sessio
 export class PermissionBridge {
 	private pending = new Map<string, PendingApproval>();
 	private sessionAllow = new Map<string, Set<string>>();
+	/** 每张主卡上正在进行的「合并 + 重绘」（按主卡 id 串行，见 `mergeInto`）。 */
+	private refreshChains = new Map<string, Promise<void>>();
 	private readonly now: () => number;
 
 	constructor(private deps: PermissionBridgeDeps) {
@@ -157,10 +159,37 @@ export class PermissionBridge {
 		const leader = input.runId ? [...this.pending.values()].find((item) => !item.leaderId && !item.external
 			&& item.conversationKey === input.conversationKey && item.runId === input.runId && item.toolName === input.toolName) : undefined;
 		if (leader) {
+			const merged = await this.mergeInto(leader, input);
+			if (merged) return { decision, verdict: merged.verdict };
+			// 合并不成（主卡已经决定 / 重绘失败）：自己独立一张卡（宁可多一张卡）
+		}
+		const pending = this.enqueue(input, config.timeoutMs);
+		await this.announce(pending);
+		return { decision, verdict: pending.verdict };
+	}
+
+	/**
+	 * 把请求并到主卡上并重绘。返回跟随者的 verdict（包一层：async 函数直接返回 Promise 会被展开成「等到审批结束」）；
+	 * 合并不成时返回 undefined，调用方另弹一张卡。
+	 *
+	 * 同一张主卡上的合并**串行**进行：每次合并都要换 token、await 重绘，重绘失败时把 token 还原。
+	 * 并发时 A 换成 T1、B 换成 T2，A 的重绘失败后把 token 还原成 T0 —— 屏幕上却是 B 画出的 T2 卡，
+	 * 又成了一张点不动的卡。串行之后「还原成的 token」一定是屏幕上那张卡的。
+	 */
+	private async mergeInto(leader: PendingApproval, input: PendingApprovalInput): Promise<{ verdict: Promise<ApprovalVerdict> } | undefined> {
+		const previous = this.refreshChains.get(leader.id) ?? Promise.resolve();
+		let release: () => void = () => {};
+		const chain = previous.then(() => new Promise<void>((resolve) => { release = resolve; }));
+		this.refreshChains.set(leader.id, chain);
+		try {
+			await previous;
+			// 排队期间主卡已经被批准 / 拒绝 / 超时：不能再并进一张已经决定了的卡
+			if (!this.pending.has(leader.id)) return undefined;
 			const previousToken = leader.token;
 			const follower = this.enqueue(input, Math.max(1_000, leader.expiresAt - this.now()), { leader });
 			// 换 token：旧卡面上没列出这个新请求，点旧卡不能把它一起批了（只认重绘后的卡）
-			leader.token = randomUUID();
+			const token = randomUUID();
+			leader.token = token;
 			let drawn: boolean | void = undefined;
 			try {
 				drawn = await this.deps.onCardRefresh?.(leader);
@@ -172,20 +201,20 @@ export class PermissionBridge {
 				});
 				drawn = false;
 			}
+			// 重绘期间主卡已经决定：跟随者已随它一并落定（decide / consume 都会带上 followers），
+			// 不能再撤销合并另弹一张卡 —— 那是给一个已经决定了的请求再要一次审批。
+			if (!this.pending.has(leader.id)) return { verdict: follower.verdict };
 			if (drawn === false) {
-				// 新卡画不出来：别留一张带着新 token、屏幕上却没有它的卡。
-				// 撤销合并 —— 主卡 token 还原，跟随者改成自己独立的一张卡（宁可多一张卡）。
-				leader.token = previousToken;
+				// 新卡画不出来：别留一张带着新 token、屏幕上却没有它的卡。撤销合并，主卡 token 还原。
+				if (leader.token === token) leader.token = previousToken;
 				this.detachFollower(leader, follower);
-				const standalone = this.enqueue(input, config.timeoutMs);
-				await this.announce(standalone);
-				return { decision, verdict: standalone.verdict };
+				return undefined;
 			}
-			return { decision, verdict: follower.verdict };
+			return { verdict: follower.verdict };
+		} finally {
+			release();
+			if (this.refreshChains.get(leader.id) === chain) this.refreshChains.delete(leader.id);
 		}
-		const pending = this.enqueue(input, config.timeoutMs);
-		await this.announce(pending);
-		return { decision, verdict: pending.verdict };
 	}
 
 	/**
