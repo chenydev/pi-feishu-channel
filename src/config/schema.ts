@@ -154,7 +154,7 @@ export const fileConfigSchema = z.object({
 	}).partial(), "回复反馈"),
 	clarify: m(z.object({
 		ttlMs: m(nonNegative, "`feishu_ask` 提问卡片的有效期（毫秒；0 = 不设上限）。同一会话发出新提问或 /new 时旧卡也会失效", { default: "86400000" }),
-		waitMs: m(nonNegative, "`feishu_ask` 发出卡片后等用户作答多久（毫秒；0 = 不等，纯异步）。等到就作为工具结果返回，模型在同一轮继续；超时按 onTimeout 处理", { default: "60000" }),
+		waitMs: m(nonNegative, "`feishu_ask` 发出卡片后等用户作答多久（毫秒；0 = 不等，纯异步）。等到就作为工具结果返回，模型在同一轮继续；超时只告诉模型「还没答」，卡片保持可点。模型可用 `waitSeconds` 按次覆盖（最多 10 分钟，本字段更大时以本字段为准）；都会短于 `runToolIdleTimeoutMs`", { default: "60000" }),
 		panels: m(bool, "把每道题收进可折叠面板（飞书客户端 ≥ 7.9；低版本会显示「升级客户端」占位，此时改成 `false` 用平铺布局）", { default: "true" }),
 	}).partial(), "澄清提问（feishu_ask）"),
 	cardTool: m(z.object({

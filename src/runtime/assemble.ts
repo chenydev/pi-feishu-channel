@@ -18,7 +18,7 @@ import { deliverDocCommentReply } from "../inbound/doc-comments.js";
 import { InboundPipeline } from "../inbound/pipeline.js";
 import { ResourceResolver } from "../inbound/resource-resolver.js";
 import type { LarkSdkLike, TransportDeps } from "../inbound/transport.js";
-import { ClarificationStore, buildClarificationCard, clarificationAnswersText, clarificationTextFallback, isAtomicClarificationCard, skippedCardFor, type ClarificationRecord } from "../interaction/clarification-store.js";
+import { ClarificationStore, buildClarificationCard, resolveClarifyWaitMs, clarificationAnswersText, clarificationTextFallback, isAtomicClarificationCard, skippedCardFor, type ClarificationRecord } from "../interaction/clarification-store.js";
 import { queueLocalFile } from "../outbound/local-file-tool.js";
 import { Outbox } from "../outbound/outbox.js";
 import { Sender } from "../outbound/sender.js";
@@ -320,11 +320,12 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 					});
 					if (rt.clarificationStore.attachCard(record.id, messageId)) {
 						log.info("feishu.clarify.asked", { conversationKey: record.conversationKey, clarificationId: record.id, options: record.options.length });
-						// 有界等待：等到就当作工具结果返回（同一轮继续）；超时按 onTimeout 处理。
+						// 有界等待：等到就当作工具结果返回（同一轮继续）；超时只报告「还没答」。
 						// 默认 60 秒：多数人几十秒内会点，再长就不是「等着」而是「挂起」了。
-						const waitMs = Math.max(0, input.waitSeconds !== undefined
-							? Math.round(input.waitSeconds * 1000)
-							: (rt.config.clarify?.waitMs ?? 60_000));
+						const { waitMs, clamped } = resolveClarifyWaitMs({
+							waitSeconds: input.waitSeconds, configWaitMs: rt.config.clarify?.waitMs, toolIdleTimeoutMs: rt.config.runToolIdleTimeoutMs,
+						});
+						if (clamped) log.info("feishu.clarify.wait_clamped", { clarificationId: record.id, requestedSeconds: input.waitSeconds ?? null, waitMs });
 						if (waitMs === 0) return { status: "card" as const };
 						const outcome = await rt.clarificationStore.waitForAnswer(record.id, waitMs, input.signal);
 						if (outcome.kind === "answered") {

@@ -120,6 +120,37 @@ export interface ClarificationStoreDeps {
 }
 
 export const DEFAULT_CLARIFY_TTL_MS = 24 * 3_600_000;
+/** `feishu_ask` 默认等多久（`clarify.waitMs` 没配时）。 */
+export const DEFAULT_CLARIFY_WAIT_MS = 60_000;
+/** 模型按次指定 `waitSeconds` 的上限（配置的 `clarify.waitMs` 更大时以配置为准）。 */
+export const MAX_CLARIFY_WAIT_MS = 10 * 60_000;
+
+/**
+ * 这次 `feishu_ask` 实际等多久。
+ *
+ * - 模型给的 `waitSeconds` 要封顶：它是模型随手填的参数，填个 86400 就能让这一轮挂一整天，
+ *   会话队列跟着堵住，只能 `/stop`。上限取 `MAX_CLARIFY_WAIT_MS` 与配置值中较大的那个 ——
+ *   管理员明确配了更长的等待，模型可以用到那么长。
+ * - 无论来源，都要短于工具空闲超时（留 5 秒余量）：等待期间工具没有输出，超过它整轮会被中止，
+ *   用户看到的是「工具已 N 分钟没有输出」而不是「还没作答」。
+ */
+export function resolveClarifyWaitMs(input: { waitSeconds?: number; configWaitMs?: number; toolIdleTimeoutMs?: number }): { waitMs: number; clamped: boolean } {
+	const configured = Math.max(0, input.configWaitMs ?? DEFAULT_CLARIFY_WAIT_MS);
+	let waitMs = configured;
+	let clamped = false;
+	if (input.waitSeconds !== undefined) {
+		const requested = Math.max(0, Math.round(input.waitSeconds * 1000));
+		const cap = Math.max(MAX_CLARIFY_WAIT_MS, configured);
+		waitMs = Math.min(requested, cap);
+		clamped = requested > cap;
+	}
+	const idle = input.toolIdleTimeoutMs ?? 0;
+	if (idle > 0 && waitMs > idle - 5_000) {
+		waitMs = Math.max(0, idle - 5_000);
+		clamped = true;
+	}
+	return { waitMs, clamped };
+}
 const MAX_OPTIONS = 4;
 const STORE_VERSION = 1;
 

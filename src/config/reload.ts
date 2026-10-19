@@ -88,7 +88,7 @@ export const RELOAD_RULES: { [K in keyof FileConfig]-?: Rule<FileConfig[K]> } = 
 	},
 	feedback: "live",
 	// 提问存储构造时取有效期
-	// waitMs / onTimeout 每次调用现读，改完 reload 即生效（ttlMs、panels 仍要重启：它们进了会话记录）
+	// waitMs 每次调用现读，改完 reload 即生效（ttlMs、panels 仍要重启：它们进了会话记录）
 	clarify: "live",
 	cardTool: "restart",
 	stt: "restart",

@@ -280,7 +280,7 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 					multiSelect: { type: "boolean", description: "单题时允许多选（会变成「勾选 + 提交」的卡片）" },
 					allowOther: { type: "boolean", description: "单题时也让用户自己填一段（会变成「勾选 + 自填 + 提交」的卡片，适合还想让用户补一句的情况）" },
 					radio: { type: "boolean", description: "单题单选时改用「勾选式单选」：选项是复选框，勾一个即作答（长选项换行比按钮好看，更像表单）" },
-					waitSeconds: { type: "number", description: "等用户作答多少秒（默认取桥配置 clarify.waitMs，通常 60；0 = 发完就返回不等）。等到答案会作为本次工具结果直接给你，可以在同一轮继续" },
+					waitSeconds: { type: "number", description: "等用户作答多少秒（默认取桥配置 clarify.waitMs，通常 60；0 = 发完就返回不等；最多 600，超出按 600）。等到答案会作为本次工具结果直接给你，可以在同一轮继续" },
 					recommended: { type: "array", items: { type: "number" }, description: "单题时推荐哪几个选项（从 0 开始的下标）" },
 					reason: { type: "string", description: "单题时为什么推荐（显示在题目下面）" },
 					questions: {
@@ -349,7 +349,7 @@ export function createBridgeInlineExtension(ctx: BridgeHookContext): InlineBridg
 						content: [{ type: "text", text: `${result.late ? "用户补充作答（之前超时了）：" : "用户已作答："}\n${result.text}\n\n按这个答案继续。` }],
 					} as ExtensionToolResult;
 				}
-				// 超时（onTimeout=wait）：不替用户做选择，也不许假装问过了
+				// 超时：不替用户做选择，也不许假装问过了
 				if (result.status === "pending") {
 					return {
 						content: [{ type: "text", text: `用户还没作答（已等 ${Math.round(result.waitedMs / 1000)} 秒）。提问卡片仍然有效，用户之后点选会以「[选择] …」的新消息发来。现在不要重复提问，也不要假设答案：可以先说明你打算怎么继续（例如等用户回答后再做），把依赖这个答案的部分留到下一轮。` }],

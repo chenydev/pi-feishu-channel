@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ClarificationStore, buildClarificationCard, isAtomicClarificationCard, skippedCardFor } from "../src/interaction/clarification-store.js";
+import { ClarificationStore, MAX_CLARIFY_WAIT_MS, buildClarificationCard, isAtomicClarificationCard, resolveClarifyWaitMs, skippedCardFor } from "../src/interaction/clarification-store.js";
 
 function makeStore() {
 	let now = 1_000_000;
@@ -182,4 +182,15 @@ test("超时重绘只动原子卡（表单卡不重绘，免得清掉用户没�
 	const withNote = JSON.stringify(buildClarificationCard(button, { note: "⏳ 等待已结束" }));
 	assert.match(withNote, /等待已结束/);
 	assert.match(withNote, /"op":"clarify"/, "注记不影响可点");
+});
+
+test("等待时长：模型给的 waitSeconds 封顶、配置更大时以配置为准、总要短于工具空闲超时", () => {
+	assert.deepEqual(resolveClarifyWaitMs({}), { waitMs: 60_000, clamped: false }, "默认 60 秒");
+	assert.deepEqual(resolveClarifyWaitMs({ configWaitMs: 0 }), { waitMs: 0, clamped: false }, "配成 0 = 纯异步");
+	assert.deepEqual(resolveClarifyWaitMs({ waitSeconds: 5 }), { waitMs: 5_000, clamped: false });
+	assert.deepEqual(resolveClarifyWaitMs({ waitSeconds: -3 }), { waitMs: 0, clamped: false });
+	assert.deepEqual(resolveClarifyWaitMs({ waitSeconds: 86_400 }), { waitMs: MAX_CLARIFY_WAIT_MS, clamped: true }, "模型填一天也只等 10 分钟");
+	assert.deepEqual(resolveClarifyWaitMs({ waitSeconds: 86_400, configWaitMs: 30 * 60_000 }), { waitMs: 30 * 60_000, clamped: true }, "管理员配了更长，就能用到那么长");
+	assert.deepEqual(resolveClarifyWaitMs({ waitSeconds: 300, toolIdleTimeoutMs: 120_000 }), { waitMs: 115_000, clamped: true }, "不能让工具空闲超时先把整轮中止");
+	assert.deepEqual(resolveClarifyWaitMs({ configWaitMs: 600_000, toolIdleTimeoutMs: 0 }), { waitMs: 600_000, clamped: false }, "空闲超时 0 = 不限制");
 });
