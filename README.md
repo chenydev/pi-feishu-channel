@@ -65,6 +65,8 @@
 | `/feishu budget [<美元>\|off]` | 本群每日费用上限（管理员；超限后拒绝新任务） |
 | `/feishu prompt [show\|set <内容>\|clear]` | 本群提示词；私聊里设置的是个人提示词 |
 | `/feishu policy` `/feishu footer [on\|off\|reset] [-g]` `/feishu always [revoke <规则名>]` | 群策略、页脚开关、「始终批准」规则（管理员） |
+| `/feishu dropstats` | 准入丢弃按原因计数，附带放行提示 —— 回答「为什么有的消息没被处理」（管理员） |
+| `/feishu outbox [list\|retry <id\|all>]` | 查看发送失败的条目及原因，按 id 前缀或全部重投（管理员） |
 | `/feishu config reload` | 改完 `config.json` 后重新读取，能热加载的字段立即生效，要重启的列出来（管理员） |
 
 ### 触发与准入
@@ -192,6 +194,8 @@ peer：`@earendil-works/pi-coding-agent`（`pi install` 的 `npm install` 会一
 | 云文档读取工具 `feishu_doc_read` | `docTools.enabled` |
 | 流式卡片展示处理过程 | `streamingCard.enabled` |
 | 群里回复机器人的消息时不用再 @ | `groupAlsoOnReply` |
+| 按人限流：同一个人每分钟超过上限的消息直接丢弃（桥命令不受限） | `rateLimit.perUserPerMinute` |
+| 探活与指标：只读 HTTP 端点 `/healthz`（503 = 断线或心跳停了）与 `/metrics`（Prometheus），无鉴权、默认只绑 127.0.0.1 | `metrics.enabled` |
 
 当前打开了哪些，看启动日志 `feishu.bridge.features`、`status.json` 的 `features` 字段或 `/feishu doctor`。变更记录见 `CHANGELOG.md`。
 

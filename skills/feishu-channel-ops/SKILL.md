@@ -50,7 +50,8 @@ open_id 是**按应用生成**的：换了飞书应用，`admins`、`allowUsers`
 
 ### 可选能力默认关闭
 
-`approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest`、`groupAlsoOnReply`（回复机器人免 @）、`usage.provider: "deepseek"`（查余额、页脚折算人民币）都需要显式开启。
+`approval.mode`（工具审批）、`streamingCard`、`cron`、`alerts`、`directBash`、`longReply`、`docComments`、`docTools`、`cardTool`、`meetingInvite`、`stt`、`onboarding.accessRequest`、`groupAlsoOnReply`（回复机器人免 @）、`usage.provider: "deepseek"`（查余额、页脚折算人民币）、
+`rateLimit.perUserPerMinute`（按人限流，桥命令不受限）、`metrics.enabled`（`/healthz` + `/metrics`，无鉴权，默认只绑 127.0.0.1，容器里要外部探针才设 `metrics.host: "0.0.0.0"`）都需要显式开启。
 
 开通申请（`onboarding.accessRequest`）：未放行的群里 @、群名单外的人 @、未放行的人私聊，都给审批人（`onboarding.accessApprovers`）发申请卡；
 审批人可选放行此群 / 加入本群名单 / 全局放行此人（写 `allowUsersAllGroups`，只放开群）/ 放行私聊，结果直接写回 `config.json`。
@@ -74,6 +75,8 @@ cat "$H/status.json"
 - **先看 mtime**：进程每 30 秒刷新一次，**mtime 距今超过 90 秒 = 进程已停**，这时文件里的 `connState: "connected"` 是过期数据。
 - 再看：`connState`、`reconnectsLast5m`（持续偏高 = 抖动）、`sessionQueues.waiting`（持续 > 0 = 并发不够）、`pendingApprovals`、`outbox.failed` / `oldestAgeMs`、`messageDropped`。
 - 配置和权限问题：在飞书里发 `/feishu doctor`，每项给出 `ok` 或具体问题（pi-permission-system 模式下看 `ps_link`）。
+- 消息没被处理：管理员发 `/feishu dropstats`（按丢弃原因计数）；回复没发出去：`/feishu outbox list` 看失败原因，`/feishu outbox retry <id|all>` 重投。
+- 开了 `metrics.enabled` 时：`curl -s 127.0.0.1:8787/healthz`（200 正常，503 = 断线或心跳停了），`/metrics` 给 Prometheus。
 
 ## 3. 排障：消息没反应
 

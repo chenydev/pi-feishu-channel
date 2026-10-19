@@ -58,6 +58,11 @@
 - 一轮收尾清空 pi 队列时，别的扩展排的 followUp（只在一轮异常结束时会残留）会被一并清掉。
   行为不变（不清的话它会混进下一条飞书消息那一轮执行），但现在记 `feishu.conv.followup_dropped`，不再无声消失。
 
+### 文档
+
+- `rateLimit`、`metrics`（`/healthz` + `/metrics`）、`/feishu dropstats`、`/feishu outbox list|retry` 补进 README
+  （可选能力、命令列表）、运维 skill 和 `config.example.json`；docs/operations.md §1 补上探活端点。
+
 - 维护（公开仓库）：测试里原来直接用了真人姓名当 `senderName`，换成占位符「示例用户」。
   同时加了一条护栏测试 `tests/public-placeholders.test.ts`：扫源码/文档/测试里的
   `ou_`/`oc_`/`cli_` 长十六进制串（真实 id 的形态），发现就失败 —— 它只拦形态、不维护白名单，

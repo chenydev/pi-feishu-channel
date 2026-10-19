@@ -114,6 +114,14 @@
   "alerts": {
     "enabled": false
   },
+  "rateLimit": {
+    "perUserPerMinute": 0
+  },
+  "metrics": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8787
+  },
   "onboarding": {
     "welcome": true,
     "notifyAdmins": true,

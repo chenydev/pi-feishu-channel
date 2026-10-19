@@ -14,6 +14,7 @@
 | `/feishu doctor` | 配置和权限有没有问题？ | 在飞书里发送（pi 里的 `/feishu:status` 只显示连接与队列概况） |
 | `/feishu dropstats` | 为什么有的消息没被处理？ | 管理员；按拒绝原因计数，附带放行提示 |
 | `/feishu outbox list` / `retry <id\|all>` | 有回复没发出去？ | 管理员；列出死信与原因，按 id 前缀重投 |
+| `/healthz`、`/metrics`（`metrics.enabled`，默认关） | 给外部探针和监控：活着吗？连上了吗？丢了多少消息？ | `curl 127.0.0.1:8787/healthz`（503 = 断线或心跳停了）；`/metrics` 是 Prometheus 文本格式。无鉴权，默认只绑 127.0.0.1 |
 | 结构化日志 | 某一条消息走到了哪一步？ | 所有日志以 `[feishu-channel]` 开头，事件名形如 `feishu.<模块>.<事件>` |
 
 ### 1.1 status.json
