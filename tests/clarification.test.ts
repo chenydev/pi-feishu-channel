@@ -196,6 +196,27 @@ test("澄清卡片按钮：能在这里 @ 机器人的人就能作答；点击�
 	assert.match(String(press("ou_user").toast?.content), /已过期/, "答过一次就失效");
 });
 
+test("超时之后才点卡：答案带「补充作答」标记（模型据此纠正，而不是当新指令重做）", async () => {
+	const { BridgeRuntime } = await import("../src/runtime/bridge-runtime.js");
+	const { DEFAULT_CONFIG } = await import("../src/types.js");
+	const { clarifyCardOps } = await import("../src/interaction/card-ops.js");
+	const rt = new BridgeRuntime();
+	rt.config = { ...DEFAULT_CONFIG, allowChats: ["oc_chat"] };
+	rt.clarificationStore = new ClarificationStore();
+	const routed: string[] = [];
+	rt.convManager = { route: async (msg: { text: string }) => { routed.push(msg.text); return "queued"; } } as never;
+	const op = clarifyCardOps({ rt, log: { info() {}, warn() {}, error() {} }, admins: () => [], runCommand: async () => undefined }).clarify as (action: unknown, value: Record<string, unknown>) => { toast?: { type: string; content: string } };
+	const record = rt.clarificationStore.create(request());
+	rt.clarificationStore.attachCard(record.id, "om_card");
+
+	// 等一次、超时（记录保留 + 打上超时痕迹）
+	await rt.clarificationStore.waitForAnswer(record.id, 10);
+	op({ messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_user" }, { op: "clarify", clarificationId: record.id, token: record.token, choice: "方案B" });
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.match(routed[0] ?? "", /^（补充作答：之前等作答超时了，当时没有按任何选项继续）/, "要标明这是补充作答");
+	assert.match(routed[0] ?? "", /\[选择\] 方案B/);
+});
+
 test("澄清提问：过期记录在新建提问时清掉（没人点的提问不会一直留在内存里）", () => {
 	let now = 1_000;
 	const { store, audits } = makeStore({ ttlMs: 1_000, now: () => now });

@@ -151,7 +151,7 @@ export function clarifyCardOps({ rt, log }: CardOpsContext): CardOps {
 				return { toast: { type: "warning", content: decided?.reason ?? "这个提问已过期，直接回复文字即可" } };
 			}
 			const record = decided.record;
-			const text = clarificationAnswersText(decided.answers);
+			const text = withLateNote(record, clarificationAnswersText(decided.answers));
 			void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, text, action.token), { conversationKey: record.conversationKey }))
 				.then((result) => log.info("feishu.clarify.answered", { conversationKey: record.conversationKey, clarificationId: record.id, operator: action.operatorOpenId, result: result ?? "unavailable" }))
 				.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
@@ -171,7 +171,7 @@ export function clarifyCardOps({ rt, log }: CardOpsContext): CardOps {
 			if (!decided?.ok || !decided.record) return { toast: { type: "warning", content: decided?.reason ?? "这个提问已过期，直接回复文字即可" } };
 			const record = decided.record;
 			// 后台进入会话：首次可能要建会话（几秒），不占卡片回调的 3 秒时限
-			void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, clarificationAnswerText(record.question, choice), action.token), { conversationKey: record.conversationKey }))
+			void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, withLateNote(record, clarificationAnswerText(record.question, choice)), action.token), { conversationKey: record.conversationKey }))
 				.then((result) => log.info("feishu.clarify.answered", { conversationKey: record.conversationKey, clarificationId: record.id, operator: action.operatorOpenId, result: result ?? "unavailable" }))
 				.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
 			return {
@@ -200,6 +200,18 @@ function answerMessage(record: ClarificationRecord, cardMessageId: string, opera
 		senderId: operatorOpenId, isBot: false, msgType: "text", text,
 		mentions: [], resources: [], raw: undefined, ts: Date.now(),
 	};
+}
+
+/**
+ * 超时之后才点卡作答：这条答案要标明是「补充」的。
+ *
+ * 不标的话，模型会把 `[选择] X` 当成一条新指令——而它当时已经按「没等到答案」收尾了，
+ * 可能已经用默认方式做了一半。标注之后模型知道该纠正还是接着做。
+ */
+function withLateNote(record: ClarificationRecord, text: string): string {
+	return record.timedOutAt
+		? `（补充作答：之前等作答超时了，当时没有按任何选项继续）\n${text}`
+		: text;
 }
 
 /** 审批卡：token 与操作者由 PermissionBridge 校验。 */
