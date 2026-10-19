@@ -188,7 +188,7 @@ export class ClarificationStore {
 	 */
 	decide(input: {
 		id: string; token: string; messageId: string; chatId: string; operatorOpenId: string; choice: string;
-	}, authorize: (record: ClarificationRecord) => string | undefined = () => undefined): { ok: boolean; reason: string; record?: ClarificationRecord } {
+	}, authorize: (record: ClarificationRecord) => string | undefined = () => undefined): { ok: boolean; reason: string; record?: ClarificationRecord; waiterActive?: boolean } {
 		const record = this.records.get(input.id);
 		if (!record) return { ok: false, reason: "这个提问已过期，直接回复文字即可" };
 		if (this.now() > record.expiresAt) {
@@ -202,13 +202,13 @@ export class ClarificationStore {
 		const refused = authorize(record);
 		if (refused) return { ok: false, reason: refused };
 		this.records.delete(record.id);
-		this.settle(record.id, { kind: "answered", record, answers: [{ question: record.question, choices: [input.choice] }] });
+		const waiterActive = this.settle(record.id, { kind: "answered", record, answers: [{ question: record.question, choices: [input.choice] }] });
 		this.persist();
 		this.deps.onAudit?.({
 			clarificationId: record.id, conversationKey: record.conversationKey, question: record.question,
 			decision: "answered", choice: input.choice, operatorOpenId: input.operatorOpenId,
 		});
-		return { ok: true, reason: `已选择：${input.choice}`, record };
+		return { ok: true, reason: `已选择：${input.choice}`, record, waiterActive };
 	}
 
 	/** 按卡片消息找记录（表单提交的回调里不一定带得回 value）。 */
@@ -234,7 +234,7 @@ export class ClarificationStore {
 		messageId: string; chatId: string; operatorOpenId: string; values: Record<string, unknown>;
 		id?: string; token?: string;
 	}, authorize: (record: ClarificationRecord) => string | undefined = () => undefined): {
-		ok: boolean; reason: string; record?: ClarificationRecord; answers?: ClarificationAnswer[];
+		ok: boolean; reason: string; record?: ClarificationRecord; answers?: ClarificationAnswer[]; waiterActive?: boolean;
 	} {
 		const record = input.id ? this.records.get(input.id) : this.findByMessage(input.messageId);
 		if (!record) return { ok: false, reason: "这个提问已过期，直接回复文字即可" };
@@ -262,14 +262,14 @@ export class ClarificationStore {
 			answers.push({ question: question.question, choices: picked, ...(other ? { other } : {}) });
 		}
 		this.records.delete(record.id);
-		this.settle(record.id, { kind: "answered", record, answers });
+		const waiterActive = this.settle(record.id, { kind: "answered", record, answers });
 		this.persist();
 		this.deps.onAudit?.({
 			clarificationId: record.id, conversationKey: record.conversationKey, question: record.question,
 			decision: "answered", choice: answers.map((answer) => [...answer.choices, ...(answer.other ? [answer.other] : [])].join("、")).join("；"),
 			operatorOpenId: input.operatorOpenId,
 		});
-		return { ok: true, reason: "已提交", record, answers };
+		return { ok: true, reason: "已提交", record, answers, waiterActive };
 	}
 
 	/** 会话重置（/new、切工作区）→ 该会话的提问全部失效。 */

@@ -151,10 +151,7 @@ export function clarifyCardOps({ rt, log }: CardOpsContext): CardOps {
 				return { toast: { type: "warning", content: decided?.reason ?? "这个提问已过期，直接回复文字即可" } };
 			}
 			const record = decided.record;
-			const text = lateAnswerNote(record, clarificationAnswersText(decided.answers));
-			void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, text, action.token), { conversationKey: record.conversationKey }))
-				.then((result) => log.info("feishu.clarify.answered", { conversationKey: record.conversationKey, clarificationId: record.id, operator: action.operatorOpenId, result: result ?? "unavailable" }))
-				.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
+			deliverAnswer({ rt, log }, record, action, lateAnswerNote(record, clarificationAnswersText(decided.answers)), Boolean(decided.waiterActive));
 			return {
 				toast: { type: "success", content: "已提交" },
 				// 卡片留在原地变只读：问题、全部选项、自填内容都还在，不做成摘要
@@ -170,16 +167,31 @@ export function clarifyCardOps({ rt, log }: CardOpsContext): CardOps {
 			}, (record) => admitRefusal(rt, record, action, clarificationAnswerText(record.question, choice), action.token));
 			if (!decided?.ok || !decided.record) return { toast: { type: "warning", content: decided?.reason ?? "这个提问已过期，直接回复文字即可" } };
 			const record = decided.record;
-			// 后台进入会话：首次可能要建会话（几秒），不占卡片回调的 3 秒时限
-			void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, lateAnswerNote(record, clarificationAnswerText(record.question, choice)), action.token), { conversationKey: record.conversationKey }))
-				.then((result) => log.info("feishu.clarify.answered", { conversationKey: record.conversationKey, clarificationId: record.id, operator: action.operatorOpenId, result: result ?? "unavailable" }))
-				.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
+			deliverAnswer({ rt, log }, record, action, lateAnswerNote(record, clarificationAnswerText(record.question, choice)), Boolean(decided.waiterActive));
 			return {
 				toast: { type: "success", content: decided.reason },
 				card: { type: "raw", data: answeredCardFor(record, [{ question: record.question, choices: [choice] }], action.operatorOpenId) },
 			};
 		},
 	};
+}
+
+/**
+ * 把作答送回会话。
+ *
+ * `feishu_ask` 正在等（`waiterActive`）时，答案已经作为工具结果交回去了，**不能**再发一条「[选择] …」——
+ * 会话忙着，那条消息会被注入同一轮，模型就收到两次同样的答案（打字作答那条路径同样这么处理）。
+ * 后台进入会话：首次可能要建会话（几秒），不占卡片回调的 3 秒时限。
+ */
+function deliverAnswer({ rt, log }: Pick<CardOpsContext, "rt" | "log">, record: ClarificationRecord, action: CardAction, text: string, waiterActive: boolean): void {
+	const meta = { conversationKey: record.conversationKey, clarificationId: record.id, operator: action.operatorOpenId };
+	if (waiterActive) {
+		log.info("feishu.clarify.answered", { ...meta, result: "tool_result" });
+		return;
+	}
+	void Promise.resolve(rt.convManager?.route(answerMessage(record, action.messageId, action.operatorOpenId, text, action.token), { conversationKey: record.conversationKey }))
+		.then((result) => log.info("feishu.clarify.answered", { ...meta, result: result ?? "unavailable" }))
+		.catch((error: unknown) => log.warn("feishu.clarify.route_failed", { conversationKey: record.conversationKey, error: error instanceof Error ? error.message : String(error) }));
 }
 
 /**

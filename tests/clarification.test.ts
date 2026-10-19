@@ -217,6 +217,43 @@ test("超时之后才点卡：答案带「补充作答」标记（模型据此�
 	assert.match(routed[0] ?? "", /\[选择\] 方案B/);
 });
 
+test("工具正在等时点卡作答：答案只作为工具结果交回，不再发「[选择] …」进会话（否则模型收到两次）", async () => {
+	const { BridgeRuntime } = await import("../src/runtime/bridge-runtime.js");
+	const { DEFAULT_CONFIG } = await import("../src/types.js");
+	const { clarifyCardOps } = await import("../src/interaction/card-ops.js");
+	const rt = new BridgeRuntime();
+	rt.config = { ...DEFAULT_CONFIG, allowChats: ["oc_chat"] };
+	rt.clarificationStore = new ClarificationStore();
+	const routed: string[] = [];
+	rt.convManager = { route: async (msg: { text: string }) => { routed.push(msg.text); return "steered"; } } as never;
+	const logs: Array<Record<string, unknown>> = [];
+	const log = { info(event: string, meta?: Record<string, unknown>) { if (event === "feishu.clarify.answered") logs.push(meta ?? {}); }, warn() {}, error() {} };
+	const ops = clarifyCardOps({ rt, log, admins: () => [], runCommand: async () => undefined });
+	const press = ops.clarify as (action: unknown, value: Record<string, unknown>) => { toast?: { type: string }; card?: unknown };
+	const submit = ops.clarify_submit as (action: unknown, value: Record<string, unknown>) => { toast?: { type: string }; card?: unknown };
+
+	// 按钮卡
+	const single = rt.clarificationStore.create(request());
+	rt.clarificationStore.attachCard(single.id, "om_card");
+	const waiting = rt.clarificationStore.waitForAnswer(single.id, 60_000);
+	const pressed = press({ messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_user" }, { op: "clarify", clarificationId: single.id, token: single.token, choice: "方案B" });
+	assert.equal(pressed.toast?.type, "success");
+	assert.ok(pressed.card, "卡片照样变成已作答");
+	assert.equal((await waiting).kind, "answered");
+
+	// 表单卡
+	const form = rt.clarificationStore.create({ conversationKey: "oc_chat", chatId: "oc_chat", chatType: "group", question: "要哪些？", options: ["名称", "价格"], multiSelect: true });
+	rt.clarificationStore.attachCard(form.id, "om_form");
+	const waitingForm = rt.clarificationStore.waitForAnswer(form.id, 60_000);
+	const submitted = submit({ messageId: "om_form", chatId: "oc_chat", operatorOpenId: "ou_user", formValue: { q1__opt0: true } }, { op: "clarify_submit", clarificationId: form.id, token: form.token });
+	assert.equal(submitted.toast?.type, "success");
+	assert.equal((await waitingForm).kind, "answered");
+
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	assert.deepEqual(routed, [], "工具已经拿到答案，不能再注入一条重复消息");
+	assert.deepEqual(logs.map((meta) => meta.result), ["tool_result", "tool_result"]);
+});
+
 test("澄清提问：过期记录在新建提问时清掉（没人点的提问不会一直留在内存里）", () => {
 	let now = 1_000;
 	const { store, audits } = makeStore({ ttlMs: 1_000, now: () => now });
