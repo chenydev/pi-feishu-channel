@@ -33,11 +33,15 @@ function globToRegExp(pattern: string): RegExp {
 }
 
 /**
- * bash 命令在 PS 规则下的保守判定：任一 deny 规则命中 → deny；否则任一 ask 命中 → ask；
- * 否则取 `*` 默认（缺省 ask）。比 PS 的"最具体规则优先"更保守 —— 用于桥自己把关时宁严勿松。
+ * bash 命令在 PS 规则下的保守判定，**逐段**判定后取最严（deny > ask > allow）。
+ *
+ * 每一段：命中 deny 规则 → deny；否则命中 ask → ask；否则命中 allow → allow；都没命中 → `*` 默认（缺省 ask）。
+ * 同一段同时命中 `git *: ask` 和 `git status: allow` 时取 ask —— 比 PS 的"最具体规则优先"更保守，
+ * 用于桥自己把关时宁严勿松。
  *
  * **按段判定**（`&&`、`||`、`;`、`|`、换行）：PS 的 bash 规则本来就只看单个命令，
  * 拿整串去匹配会让 `cd /tmp && cat x.env` 错过 `cat *.env: deny`，落到 `*: allow` 上放行。
+ * 段里没命中任何规则的部分仍然按 `*` 判定：`*: deny` 下 `cd x && rm y` 不会因为 `cd *: allow` 被放行。
  */
 export function psBashVerdict(config: PsPermissionConfig | undefined, command: string): { verdict: Action; rule?: string } | undefined {
 	const bash = config?.permission?.bash;
@@ -48,17 +52,23 @@ export function psBashVerdict(config: PsPermissionConfig | undefined, command: s
 	const segments = splitCommandSegments(command);
 	// 拆不出段（空命令）时退回整串：与以前一致，不额外放行
 	const candidates = segments.length > 0 ? segments : [command.trim()];
-	let ask: { rule: string; segment: string } | undefined;
+	const defaultAction: Action = rules["*"] ?? fallback;
+	const severity: Record<Action, number> = { allow: 0, ask: 1, deny: 2 };
+	let worst: { verdict: Action; rule?: string } | undefined;
 	for (const segment of candidates) {
+		const matched: Partial<Record<Action, string>> = {};
 		for (const [pattern, action] of Object.entries(rules)) {
-			if (pattern === "*") continue;
-			if (!globToRegExp(pattern).test(segment)) continue;
-			if (action === "deny") return { verdict: "deny", rule: pattern };
-			ask ??= { rule: pattern, segment };
+			if (pattern === "*" || matched[action]) continue;
+			if (globToRegExp(pattern).test(segment)) matched[action] = pattern;
 		}
+		const verdict: { verdict: Action; rule?: string } = matched.deny ? { verdict: "deny", rule: matched.deny }
+			: matched.ask ? { verdict: "ask", rule: matched.ask }
+				: matched.allow ? { verdict: "allow" }
+					: { verdict: defaultAction };
+		if (verdict.verdict === "deny") return verdict;
+		if (!worst || severity[verdict.verdict] > severity[worst.verdict]) worst = verdict;
 	}
-	if (ask) return { verdict: "ask", rule: ask.rule };
-	return { verdict: rules["*"] ?? fallback };
+	return worst ?? { verdict: defaultAction };
 }
 
 export function summarizeApprovalPolicy(input: {

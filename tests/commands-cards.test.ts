@@ -124,3 +124,13 @@ test("PS bash 判定：复合命令逐段匹配（否则前半段清洗一下就
 	assert.deepEqual(psBashVerdict(ps, "cd /tmp && git status | head"), { verdict: "ask", rule: "git *" });
 	assert.deepEqual(psBashVerdict(ps, "ls -la && pwd"), { verdict: "allow" });
 });
+
+test("PS bash 判定：只命中 allow 规则的命令按放行处理（不能被当成需审批）", () => {
+	assert.deepEqual(psBashVerdict({ permission: { bash: { "*": "allow", "git status": "allow" } } }, "git status"), { verdict: "allow" });
+	const strict: PsPermissionConfig = { permission: { bash: { "*": "deny", "ls*": "allow", "cd *": "allow", "git *": "ask" } } };
+	assert.deepEqual(psBashVerdict(strict, "ls -la"), { verdict: "allow" }, "默认禁止时，白名单里的命令放行");
+	assert.deepEqual(psBashVerdict(strict, "cd /tmp && ls"), { verdict: "allow" });
+	assert.equal(psBashVerdict(strict, "cd /tmp && rm -rf x")?.verdict, "deny", "没命中规则的段仍按 * 判定，前面的 allow 段不能把它带过去");
+	assert.deepEqual(psBashVerdict(strict, "ls && git push"), { verdict: "ask", rule: "git *" }, "多段取最严");
+	assert.deepEqual(psBashVerdict({ permission: { bash: { "*": "allow", "git *": "ask", "git status": "allow" } } }, "git status"), { verdict: "ask", rule: "git *" }, "同段 ask 与 allow 都命中取 ask（比 PS 的最具体优先更保守）");
+});

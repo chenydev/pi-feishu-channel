@@ -33,6 +33,12 @@
   短 5 秒 —— 否则等待中整轮会被当成「工具没有输出」中止。截断时记 `feishu.clarify.wait_clamped`。
 - 清理：`config.example.json` 删掉已移除的 `clarify.onTimeout`，配置说明里不再提它。
 
+### 审批
+
+- 修复：`!<命令>` 按 pi-permission-system 的 bash 规则把关时，只命中 **allow** 规则的命令被当成「需审批」
+  拒绝执行（按段判定那次改动丢了动作判断）。现在逐段判定、取最严：每段 deny → ask → allow → `*` 默认。
+  顺带让 allow 规则真正生效 —— 以前它们一直被忽略，`{"*": "deny", "ls": "allow"}` 下 `!ls` 也被拒。
+
 - 维护（公开仓库）：测试里原来直接用了真人姓名当 `senderName`，换成占位符「示例用户」。
   同时加了一条护栏测试 `tests/public-placeholders.test.ts`：扫源码/文档/测试里的
   `ou_`/`oc_`/`cli_` 长十六进制串（真实 id 的形态），发现就失败 —— 它只拦形态、不维护白名单，
