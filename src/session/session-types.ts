@@ -61,10 +61,10 @@ export interface ConversationManagerDeps {
 	pendingClarificationCount?: (conversationKey: string) => number;
 	/**
 	 * 真实用户消息到达时的文本判定（`attemptTextResponse` 的三分法）：
-	 * 数字/选项原文 = 答案；长得像选择但无效 = 保留提问；其它散文 = 作废提问。
+	 * 数字/选项原文 = 答案；长得像选择但无效 = 保留提问；其它散文 = 照常投递、提问保留。
 	 */
 	resolveClarifyText?: (conversationKey: string, text: string) => import("../interaction/clarification-store.js").ClarifyTextOutcome | undefined;
-	/** 提问被作废（散文跳过 / `skip` 关键字）→ 调用方把卡片重绘成只读。 */
+	/** 用户回 `skip` 作废了提问 → 调用方把卡片重绘成只读。 */
 	onClarifySkipped?: (records: import("../interaction/clarification-store.js").ClarificationRecord[]) => void;
 	/**
 	 * 审批失效回调 —— run 结束（带 runId）或会话重置（无 runId）时撤销未决审批，

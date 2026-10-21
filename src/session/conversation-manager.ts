@@ -456,7 +456,7 @@ export class ConversationManager {
 		// 3. 私聊：chatId（p2p chat）
 		const key = options.conversationKey ?? buildConversationKey(msg, this.deps.config);
 		// 真实用户消息先过一遍「这是不是一个答案」：数字/选项原文当答案，无效选择让他重试，
-		// 其它散文才作废提问。合成的消息不算（那正是点击作答本身）。
+		// skip 作废提问，其它散文照常投递（提问保留）。合成的消息不算（那正是点击作答本身）。
 		if (!msg.synthetic) {
 			const handled = this.takeClarifyText(key, msg);
 			if (handled) return "rejected";
@@ -538,7 +538,7 @@ export class ConversationManager {
 	 * 入站文本是不是一次作答（返回 true = 这条消息已被消化，不要再投给模型）。
 	 *
 	 * 三分法（对照 hermes）：数字/选项原文 → 答案是答案；长得像选择但无效 → 保留提问、回一句让他重试；
-	 * 其它散文 → 作废这张卡，消息照常走。
+	 * 其它散文 → 消息照常走，提问保留（不像 hermes 那样作废卡片）；`skip` → 作废提问。
 	 *
 	 * 工具正在等（`waiterActive`）时，答案已经交回给工具了，这条消息**不能**再进会话 ——
 	 * 否则模型会同时收到「工具结果」和「同一条指令的重复消息」。
@@ -561,8 +561,7 @@ export class ConversationManager {
 			this.deps.onClarifySkipped?.([outcome.record]);
 			return true; // 「skip」是指令，不是要跟模型说的话
 		}
-		// 散文：用户去说别的事了 —— 记录已在 store 里作废（等着的工具随之返回），这里重绘卡片，消息正常投递
-		this.deps.onClarifySkipped?.([outcome.record]);
+		// 散文：用户先说了别的 —— 提问保留（正在等的工具已在 store 里结束等待），消息正常投递
 		return false;
 	}
 

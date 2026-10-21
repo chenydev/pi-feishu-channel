@@ -286,11 +286,17 @@ test("子会话钩子：feishu_ask 发出提问就返回并结束本轮（termin
 	assert.match(pending.content[0].text, /还没作答（已等 60 秒）/);
 	assert.match(pending.content[0].text, /不要重复提问，也不要假设答案/);
 
-	// 用户没答、去说别的事：不是错误，让模型按那条新消息继续
+	// 用户回了 skip：不是错误，也不许再追问
 	ctx.askChoice = async () => ({ status: "skipped" });
 	const skipped = await ask.execute("tc-7", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { isError?: boolean; terminate?: boolean; content: Array<{ text: string }> };
 	assert.deepEqual([skipped.isError, skipped.terminate], [undefined, undefined]);
-	assert.match(skipped.content[0].text, /没有作答[\s\S]*按用户的新消息继续/);
+	assert.match(skipped.content[0].text, /skip[\s\S]*不要重复提问/);
+
+	// 用户先发了别的消息：不是错误，卡片仍有效，先回应那条消息
+	ctx.askChoice = async () => ({ status: "interrupted" });
+	const interrupted = await ask.execute("tc-9", { question: "选哪个？", options: ["A", "B"] }, undefined, undefined, RUNTIME) as { isError?: boolean; terminate?: boolean; content: Array<{ text: string }> };
+	assert.deepEqual([interrupted.isError, interrupted.terminate], [undefined, undefined]);
+	assert.match(interrupted.content[0].text, /还没作答[\s\S]*仍然有效[\s\S]*不要假设答案/);
 
 	// 其它失效原因（/new 等）：不能再说成「超时」
 	ctx.askChoice = async () => ({ status: "abandoned", detail: "提问已失效（conversation_reset）" });

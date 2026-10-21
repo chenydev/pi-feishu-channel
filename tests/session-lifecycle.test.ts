@@ -160,7 +160,7 @@ test("会话回收：有提问在等作答时不回收（保护窗口内）", as
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("入站文本先过「这是不是答案」：散文作废提问、合成的作答消息不触发", async () => {
+test("入站文本先过「这是不是答案」：散文保留提问、skip 作废、合成的作答消息不触发", async () => {
 	const dir = tempDir();
 	try {
 		const seen: string[] = [];
@@ -176,10 +176,14 @@ test("入站文本先过「这是不是答案」：散文作废提问、合成�
 		const record = store.create({ conversationKey: "oc_real_chat", chatId: "oc_real_chat", chatType: "group", question: "选哪个？", options: ["A", "B"] });
 
 		await manager.route(message("hi-1"));
-		assert.deepEqual(seen, [record.id], "散文（不是答案）要作废提问");
+		assert.deepEqual(seen, [], "散文（不是答案）不作废提问");
+		assert.equal(store.pendingCount(), 1);
+
+		await manager.route({ ...message("skip-1"), text: "skip" });
+		assert.deepEqual(seen, [record.id], "skip 作废提问并重绘卡片");
 
 		const second = store.create({ conversationKey: "oc_real_chat", chatId: "oc_real_chat", chatType: "group", question: "选哪个？", options: ["A", "B"] });
-		await manager.route({ ...message("ans-1"), synthetic: true });
+		await manager.route({ ...message("ans-1"), synthetic: true, text: "skip" });
 		assert.equal(store.pendingCount(), 1, "合成的作答消息（点卡片）不参与文本判定");
 		assert.ok(store.snapshot().some((item) => item.id === second.id));
 	} finally { rmSync(dir, { recursive: true, force: true }); }

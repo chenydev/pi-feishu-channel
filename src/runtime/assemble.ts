@@ -62,7 +62,7 @@ export interface AssembleContext {
  */
 const CLARIFY_PROTECT_MS = 15 * 60_000;
 
-/** 把「已跳过」的提问卡重绘成只读，免得之后误点插进过时答案。 */
+/** 用户回了 skip：把提问卡重绘成只读的「已跳过」。 */
 function redrawClarificationCards(rt: { transport?: { updateCard(messageId: string, card: unknown): Promise<boolean> } }, records: ClarificationRecord[]): void {
 	for (const record of records) {
 		if (!record.cardMessageId) continue;
@@ -71,15 +71,13 @@ function redrawClarificationCards(rt: { transport?: { updateCard(messageId: stri
 }
 
 /**
- * 等待超时：卡片**保持可点**，只在原子卡上加一行「等待已结束」。
+ * 等待结束（超时 / 用户先发了别的消息）：卡片**保持可点**，只在原子卡上加一行提示。
  *
  * 表单卡不重绘 —— 用户可能正在里面勾选/填写，整卡替换会把他没提交的输入清掉。
  */
-function notifyWaitEnded(rt: { transport?: { updateCard(messageId: string, card: unknown): Promise<boolean> } }, record: ClarificationRecord): void {
+function notifyWaitEnded(rt: { transport?: { updateCard(messageId: string, card: unknown): Promise<boolean> } }, record: ClarificationRecord, note: string): void {
 	if (!record.cardMessageId || !isAtomicClarificationCard(record)) return;
-	void rt.transport?.updateCard(record.cardMessageId, buildClarificationCard(record, {
-		note: "⏳ 已经等了一会儿还没收到你的选择 —— 这张卡仍然有效，点一下就行（或直接回复编号）。",
-	})).catch(() => undefined);
+	void rt.transport?.updateCard(record.cardMessageId, buildClarificationCard(record, { note })).catch(() => undefined);
 }
 
 export async function assembleBridge(ctx: AssembleContext): Promise<void> {
@@ -336,15 +334,21 @@ export async function assembleBridge(ctx: AssembleContext): Promise<void> {
 							log.info("feishu.clarify.wait_cancelled", { clarificationId: record.id });
 							return { status: "cancelled" as const };
 						}
+						if (outcome.kind === "interrupted") {
+							// 用户先发了别的消息：那条消息要等工具结束才进得来，所以不再等；卡片保留
+							log.info("feishu.clarify.wait_interrupted", { clarificationId: record.id });
+							notifyWaitEnded(rt, record, "⏳ 这张卡仍然有效，想好了点一下就行（或直接回复编号）。");
+							return { status: "interrupted" as const };
+						}
 						if (outcome.kind === "dropped") {
-							// 用户没答、转而发了别的消息（或回了 skip）：和其它失效原因分开，模型要按那条新消息继续
+							// 用户回了 skip：和其它失效原因分开，模型不该再追问
 							if (outcome.reason === "skipped") return { status: "skipped" as const };
 							return { status: "abandoned" as const, detail: `提问已失效（${outcome.reason}）` };
 						}
 						// 超时：只报告「还没答」，绝不替用户选。卡片保留（点选项仍然有效），
 						// 原子卡顺手重绘一行「等待已结束」，否则用户会以为还在等他。
 						log.info("feishu.clarify.wait_timeout", { clarificationId: record.id, waitMs });
-						notifyWaitEnded(rt, record);
+						notifyWaitEnded(rt, record, "⏳ 已经等了一会儿还没收到你的选择 —— 这张卡仍然有效，点一下就行（或直接回复编号）。");
 						return { status: "pending" as const, waitedMs: waitMs };
 					}
 				} catch (error) {

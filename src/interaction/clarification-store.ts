@@ -4,7 +4,8 @@
  * 提问**不阻塞**：卡片发出后本轮就结束，点击选项等于以点击人身份往提问所在的会话发一条消息
  * （由卡片按钮处理，见 `interaction/card-ops.ts`）。所以这里没有等待点和超时，只记「哪些卡片还能点」：
  * - 每条记录绑定 token / 会话 / 群 / 卡片消息，跨群、旧卡、伪造值、无效选项一律拒绝；
- * - 一张卡只能答一次；同一会话发出新提问、会话重置（/new、切工作区）时旧卡失效；兜底有效期默认 24 小时；
+ * - 一张卡只能答一次；回 `skip`、同一会话发出新提问、会话重置（/new、切工作区）时旧卡失效；兜底有效期默认 24 小时；
+ * - 用户发了别的消息**不**作废提问：卡片照样可点，那之后的作答标成「补充作答」；
  * - 记录落盘，重启后卡片仍然能点。
  * 与工具审批**完全独立**：选择只是一条普通消息，不授予任何工具权限。
  */
@@ -61,7 +62,10 @@ export interface ClarificationRecord {
 	cardMessageId?: string;
 	createdAt: number;
 	expiresAt: number;
-	/** 曾经等待超时（之后用户再点，答案要标成「补充作答」）。 */
+	/**
+	 * 工具的等待曾经没拿到答案就结束了（超时，或用户先发了别的消息）。之后再作答，
+	 * 答案只能作为新消息到达，要标成「补充作答」。字段名沿用旧称（已落盘）。
+	 */
 	timedOutAt?: number;
 }
 
@@ -93,20 +97,22 @@ export interface ClarificationRequest {
  * 用户「直接打字」时的判定结果。
  *
  * 三种情况必须分开（学 hermes）：**数字/选项原文是答案**；**长得像选择但无效**（"9"、错逗号列表）
- * 要保留提问让用户重试；**其它散文**才算「不答了、说别的事」，作废这张卡。
- * 一律当「跳过」会把"用户以为自己答了"变成静默丢失。
+ * 要保留提问让用户重试；**其它散文**是「先说了别的」—— 照常进会话，提问**保留**（和 hermes 不同，见 ADR）。
+ * 只有 `skip` 关键字才作废这张卡。
  */
 export type ClarifyTextOutcome =
 	| { kind: "none" }
 	| { kind: "answered"; record: ClarificationRecord; choice: string; waiterActive: boolean; late: boolean }
 	| { kind: "invalid_selection"; record: ClarificationRecord; reason: string }
-	| { kind: "prose"; record: ClarificationRecord }
+	| { kind: "prose"; record: ClarificationRecord; waiterActive: boolean }
 	| { kind: "skipped"; record: ClarificationRecord };
 
 /** `waitForAnswer` 的结局。超时**不**删记录：卡片继续有效，用户之后还能点。 */
 export type ClarifyWaitOutcome =
 	| { kind: "answered"; record: ClarificationRecord; answers: ClarificationAnswer[] }
 	| { kind: "timeout" }
+	/** 用户没作答、先发了别的消息：等待结束，记录保留（卡片仍可点）。 */
+	| { kind: "interrupted" }
 	| { kind: "cancelled" }
 	| { kind: "dropped"; reason: string };
 
@@ -374,15 +380,13 @@ export class ClarificationStore {
 	/**
 	 * 用户直接打字时的判定（对应 hermes 的三分法）。
 	 *
-	 * 只认「单题」：多题表单需要每题各一个值，靠自由文本猜不可靠 —— 那种情况当散文处理（作废提问、
-	 * 让这条消息正常走）。`skip` 关键字显式跳过，用户不用点卡片也能脱身。
+	 * 只认「单题」：多题表单需要每题各一个值，靠自由文本猜不可靠 —— 那种情况当散文处理。
+	 * `skip` 关键字显式跳过（作废记录），用户不用点卡片也能脱身。
 	 *
-	 * 散文和 `skip` 一样**在这里就作废记录**：等待器随之以 `dropped(skipped)` 落定，工具立刻返回。
-	 * 只交给调用方重绘卡片是不够的 —— 记录还在，工具会一直等到超时，超时后卡片又被画回可点，
-	 * 用户之后回个「1」还会被当成对这道已放弃的题的作答。
-	 *
-	 * 不这么做的话，那张卡会一直挂在群里；用户几天后误点，一个过时答案会插进当时的对话里，
-	 * 被模型当成现在的指令。
+	 * 散文**不作废**提问：用户常常是在补充说明、问一句或者说「等下我看看」，作废会让他想答时卡片已经没了。
+	 * 但工具不能接着等 —— 那条消息要等工具结束才送得进这一轮（pi 的 steer 在工具结束后投递），
+	 * 所以等待器以 `interrupted` 落定、记录打上 `timedOutAt`，之后的作答按「补充作答」走。
+	 * 防误点靠的是：新提问作废旧卡、迟到的答案带「补充作答」标记、有效期。
 	 */
 	attemptTextResponse(conversationKey: string, text: string): ClarifyTextOutcome {
 		let record: ClarificationRecord | undefined;
@@ -397,7 +401,7 @@ export class ClarificationStore {
 			return { kind: "skipped", record };
 		}
 		const questions = this.questionsOf(record);
-		if (questions.length > 1) return this.abandon(record);
+		if (questions.length > 1) return this.interrupt(record);
 		const question = questions[0]!;
 		const matched = matchChoiceText(raw, question);
 		if (matched === "invalid") {
@@ -405,17 +409,22 @@ export class ClarificationStore {
 		}
 		if (matched === undefined) {
 			// 形状不像选择（或是自由文本）：只有「只能从选项里选」的题才算散文；能自填的题当自填答案。
-			if (!question.allowOther) return this.abandon(record);
+			if (!question.allowOther) return this.interrupt(record);
 			const choice = raw.slice(0, 500);
 			return this.consume(record, choice, { other: choice });
 		}
 		return this.consume(record, matched);
 	}
 
-	/** 用户去说别的事了：作废提问（等待器落定为 dropped），调用方负责把卡片重绘成「已跳过」。 */
-	private abandon(record: ClarificationRecord): ClarifyTextOutcome {
-		this.drop(record, "skipped");
-		return { kind: "prose", record };
+	/** 用户先说了别的：提问保留；正在等的工具结束等待（记为没等到答案）。 */
+	private interrupt(record: ClarificationRecord): ClarifyTextOutcome {
+		const waiterActive = this.settle(record.id, { kind: "interrupted" });
+		if (waiterActive) {
+			record.timedOutAt = this.now();
+			this.persist();
+			this.deps.onAudit?.({ clarificationId: record.id, conversationKey: record.conversationKey, question: record.question, decision: "interrupted" });
+		}
+		return { kind: "prose", record, waiterActive };
 	}
 
 	/** 消费记录（文本作答）：删记录 → 落定等待器 → 审计。 */
@@ -614,7 +623,7 @@ export function isAtomicClarificationCard(record: ClarificationRecord): boolean 
 /** 超时之后才作答的答案：标明是「补充」，模型据此决定纠正还是接着做。 */
 export function lateAnswerNote(record: ClarificationRecord, text: string): string {
 	return record.timedOutAt
-		? `（补充作答：之前等作答超时了，当时没有按任何选项继续）\n${text}`
+		? `（补充作答：当时没等到这个答案，没有按任何选项继续）\n${text}`
 		: text;
 }
 
@@ -891,10 +900,9 @@ export function answeredCardFor(record: ClarificationRecord, answers: Clarificat
 }
 
 /**
- * 隐式跳过后的卡片：保留题目与全部选项（只读），头部写明「已跳过」。
+ * 用户回 `skip` 后的卡片：保留题目与全部选项（只读），头部写明「已跳过」。
  *
- * 为什么也要重绘而不是放任不管：那张卡仍然可点，点下去会得到一个过期答案 ——
- * 而用户当时其实已经用别的话继续了。重绘就是让这件事在屏幕上说得清楚。
+ * 记录已经作废，不重绘的话卡片看着还能点，点下去只会得到「已过期」。
  */
 export function skippedCardFor(record: ClarificationRecord, byOpenId?: string): unknown {
 	const who = byOpenId ?? record.askerId ?? "";
@@ -903,7 +911,7 @@ export function skippedCardFor(record: ClarificationRecord, byOpenId?: string): 
 		answers: [],
 		operatorOpenId: who,
 		panels: record.panels !== false,
-		headline: "⏭ 已跳过（后来发了别的消息，这条提问不再生效）",
+		headline: "⏭ 已跳过（回复了 skip，这条提问不再生效）",
 		unansweredSummary: "未作答",
 	});
 }

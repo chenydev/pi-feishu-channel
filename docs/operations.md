@@ -78,7 +78,7 @@
 | 准入 | —— | **`feishu.pipeline.drop`**（见 §3）；启动恢复：`feishu.conv.recover_pending`（重放）、`recover_pending_exhausted`（同一条消息第 3 次被恢复 → 不再自动重跑） |
 | 命令 | `feishu.command` | `feishu.card.command_failed` |
 | 执行 | `feishu.session.resource_loader_ready`（`strippedGateways` 正常为 1）、`feishu.session.created`、`feishu.conv.send_reply_start` | `feishu.conv.run_error`、`run_idle_timeout`（`phase`：`tool` 卡在工具，带 `tool` / `toolMs`；`model` 卡在等模型）、`model_retry`（pi 自动重试，带 `attempt` / `error`）、`model_quiet`（等模型 1 分钟没有输出）、`budget_exceeded`、`pump_failed`（一轮收尾抛错，队列继续）、`notify_failed` / `notify_not_queued`（出错提示没送出去）、`followup_dropped`（一轮异常结束时清掉了别的扩展排在 pi 里的 followUp，带前 80 字） |
-| 提问 | `feishu.clarify.asked`、`feishu.clarify.wait_clamped`（`waitSeconds` 超过上限被截断）、`feishu.clarify.answered`（`result=tool_result` 表示答案作为工具结果交回了正在等的 `feishu_ask`；多题/多选表单：`feishu.clarify.form_submit` 记录平台回传了哪些字段） | `feishu.clarify.card_failed`、`route_failed` |
+| 提问 | `feishu.clarify.asked`、`feishu.clarify.wait_clamped`（`waitSeconds` 超过上限被截断）、`feishu.clarify.wait_interrupted`（等待中用户先发了别的消息，工具不再等，卡片仍有效）、`feishu.clarify.skipped`（用户回了 `skip`，提问作废）、`feishu.clarify.answered`（`result=tool_result` 表示答案作为工具结果交回了正在等的 `feishu_ask`；多题/多选表单：`feishu.clarify.form_submit` 记录平台回传了哪些字段） | `feishu.clarify.card_failed`、`route_failed` |
 | 审批 | `feishu.approval.mode`（启动时的全局模式）、`mode_changed`、`audit`、`command_allow` / `command_ask` / `command_deny`；pi-permission-system 模式：`ps_link`、`ps_link_decision`、`ps_always_approved`、`ps_session_approved` | `feishu.approval.invalidated`、`card_terminal_failed`、`plugin_unavailable`、`ps_link_not_in_chain`、`ps_version_unsupported`、`ps_link_capped`、`ps_link_unavailable` |
 | 回复 | `feishu.conv.reply_sent`、`feishu.outbox.delivered`、`feishu.stream_card.finished`；卡片超过 10 分钟后 `streaming_closed`（改用整组件替换，正常） | `feishu.outbox.failed`、`feishu.outbox.drain_failed`（落盘失败，队列继续）、`feishu.sender.*_fallback`、`feishu.stream_card.update_failed`、`fallback_to_text` |
 
@@ -178,7 +178,7 @@
 | 日志 `feishu.config.legacy_dir_ignored` | 新旧目录同时存在，只用新目录 | 确认旧目录里没有要保留的东西后删除它 |
 | 日志 `feishu.config.deprecated_env` | 还在用旧环境变量 `FEISHU_BRIDGE_*` | 改成日志里 `replacement` 给出的新名字 |
 | 点提问卡片的选项提示「没有使用机器人的权限」 | 点击人在这个群里不能 @ 机器人（群没放行、不在群名单里等），作答权限和 @ 的准入规则一致 | 按 §3 放行这个人；或由能用机器人的人来点 |
-| 点提问卡片提示「已过期」 | 已经答过、同一会话后来又发了新提问、执行过 `/new`，或超过 `clarify.ttlMs`（默认 24 小时） | 直接打字回复即可；日志 `feishu.clarify.audit` 的 `decision` 记着失效原因 |
+| 点提问卡片提示「已过期」 | 已经答过、回过 `skip`、同一会话后来又发了新提问、执行过 `/new`，或超过 `clarify.ttlMs`（默认 24 小时） | 直接打字回复即可；日志 `feishu.clarify.audit` 的 `decision` 记着失效原因 |
 | 任务被中止，提示「工具 … 没有输出」 | 工具执行中连续 `runToolIdleTimeoutMs`（默认 60 分钟）没有输出 | 确实要跑更久就调大它；日志 `feishu.conv.run_idle_timeout` 的 `tool` / `toolMs` |
 | 任务被中止，提示「没有收到模型的任何输出」 | 等模型时连续 `runIdleTimeoutMs`（默认 10 分钟）没有输出，多半是模型服务卡住。DeepSeek 繁忙时先回响应头、再只发 `: keep-alive` 排队，最长 10 分钟才断开：pi 的 `httpIdleTimeoutMs`、`retry.provider.timeoutMs` 都拦不住，只能靠这个超时 | `/retry`，或 `/model` 换模型；常遇到可以把 `runIdleTimeoutMs` 调到 `180000`，早点结束排队 |
 | 流式卡片一直停在「正在处理…」或半截内容，答案或中止说明另发了一条 | 旧版本：卡片开启约 10 分钟后飞书关闭流式模式，之后写入全部失败（日志 `feishu.stream_card.update_failed`，`200850` / `300309`） | 升级到包含 `feishu.stream_card.streaming_closed` 的版本 |

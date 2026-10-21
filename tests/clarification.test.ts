@@ -213,7 +213,7 @@ test("超时之后才点卡：答案带「补充作答」标记（模型据此�
 	await rt.clarificationStore.waitForAnswer(record.id, 10);
 	op({ messageId: "om_card", chatId: "oc_chat", operatorOpenId: "ou_user" }, { op: "clarify", clarificationId: record.id, token: record.token, choice: "方案B" });
 	await new Promise((resolve) => setTimeout(resolve, 5));
-	assert.match(routed[0] ?? "", /^（补充作答：之前等作答超时了，当时没有按任何选项继续）/, "要标明这是补充作答");
+	assert.match(routed[0] ?? "", /^（补充作答：当时没等到这个答案，没有按任何选项继续）/, "要标明这是补充作答");
 	assert.match(routed[0] ?? "", /\[选择\] 方案B/);
 });
 

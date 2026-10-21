@@ -1,8 +1,8 @@
 /**
- * 「等你作答」这条链路：有界等待、超时、中止、隐式跳过。
+ * 「等你作答」这条链路：有界等待、超时、中止、先说别的、skip。
  *
- * 关键不变量：**超时不删记录**（卡片继续有效，用户之后还能点），
- * 而「用户发了别的消息」才真正作废那张卡（否则几天后误点会把过时答案插进当时的对话）。
+ * 关键不变量：**超时和「用户先发了别的消息」都不删记录**（卡片继续有效，用户之后还能点，
+ * 答案标成补充作答）；只有 `skip`、新提问、会话重置、过期才作废那张卡。
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -59,14 +59,41 @@ test("中止（/stop）：立刻返回 cancelled，记录仍保留", async () =>
 	assert.equal(store.pendingCount(), 1, "中止不等于放弃这道题的作答机会");
 });
 
-test("隐式跳过：用户发了别的消息 → 记录作废、等待器立刻收到 dropped(skipped)、卡片能重绘成「已跳过」", async () => {
+test("先说别的：用户发了别的消息 → 等待器立刻收到 interrupted，记录保留、之后作答算补充作答", async () => {
 	const { store, audits } = makeStore();
 	const record = store.create(request());
 	store.attachCard(record.id, "om_card");
 	const waiting = store.waitForAnswer(record.id, 60_000);
-	const outcome = store.attemptTextResponse("oc_1", "先别管这个，帮我看下构建为什么失败");
+	const outcome = store.attemptTextResponse("oc_1", "等下，我先确认一下测试环境的状态");
 	assert.equal(outcome.kind, "prose");
-	assert.deepEqual(await waiting, { kind: "dropped", reason: "skipped" }, "工具不能等到超时");
+	if (outcome.kind === "prose") assert.equal(outcome.waiterActive, true);
+	assert.deepEqual(await waiting, { kind: "interrupted" }, "工具不能等到超时（那条消息要等工具结束才进得来）");
+	assert.equal(store.pendingCount(), 1, "说别的不作废提问");
+	assert.ok(audits.some((event) => event.decision === "interrupted"), "中断等待要留审计");
+
+	const later = store.attemptTextResponse("oc_1", "1");
+	assert.equal(later.kind, "answered", "之后回「1」仍然是这道题的答案");
+	if (later.kind === "answered") assert.deepEqual([later.choice, later.waiterActive, later.late], ["测试", false, true]);
+});
+
+test("先说别的：没有工具在等时，提问原样保留、不留痕", () => {
+	const { store, audits } = makeStore();
+	const record = store.create(request());
+	const outcome = store.attemptTextResponse("oc_1", "顺便看下构建为什么失败");
+	assert.equal(outcome.kind, "prose");
+	if (outcome.kind === "prose") assert.equal(outcome.waiterActive, false);
+	assert.equal(store.pendingCount(), 1);
+	assert.equal(store.snapshot()[0]?.id, record.id);
+	assert.equal(audits.length, 0);
+});
+
+test("skip：作废提问、等待器收到 dropped(skipped)，卡片能重绘成只读的「已跳过」", async () => {
+	const { store, audits } = makeStore();
+	const record = store.create(request());
+	store.attachCard(record.id, "om_card");
+	const waiting = store.waitForAnswer(record.id, 60_000);
+	assert.equal(store.attemptTextResponse("oc_1", "skip").kind, "skipped");
+	assert.deepEqual(await waiting, { kind: "dropped", reason: "skipped" });
 	assert.equal(store.pendingCount(), 0);
 	assert.ok(audits.some((event) => event.decision === "skipped"), "跳过要留审计");
 	assert.equal(store.attemptTextResponse("oc_1", "1").kind, "none", "之后回「1」不再算作这道已放弃的题的答案");
@@ -95,7 +122,7 @@ test("等待不影响提问卡本身：卡片仍然可点（没有变成只读�
 	assert.doesNotMatch(card, /"disabled":true/);
 });
 
-// ── 打字回复的三分法（对照 hermes）：答案是答案 / 无效选择重试 / 散文才取消 ──────────
+// ── 打字回复的三分法（对照 hermes）：答案是答案 / 无效选择重试 / 散文照常投递 ──────────
 
 test("打字：数字与选项原文都算答案（忽略卡片上的 ⭐/（推荐）装饰）", () => {
 	const { store } = makeStore();
@@ -120,19 +147,17 @@ test("打字：像选择但无效 → 保留提问，让用户重试（不要当
 	assert.equal(store.pendingCount(), 1, "卡片还在，改一下就能答");
 });
 
-test("打字：散文 → 判为「说别的事」，当场作废提问（单题只能选、多题表单都一样）", async () => {
+test("打字：多题表单的文字一律当散文 —— 表单保留，用户还能回去提交", async () => {
 	const { store } = makeStore();
-	store.create(request());
-	assert.equal(store.attemptTextResponse("oc_1", "先别管这个，帮我看下构建为什么失败").kind, "prose");
-	assert.equal(store.pendingCount(), 0);
-
 	const form = store.create({ conversationKey: "oc_1", chatId: "oc_1", chatType: "group", questions: [
 		{ question: "字段？", options: ["名称", "价格"] }, { question: "范围？", options: ["当前", "近 7 天"] },
 	] });
+	store.attachCard(form.id, "om_form");
 	const waiting = store.waitForAnswer(form.id, 60_000);
 	assert.equal(store.attemptTextResponse("oc_1", "名称，当前").kind, "prose", "多题靠自由文本猜不可靠，当散文");
-	assert.deepEqual(await waiting, { kind: "dropped", reason: "skipped" });
-	assert.equal(store.pendingCount(), 0);
+	assert.deepEqual(await waiting, { kind: "interrupted" });
+	const submitted = store.decideForm({ messageId: "om_form", chatId: "oc_1", operatorOpenId: "ou_1", values: { q1: "名称", q2: "当前" } });
+	assert.equal(submitted.ok, true, "表单仍然能提交");
 });
 
 test("打字：skip 关键字显式跳过；多选支持 1,3 与「1 3」", () => {
